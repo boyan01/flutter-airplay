@@ -71,7 +71,6 @@ an iPhone to reconnect to device name `Flutter AirPlay`.
 
 ## Completed scope and remaining acceptance
 
-See [VALIDATION.md](VALIDATION.md) for the precise synthetic and CUA scope.
 Native build; analyze; 9 Flutter tests; all five existing native suites; new
 appsink/socket/texture suites; Release 46.8 MB; and local signature verify pass.
 CUA confirmed synthetic visible landscape/portrait Texture, both fullscreen
