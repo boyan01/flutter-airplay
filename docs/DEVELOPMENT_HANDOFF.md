@@ -12,6 +12,18 @@ patch 0002 and frame/sync fixtures. Android work is in a separate workflow and
 must coordinate any shared Dart, pubspec, root build or documentation change.
 The parent integration session owns the cross-platform summary/integration.
 
+The Android integration fast-forwards `main` from macOS checkpoint
+`ff019a9d5f66aec45c24d259c4916fd4f5783d4e` to Android checkpoint
+`e1652886b3473031c6caa8a2f9fb6e567ef2710b`. The feature branch already contains
+the macOS checkpoint; its additions are confined to `android-prototype/`,
+`android-player/`, `docs/ANDROID.md` and `docs/ANDROID_PLAYER.md`. Both platform
+hosts remain independent. The root Flutter UI remains the embedded macOS host;
+Android uses its own Flutter project and channel contract. See
+[ANDROID_PLAYER.md](ANDROID_PLAYER.md) for the user-confirmed Android discovery,
+connection, image and sound scope, and [VALIDATION.md](VALIDATION.md) for the
+integration regression record. The remaining macOS sections describe the
+historical macOS checkpoint rather than Android acceptance.
+
 ## Current macOS path
 
 UxPlay v1.73.7 + GStreamer own AirPlay receiving, software H264 decode,

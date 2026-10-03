@@ -80,8 +80,10 @@ flutter test
 FlutterTexture 内嵌路径已通过实际 H.264 renderer 合成帧与 CUA 可见横竖屏、全屏、
 启停和退出检查。这些合成结果不能代表新版真实 iPhone 音画/同步/稳定性验收。
 新版有真实 iPhone 连接及解码事件，但用户的音画确认仍待记录；观察到 IPv6 NTP
-“无路由”日志，未改变任何系统网络设置。Android 在独立工作流开发，尚未集成到本应用；
-参考项目或独立基础模块不代表当前应用已经支持 Android。
+“无路由”日志，未改变任何系统网络设置。Android 代码已合入本仓库，保留为独立的
+[`android-player/` 应用](docs/ANDROID_PLAYER.md)与 [`android-prototype/` 基础模块](docs/ANDROID.md)，
+尚未接入根目录 Flutter UI。Android 应用的发现、连接、画面和声音已由用户在真机确认；
+同步、旋转、重连和持续稳定性仍需分别验收。
 
 ## 打包与权限限制
 

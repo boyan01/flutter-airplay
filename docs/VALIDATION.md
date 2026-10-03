@@ -60,3 +60,49 @@ The application now uses `org.flutterairplay.receiver` to keep LaunchServices an
 preferences separate from the retained prototype. Homebrew remains required; local
 signature verification is not Developer ID signing/notarization. Android is separate
 work and is not validated or integrated by this macOS checkpoint.
+
+## Main branch Android integration (2026-10-03)
+
+`main` fast-forwards from `ff019a9d5f66aec45c24d259c4916fd4f5783d4e` to
+`e1652886b3473031c6caa8a2f9fb6e567ef2710b`, which already contains the macOS
+checkpoint. The feature branch adds only the two independent Android projects
+and their documents. The macOS, root Dart/test, native patch, vendor and root
+build files are identical to the macOS baseline. Follow-up changes clarify the
+documentation and ignore the Android host's generated Kotlin cache.
+
+Completed in an isolated checkout of the integrated source:
+
+- Locked vendor verification and native macOS receiver rebuild passed.
+- Root `flutter analyze` is clean; all 9 existing Flutter tests passed.
+- Existing native lifecycle, audio, sync, RTP, recovery and frame/texture
+  suites passed with synthetic inputs and test-owned processes/endpoints.
+  Shared-clock maximum handoff skew was 11.080 ms landscape / 4.765 ms portrait;
+  this measures synthetic sink handoffs, not visible or audible device latency.
+- macOS Release build (46.8 MB) and `codesign --verify --deep --strict` passed.
+- Android dependency sources matched their pinned commits and had no local
+  changes before rebuilding. Foundation native libraries rebuilt for arm64-v8a
+  and x86_64; the player native library rebuilt for arm64-v8a.
+- Existing Android foundation host tests passed real-core synthetic `/info`
+  and `OPTIONS`, 3 lifecycles, bounded queue/epoch resets and Java TXT parsing.
+- Android foundation AAR and diagnostic APK builds passed. AAR lint found no
+  issues; diagnostic APK lint had 0 errors and 2 warnings (`OldTargetApi` and
+  `DataExtractionRules`). AAR inspection passed both ABIs, 16 KiB ELF load
+  alignment, expected JNI names and six license/notice assets.
+- Android player `flutter analyze`, arm64 Release APK build (including Gradle
+  release lint-vital tasks) and APK signature verification passed. Package
+  inspection confirmed arm64-only native libraries and nine license assets.
+  It uses the existing local development signing setup, not distribution signing.
+
+No application was installed, launched or restarted on a device for this
+integration run, and the existing macOS application was left running.
+The Android user's prior acceptance of discovery, connection, image and sound
+is recorded in [ANDROID_PLAYER.md](ANDROID_PLAYER.md); synchronization,
+rotation, reconnect and sustained stability remain separately unaccepted.
+The root Flutter UI remains the macOS host; Android runs from `android-player/`.
+Logs and generated products remain ignored under `artifacts/` and build/cache
+directories and are not part of the public source commit.
+
+The independent review remains incomplete: both prior attempts were blocked
+by the platform and produced no usable review result. This integration run
+performed ordinary branch integration, builds and existing functional regression
+tests; it did not retry that review and does not claim review approval.
