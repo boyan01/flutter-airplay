@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'receiver/receiver_model.dart';
 import 'receiver/receiver_repository.dart';
@@ -75,6 +76,10 @@ class _ReceiverAppState extends State<ReceiverApp> {
     builder: (context, _) => MaterialApp(
       title: 'Flutter AirPlay',
       debugShowCheckedModeBanner: false,
+      shortcuts: {
+        ...WidgetsApp.defaultShortcuts,
+        const SingleActivator(LogicalKeyboardKey.select): const ActivateIntent(),
+      },
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
       themeMode: _themeMode,

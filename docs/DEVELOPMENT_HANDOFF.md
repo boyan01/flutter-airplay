@@ -12,17 +12,14 @@ patch 0002 and frame/sync fixtures. Android work is in a separate workflow and
 must coordinate any shared Dart, pubspec, root build or documentation change.
 The parent integration session owns the cross-platform summary/integration.
 
-The Android integration fast-forwards `main` from macOS checkpoint
-`ff019a9d5f66aec45c24d259c4916fd4f5783d4e` to Android checkpoint
-`e1652886b3473031c6caa8a2f9fb6e567ef2710b`. The feature branch already contains
-the macOS checkpoint; its additions are confined to `android-prototype/`,
-`android-player/`, `docs/ANDROID.md` and `docs/ANDROID_PLAYER.md`. Both platform
-hosts remain independent. The root Flutter UI remains the embedded macOS host;
-Android uses its own Flutter project and channel contract. See
-[ANDROID_PLAYER.md](ANDROID_PLAYER.md) for the user-confirmed Android discovery,
-connection, image and sound scope, and [VALIDATION.md](VALIDATION.md) for the
-integration regression record. The remaining macOS sections describe the
-historical macOS checkpoint rather than Android acceptance.
+The shared-UI integration now maintains a single root Flutter project for macOS,
+Android phones and TV. Native Android playback moved from the former
+`android-player/` product to root `android/`; the old product entry point was
+retired, with history preserved in Git. Both hosts use the shared receiver
+channel/model/screen. See [SHARED_UI_VALIDATION.md](SHARED_UI_VALIDATION.md) for
+0.1.2+3 build, signature and actual UI/device acceptance. Historical Android
+user-confirmed image/sound remains in [ANDROID_PLAYER.md](ANDROID_PLAYER.md).
+The remaining macOS checkpoint sections below are historical context.
 
 ## Current macOS path
 

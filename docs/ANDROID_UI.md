@@ -4,9 +4,9 @@ The root Flutter application is the UI and state owner for macOS and Android.
 `android/` embeds the previously validated Android receiver/player, preserving
 application ID `io.github.boyan01.flutter_airplay`, Kotlin/JNI class names,
 `receiver` preferences, app identity and `files/airplay-pairing.pem`. Installing
-an update with the same signing key preserves pairing data. `android-player/`
-is retained temporarily as the migration reference; its Dart UI is not the
-entry point for the root Android APK.
+an update with the same signing key preserves pairing data. The former `android-player/` product entry point has been retired; its
+native sources and licenses are maintained only under `android/`. Git history
+preserves the migration reference.
 
 ## Shared API
 
@@ -112,24 +112,41 @@ and bundled license assets with the migrated sources.
 
 ## Validation record
 
-Migration checkpoint on 2026-10-03: root `flutter analyze` passed and all nine
-existing root Flutter tests passed. A preliminary root release build compiled
-the migrated Kotlin bridge and passed release packaging/lint-vital, but did
-not yet contain the native player library. It is not an installable acceptance
-artifact. Packaging now rejects a missing native library with rebuild steps;
-this new guard still needs its own build verification. The pinned OpenSSL
-clone stalled and was cancelled at the handoff boundary; no complete native
-build was performed in this clone.
+Final integration on 2026-10-03: the root shared UI passes analyze and all 15
+Flutter tests. Pinned OpenSSL/libplist/Oboe/FFmpeg source caches were verified
+against lock-file commits and clean Git status before reuse from the earlier
+local project. Receiver and player JNI libraries were rebuilt from source.
+No prebuilt third-party APK or unverified dependency cache was used.
 
-Six `ReceiverStateTest` regressions have been added. The attempted
-`:app:testDebugUnitTest --offline` was blocked before test execution because
-the debug Flutter embedding/ABI JARs are absent from the Gradle cache. Rerun
-online with the installed Gradle 9.3.1 executable (or the generated wrapper)
-after dependencies are available. No unit-test success is claimed.
+The release packaging guard was tested without the JNI library: `packageRelease`
+failed with rebuild instructions. After native build the root arm64 APK passed
+packaging and lint-vital, contains the source-built AArch64 `libairplay_player.so`
+(byte-identical to the generated JNI input), `libapp.so`, `libflutter.so` and
+nine license assets. APK signature verification passed.
 
-Final shared-UI integration and device acceptance are pending. Initial physical
-device read-only inspection on 2026-10-03: `e19b9bc1`, Xiaomi 14 / 23127PN0CC,
-Android 16; foreground app is `io.github.boyan01.flutter_airplay`, installed
-version 0.1.1+2. No app update has been installed during migration preparation.
-The prior user-confirmed iPhone image/audio acceptance belongs to that earlier
-APK; it does not establish acceptance of the migrated/shared-UI APK.
+Six `ReceiverStateTest` tests passed, zero skipped/failures/errors:
+
+```sh
+JAVA_HOME=/path/to/jdk GRADLE_BIN=/path/to/gradle
+"$GRADLE_BIN" -p android :app:testDebugUnitTest -Ptarget-platform=android-arm64
+```
+
+The initial multi-ABI Debug dependency download stalled. Restricting the test
+build to the actual arm64 target completed normally. The same six pure-state
+tests also passed directly using cached Kotlin 2.2.21 and JUnit 4.13.2.
+
+The final APK 0.1.2+3 was installed with `adb install -r` on the connected
+Xiaomi 14 / 23127PN0CC / Android 16. Its signing certificate matches the installed
+0.1.1+2 APK exactly. The prior APK was backed up privately; no uninstall, data
+clear or keystore change occurred. The shared phone UI reached waiting after
+NSD registration. Select-center and Enter activation, receiver stop/restart,
+D-pad navigation, logs/Back with restored focus, immersive embedded preview and
+Back without stopping reception were observed. App-scoped logs show no startup
+crash or missing native library.
+
+No physical TV was available. TV layout/focus use synthetic Flutter capabilities
+and key events; phone D-pad input is not physical TV playback acceptance. The
+prior user-confirmed iPhone discovery/image/sound belongs to APK 0.1.1+2;
+new shared-UI iPhone image/sound, sync, rotation, reconnect and sustained playback
+remain for sender acceptance. Artifact hashes and complete current scope are in
+[SHARED_UI_VALIDATION.md](SHARED_UI_VALIDATION.md).

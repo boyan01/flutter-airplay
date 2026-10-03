@@ -98,7 +98,8 @@ integration run, and the existing macOS application was left running.
 The Android user's prior acceptance of discovery, connection, image and sound
 is recorded in [ANDROID_PLAYER.md](ANDROID_PLAYER.md); synchronization,
 rotation, reconnect and sustained stability remain separately unaccepted.
-The root Flutter UI remains the macOS host; Android runs from `android-player/`.
+At that historical checkpoint, Android still used its separate `android-player/`
+Flutter project; the shared-root migration below supersedes that arrangement.
 Logs and generated products remain ignored under `artifacts/` and build/cache
 directories and are not part of the public source commit.
 
@@ -106,3 +107,9 @@ The independent review remains incomplete: both prior attempts were blocked
 by the platform and produced no usable review result. This integration run
 performed ordinary branch integration, builds and existing functional regression
 tests; it did not retry that review and does not claim review approval.
+
+## Shared UI integration
+
+The 0.1.2+3 root Mac/Android/TV UI build and device acceptance scope is recorded
+in [SHARED_UI_VALIDATION.md](SHARED_UI_VALIDATION.md). Historical sender acceptance
+above remains attributed to its original build.

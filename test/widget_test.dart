@@ -343,7 +343,7 @@ void main() {
       tester.getSize(find.byKey(const Key('start'))).height,
       greaterThanOrEqualTo(56),
     );
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
     await tester.pumpAndSettle();
     expect(backend.starts, 1);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);

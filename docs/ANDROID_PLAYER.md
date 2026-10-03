@@ -1,80 +1,10 @@
-# Android playable APK host
+# Android playback migration and historical acceptance
 
-`android-player/` is an isolated Flutter Android application, package
-`io.github.boyan01.flutter_airplay`, label **Flutter AirPlay**. It is distinct
-from the earlier JNI validation harness. It embeds the video in a Flutter
-texture and sends decoded audio to the Android output device.
-
-## Scope
-
-- Pinned UxPlay 1.73.7 core (root `native/uxplay.lock.json`), generated core and
-  existing receive patch plus the Android lifetime patch.
-- Real AirPlay/RAOP TCP listeners, pairing/decryption, UDP encoded audio and
-  mirrored H.264 video reception.
-- Android NSD publishes `_airplay._tcp` and `_raop._tcp`, with the core's TXT
-  data and persisted random app identity/private pairing key in app storage.
-- Android MediaCodec H.264 decoding and EGL rendering to a Flutter texture.
-- Android MediaCodec AAC/AAC-ELD and FFmpeg ALAC decoding; Oboe output and the
-  reference timeline buffer. UxPlay 1.73.7 Unix-local NTP timestamps are
-  converted into the Android monotonic clock domain for these playback sinks.
-- Application starts reception on opening. Start/stop/name editing and errors
-  are functional; ready status follows successful registration of both NSD
-  services. Playing status follows a decoded MediaCodec output buffer.
-
-The current host supports screen mirroring and associated audio. HLS/DRM and
-HEVC playback are not advertised/accepted. Keep the application visible during
-reception; a background/foreground-service lifecycle is a follow-up. Sender
-volume does not alter system volume. The application uses the current device
-volume, controlled by the user.
-
-## Build and install
-
-Use Flutter 3.47.2, Android SDK 36, NDK 28.2.13676358 and CMake 3.22.1. Gradle
-9.3.1/AGP 9.1.0/Kotlin 2.2.21 are used by this standalone host. Its Android
-minimum is API 26 and the currently built native ABI is arm64-v8a.
-
-From the repository root:
-
-```sh
-export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-python3 android-prototype/scripts/fetch_deps.py
-./android-prototype/scripts/build_native.sh arm64-v8a
-python3 android-player/scripts/fetch_deps.py
-./android-player/scripts/build_native.sh
-cd android-player
-flutter pub get
-flutter analyze
-flutter build apk --release --target-platform android-arm64
-adb -s DEVICE_SERIAL install -r build/app/outputs/flutter-apk/app-release.apk
-adb -s DEVICE_SERIAL shell am start -n io.github.boyan01.flutter_airplay/.MainActivity
-```
-
-Release-mode builds currently use the local Android debug signing key for local
-installation, not a public distribution/release signing key. Do not commit or
-share signing keys. APKs and native dependency/build products are ignored.
-For offline AGP resource packaging, the SDK aapt2 executable can be passed as
-`-Pandroid.aapt2FromMavenOverride` to Gradle rather than downloading it.
-
-## Shared Flutter integration contract
-
-Control channel: `flutter_airplay/control`, `start` with a `name` string,
-returns `textureId`, `width`, `height`, `name`; `stop` releases listener,
-registration, audio and texture. Events channel: `flutter_airplay/events`,
-objects contain `state` and `message`, or `width`/`height` changes.
-States include starting, ready, waiting, playing, stopped and error. No desktop
-presentation parameter is needed. Parent session can move the Kotlin/native
-implementation into the main Android plugin and adapt these methods to the
-main Flutter controller once its committed Mac checkpoint is available.
-
-## Source provenance
-
-GPL playback source is copied from jqssun/android-airplay-server commit
-`c8defdd70d7e6a04f4f1b71d353653682d594106`; exact paths are listed in
-`android-player/dependencies.lock.json`, modifications in `android-player/NOTICE`.
-The reference's package names remain on copied renderer classes. The app itself
-has its own package ID and Flutter host. Oboe and minimal FFmpeg sources are
-pinned separately and their licenses, core/dependency licenses and reference
-GPL license are packaged in APK assets. No third-party prebuilt APK is used.
+The former `android-player/` Flutter application has been retired. Its native
+player, pinned dependency lock and license assets now live under `android/`.
+The only product Flutter entry point is root `lib/main.dart`. Build commands,
+shared bridge and current acceptance are in [ANDROID_UI.md](ANDROID_UI.md).
+The JNI validation foundation remains under `android-prototype/`.
 
 ## Validation record
 
@@ -108,11 +38,5 @@ lookup confirmed `features=0x5A7FFEE6,0x0` (initial incorrect value
 is real user acceptance of discovery, connection, image and sound on the
 connected physical device, rather than a synthetic playback claim.
 
-Integration checkpoint: merged macOS main commit
-`ff019a9d5f66aec45c24d259c4916fd4f5783d4e` in order, with no conflicts or
-manual shared Dart/Mac changes. Rebuilt Android foundation/player native
-libraries; shared Flutter analyze is clean and all nine shared widget tests
-pass. Mac native/playback code was not independently changed by this branch.
-The installed Android host remains isolated under `android-player/`; adapting
-its channel names/event schema to `org.airplayreceiver/control` and
-`org.airplayreceiver/events` is needed before using the main Dart UI directly.
+The historical results above belong to the former standalone APK. They do not
+establish real sender playback acceptance for the new shared-UI APK.

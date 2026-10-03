@@ -64,32 +64,35 @@ falls back to Flutter's target platform. Android screens do not mention
 GStreamer or offer a macOS executable path. Platform-specific presentation stays
 at the window/system-UI boundary; there is no second Android Dart screen.
 
-## Validation for this checkpoint
+## Completed integration validation
 
-Checkpoint validation (2026-10-03): `flutter analyze` reports no issues;
-all 15 Flutter widget/model tests pass; `flutter build macos` produces a
-47.4 MB Release application. The native receiver rebuild and existing
-`test_native`, `test_audio`, `test_sync`, `test_rtp`, `test_recovery`, and
-`test_frames` suites all pass. These suites use synthetic inputs and test-owned
-processes/endpoints.
+On 2026-10-03 the final root application passes `flutter analyze` and all 15
+Flutter tests, including explicit Select-center and Enter/D-pad activation,
+settings cancellation, layered Back, focus restoration and synthetic aspect
+changes. Both platform release builds completed. Native synthetic lifecycle,
+frames, audio, sync, RTP and recovery suites passed.
 
-Local `codesign --verify --deep --strict` on this new application fails with
-"nested code is modified or invalid". This remains an integration task before
-switching the running application; successful compilation is not signature
-verification or distribution signing.
+macOS CUA verified the new visible interface, cancelled name draft, window zoom
+resizing, native fullscreen/Escape, embedded expanded preview/Escape and receiver
+ready. The final signed 0.1.2+3 application is running from this project.
 
-Widget tests use fake repositories and synthetic video metadata. They check shared state,
-settings cancellation, operation deduplication, error recovery, phone/TV
-capabilities, D-pad Enter and Back with focus restoration, aspect changes,
-stopping, dark/light themes and small/large-text layouts.
+An incremental Xcode signing defect was reproduced: the outer app's sealed
+`App.framework` CDHash remained from the previous Dart build while the inner
+framework was valid. The embed phase now declares its generated framework
+outputs so Xcode refreshes the outer signature. Two subsequent Dart-only
+rebuilds (temporary title change and restoration) passed
+`codesign --verify --deep --strict`. This uses the existing local ad-hoc signing
+flow; it is not Developer ID signing or notarization.
 
-The old macOS application was observed but was not stopped or switched during
-this checkpoint. Visible acceptance of the new UI, native fullscreen/Escape,
-window resizing and visible texture output remains for the integration owner.
-No new-build CUA acceptance is claimed. Synthetic validation does not establish
-real iPhone image, audible sound,
-A/V synchronization, sustained playback, or Android/TV device support. The
-Android host integration and its actual device acceptance belong to the Android
-owner. Runtime logs and screenshots must remain in ignored `artifacts/`, never
-in public source. Homebrew dependencies and local signing remain the existing
-macOS development constraints.
+Android's shared-UI release APK was source-built, signature checked and updated
+on the connected Xiaomi 14 with matching signing certificate and retained data.
+Six Kotlin state-adapter tests pass through Gradle. Phone D-pad Select/Enter,
+start/stop/restart, log Back/focus restoration and immersive preview/Back were
+observed. TV capability layout and focus are covered by Flutter tests; no
+physical TV acceptance is claimed.
+
+See [SHARED_UI_VALIDATION.md](SHARED_UI_VALIDATION.md) for exact artifact and
+command evidence. These checks do not establish new-build real iPhone image,
+audible sound, A/V synchronization, rotation/reconnect or sustained playback.
+Runtime logs, screenshots, APKs and dependency caches remain ignored. macOS
+continues to require local Homebrew dependencies; playback remains embedded.

@@ -1,7 +1,9 @@
 # Flutter AirPlay
 
 GPLv3 开源 iPhone 投屏接收器：Flutter 负责设备名、启动/停止、状态与日志，
-Swift 管理 UxPlay 子进程，并将 GStreamer 解码帧显示为 FlutterTexture；音频由 macOS 播放。
+根 `lib/main.dart` 为 Mac、Android 手机和 TV 共享同一界面与状态模型。
+Swift 管理 Mac UxPlay 子进程和 GStreamer FlutterTexture；Android 内置 JNI 接收核心、
+MediaCodec/EGL 视频与 Oboe 音频。
 应用内预览支持全屏与横竖屏比例变化；macOS 产品只维护内嵌显示路径。
 只面向同局域网；不支持 DRM 内容，不承诺点对点连接。
 
@@ -39,6 +41,21 @@ flutter build macos
 构建时验证源码并将 native/patches 补丁应用到 build/uxplay-src；不修改 vendor 原件。原生核心修改后必须重跑
 build_receiver.sh，并重构建应用。高级核心路径应指向本项目带事件补丁的 uxplay；普通
 Homebrew uxplay 不提供事件协议，会明确报告启动超时。
+
+## Android 与 TV 构建
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+./android-prototype/scripts/build_native.sh arm64-v8a
+python3 android/scripts/fetch_deps.py
+./android/scripts/build_native.sh
+flutter build apk --release --target-platform android-arm64
+```
+
+当前版本 0.1.2+3，包名及本机 debug 签名保持兼容，可使用 `adb install -r` 保留配对和设置。
+当前仅构建 arm64-v8a，TV 声明及 D-pad UI 不代表真实 TV 播放验收。
+共享界面说明见 [docs/UI.md](docs/UI.md)，当前整合验收见
+[docs/SHARED_UI_VALIDATION.md](docs/SHARED_UI_VALIDATION.md)。
 
 ## 验证
 
@@ -80,9 +97,8 @@ flutter test
 FlutterTexture 内嵌路径已通过实际 H.264 renderer 合成帧与 CUA 可见横竖屏、全屏、
 启停和退出检查。这些合成结果不能代表新版真实 iPhone 音画/同步/稳定性验收。
 新版有真实 iPhone 连接及解码事件，但用户的音画确认仍待记录；观察到 IPv6 NTP
-“无路由”日志，未改变任何系统网络设置。Android 代码已合入本仓库，保留为独立的
-[`android-player/` 应用](docs/ANDROID_PLAYER.md)与 [`android-prototype/` 基础模块](docs/ANDROID.md)，
-尚未接入根目录 Flutter UI。Android 应用的发现、连接、画面和声音已由用户在真机确认；
+“无路由”日志，未改变任何系统网络设置。Android 原生宿主已迁入根 [`android/`](docs/ANDROID_UI.md)，复用相同 Flutter UI；
+[`android-prototype/`](docs/ANDROID.md)保留为 JNI 基础模块。旧独立 Flutter 入口已移除。Android 应用的发现、连接、画面和声音已由用户在真机确认；
 同步、旋转、重连和持续稳定性仍需分别验收。
 
 ## 打包与权限限制
