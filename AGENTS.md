@@ -15,6 +15,13 @@
   the final response: priority, file and line, failure scenario, and safe remedy.
   Inline comments may supplement this list.
 
+## Documentation
+
+Keep `README.md` focused on the product: purpose, current features, usage and
+platform/runtime constraints. Commit descriptions, task history, per-task test
+or acceptance results and user-confirmation records belong in task reports,
+not in the README.
+
 ## Source and product boundaries
 
 - Maintain one root Flutter application for macOS, Android phones and TV, with
@@ -104,6 +111,9 @@ macOS native regressions, after building the receiver:
 ./scripts/test_recovery.sh
 ```
 
+For macOS window changes, build the Debug application and run
+`./scripts/test_window.sh` in a logged-in macOS GUI session.
+
 Android receive-core host regressions require CMake and native OpenSSL:
 
 ```sh
@@ -123,7 +133,7 @@ Report the exact checks completed, their input and remaining gaps. Synthetic
 results, build success and receiver state events do not establish real iPhone
 image, audible sound, synchronization or Android-device support. Tie results to
 the tested build and report them in the final response and PR description when
-creating a PR. Keep current support limits in `README.md`.
+creating a PR. Follow the documentation scope above when editing `README.md`.
 
 When updating dependencies or preparing distribution, read
 `THIRD_PARTY_NOTICES.md` and preserve the bundled license assets.
