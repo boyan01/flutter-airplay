@@ -42,15 +42,17 @@ class ReceiverModel extends ChangeNotifier {
     'alwaysOnTop': false,
   };
   int textureId = -1, videoWidth = 0, videoHeight = 0;
+  bool audioPlaying = false, videoPaused = false;
   bool get hasVideo => textureId >= 0 && videoWidth > 0 && videoHeight > 0;
+  bool get showAudioPage =>
+      status == 'streaming' && !hasVideo && (audioPlaying || videoPaused);
 
   String get platform => _platform;
   String _platform = defaultTargetPlatform == TargetPlatform.android
       ? 'android'
       : 'macos';
   bool isTelevision = false;
-  bool get supportsExecutablePath =>
-      _supportsExecutablePath ?? platform == 'macos';
+  bool get supportsExecutablePath => _supportsExecutablePath ?? false;
   bool? _supportsExecutablePath;
 
   String? notice;
@@ -125,6 +127,8 @@ class ReceiverModel extends ChangeNotifier {
     }
     videoWidth = nextWidth;
     videoHeight = nextHeight;
+    audioPlaying = data['audioPlaying'] as bool? ?? false;
+    videoPaused = data['videoPaused'] as bool? ?? false;
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
     for (final entry in data['logs'] as List? ?? const []) {
       final log = ReceiverLog(entry as Map);
@@ -152,6 +156,8 @@ class ReceiverModel extends ChangeNotifier {
           clientName = null;
           videoWidth = 0;
           videoHeight = 0;
+          audioPlaying = false;
+          videoPaused = false;
         }
         _notify();
       case 'client':
@@ -171,6 +177,11 @@ class ReceiverModel extends ChangeNotifier {
         textureId = event['textureId'] as int;
         videoWidth = event['videoWidth'] as int;
         videoHeight = event['videoHeight'] as int;
+        if (hasVideo) videoPaused = false;
+        _notify();
+      case 'media':
+        audioPlaying = event['audioPlaying'] as bool;
+        videoPaused = event['videoPaused'] as bool;
         _notify();
       case 'log':
         final entry = ReceiverLog(event['entry'] as Map);

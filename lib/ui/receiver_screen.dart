@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../receiver/receiver_model.dart';
 import 'receiver_strings.dart';
 import 'home_page.dart';
+import 'audio_page.dart';
 import 'player_page.dart';
 import 'settings_page.dart';
 import 'mac_window_bar.dart';
@@ -25,6 +26,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   final _homeFocus = FocusNode(debugLabel: 'Home action');
   bool _dialogOpen = false;
   bool _playing = false;
+  bool _connected = false;
   String _homeAction = '';
   String _presentationMode = '';
   ReceiverModel get model => widget.model;
@@ -54,30 +56,39 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       _setWindowMode(playing);
     }
     if (playing != _playing) {
-      final ended = _playing && !playing;
       _playing = playing;
       if (model.platform == 'android') {
         SystemChrome.setEnabledSystemUIMode(
           playing ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
         );
       }
-      if (ended && model.isTelevision) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(l10n(context).sessionEnded),
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-        });
-      }
     }
-    final action = model.canStart ? 'start' : 'settings';
-    if (model.loaded && !playing && action != _homeAction) {
+    final connected = model.status == 'streaming';
+    if (_connected && !connected && model.isTelevision) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(l10n(context).sessionEnded),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      });
+    }
+    _connected = connected;
+    final action = playing
+        ? 'player'
+        : model.showAudioPage
+        ? 'audioSettings'
+        : model.canStart
+        ? 'start'
+        : 'settings';
+    if (model.loaded && action != _homeAction) {
       _homeAction = action;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _restoreFocus());
+      if (!playing) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _restoreFocus());
+      }
     }
   }
 
@@ -170,13 +181,19 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                     if (model.platform == 'macos')
                       const MacWindowBar(title: 'Flutter AirPlay'),
                     Expanded(
-                      child: HomePage(
-                        model: model,
-                        actionFocus: _homeFocus,
-                        onToggle: _toggleReceiver,
-                        onSettings: _settings,
-                        onLogs: _logs,
-                      ),
+                      child: model.showAudioPage
+                          ? AudioPage(
+                              model: model,
+                              actionFocus: _homeFocus,
+                              onSettings: _settings,
+                            )
+                          : HomePage(
+                              model: model,
+                              actionFocus: _homeFocus,
+                              onToggle: _toggleReceiver,
+                              onSettings: _settings,
+                              onLogs: _logs,
+                            ),
                     ),
                   ],
                 ),

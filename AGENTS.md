@@ -26,7 +26,8 @@ not in the README.
 
 - Maintain one root Flutter application for macOS, Android phones and TV, with
   `lib/main.dart` as its entry point. Keep shared UI and receiver state in `lib/`;
-  platform hosts own reception, rendering, audio and lifecycle.
+  `native/player/` owns shared playback and receiver lifecycle; platform hosts
+  adapt textures, discovery and application lifecycle.
 - Maintain macOS playback inside the application. Do not add a standalone-window
   product mode or a Go component.
 - Edit the shared receive core directly in `vendor/UxPlay/`. Both platforms build
@@ -44,11 +45,12 @@ Run `flutter pub get` before building either platform.
 
 ### macOS
 
-Requires Xcode's macOS SDK and the native dependencies below. The current
-build uses Homebrew on Apple Silicon; Intel has not been validated.
+Requires Xcode's macOS SDK, CMake, Python 3 and Perl on Apple Silicon.
+The script fetches verified sources from `android/dependencies.lock.json`.
+Intel has not been validated.
 
 ```sh
-brew install cmake pkg-config libplist openssl@3 gstreamer
+brew install cmake
 ./scripts/build_receiver.sh
 flutter run -d macos
 # Build and launch the Release application:
@@ -56,12 +58,17 @@ flutter build macos --release
 open "build/macos/Build/Products/Release/Flutter AirPlay.app"
 ```
 
-The native script builds `vendor/UxPlay/` in `build/uxplay-native/` and copies
-its receiver to `native/receiver/uxplay`. The application bundles that receiver
-but still depends on local Homebrew libraries and plugins. It is an unsandboxed
-local development build, not a portable signed/notarized distribution.
-A custom receiver path must use this project's event protocol; stock Homebrew
-UxPlay cannot complete the host's startup handshake.
+The native script builds the shared C++ player in `build/macos-native/`, with
+static FFmpeg, OpenSSL and libplist. Xcode links and bundles this library;
+VideoToolbox, CoreAudio and Bonjour are system dependencies. Build native code
+before building Flutter. For an audited ad-hoc signed application and ZIP:
+
+```sh
+./scripts/package_macos.sh
+```
+
+The package has no Homebrew runtime dependency. Developer ID signing and
+notarization are separate distribution steps.
 
 ### Android
 
@@ -100,16 +107,18 @@ flutter analyze
 flutter test
 ```
 
-macOS native regressions, after building the receiver:
+macOS native regressions, after building the shared player:
 
 ```sh
-./scripts/test_native.sh "$PWD/native/receiver/uxplay"
+./scripts/test_player.sh
+./scripts/test_native.sh
 ./scripts/test_frames.sh
-./scripts/test_audio.sh
-./scripts/test_sync.sh
 ./scripts/test_rtp.sh
-./scripts/test_recovery.sh
 ```
+
+These use synthetic audio/video and loopback protocol inputs. The former
+GStreamer and Kotlin/EGL playback fixtures were replaced with tests of the
+current C++ player and direct Flutter texture adapter.
 
 For macOS window changes, build the Debug application and run
 `./scripts/test_window.sh` in a logged-in macOS GUI session.
@@ -123,6 +132,17 @@ HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" HOST_SANITIZE=ON ./android/scrip
 
 These fixtures exercise the shared receive core and DNS/TXT adapter with
 synthetic inputs; they are not the Android product's JNI playback host.
+The platform playback regression builds a separate fixture app linked to the
+packaged player. It requires an authorized arm64 device, JDK 17+, SDK build-tools
+36.0.0 and the `android` CLI:
+
+```sh
+./scripts/test_android_player.sh
+```
+
+It decodes synthetic H.264 into a GPU SurfaceTexture, checks pixel data and
+orientation, decodes synthetic AAC/ALAC/AAC-ELD, and opens/restarts silent Oboe
+output. It uses a separate application ID and preserves the receiver app.
 For Kotlin state-adapter changes, use the configured Gradle executable and JDK:
 
 ```sh

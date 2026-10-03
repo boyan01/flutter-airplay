@@ -305,4 +305,24 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get loginUnavailable => '登录启动需要 macOS 13 或更新版本';
+
+  @override
+  String get audioPlaying => '音频播放中';
+
+  @override
+  String get videoPaused => '画面已暂停';
+
+  @override
+  String get audioContinues => '音频仍在播放';
+
+  @override
+  String get videoResumeHelp => '亮屏并继续屏幕镜像，画面会自动恢复。';
+
+  @override
+  String get audioOnlyHelp => '当前只有音频。收到投屏画面后，会自动切回视频。';
+
+  @override
+  String clientConnected(String name) {
+    return '已连接 · $name';
+  }
 }

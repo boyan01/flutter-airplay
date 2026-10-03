@@ -15,6 +15,8 @@ internal class ReceiverState {
     private var height = 1080
     private var clientName = ""
     private var decodedVideo = false
+    private var audioPlaying = false
+    private var videoPaused = false
     private var failure: String? = null
     private var logId = 0
     private val logs = ArrayDeque<Map<String, Any>>()
@@ -23,6 +25,8 @@ internal class ReceiverState {
         failure = null
         clientName = ""
         decodedVideo = false
+        audioPlaying = false
+        videoPaused = false
         textureId = -1L
         width = 1920
         height = 1080
@@ -49,9 +53,12 @@ internal class ReceiverState {
         val detail = event["message"] as? String ?: message
         when (raw) {
             "ready" -> state(if (status == "streaming") "streaming" else "waiting", detail)
-            "reset" -> { decodedVideo = false; state(if (clientName.isEmpty()) "waiting" else "streaming", detail) }
+            "reset" -> { decodedVideo = false; audioPlaying = false; videoPaused = false; state(if (clientName.isEmpty()) "waiting" else "streaming", detail) }
+            "paused" -> { decodedVideo = false; videoPaused = true; state("streaming", "画面已暂停") }
+            "audio" -> { audioPlaying = true; state("streaming", if (decodedVideo) message else "音频播放中") }
+            "audio_stopped" -> { audioPlaying = false }
             "connecting" -> { if (!decodedVideo) state("streaming", detail) }
-            "playing" -> { failure = null; decodedVideo = true; state("streaming", detail) }
+            "playing" -> { failure = null; decodedVideo = true; videoPaused = false; state("streaming", detail) }
             "error" -> error(detail)
             "stopped" -> {
                 clientName = ""
@@ -76,6 +83,7 @@ internal class ReceiverState {
     }
 
     private fun state(next: String, detail: String) {
+        if (next != "streaming") { audioPlaying = false; videoPaused = false }
         if (status != next || message != detail) log(detail)
         status = next
         message = detail
@@ -84,6 +92,7 @@ internal class ReceiverState {
     fun snapshot(name: String, activePid: Int, isTelevision: Boolean): Map<String, Any> = mapOf(
         "status" to status, "message" to message, "pid" to activePid,
         "clientName" to clientName, "name" to name, "path" to "", "textureId" to textureId,
+        "audioPlaying" to audioPlaying, "videoPaused" to videoPaused,
         // The root model displays video only after a real decoded output buffer.
         "videoWidth" to if (status == "streaming" && decodedVideo) width else 0,
         "videoHeight" to if (status == "streaming" && decodedVideo) height else 0,

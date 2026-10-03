@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Exercise the production receive callback bindings without a test-only player API.
+#include "../player/player.cpp"
+#include "resume_fixtures.h"
+#include "audio_fixtures.h"
+#include <stdexcept>
+#ifdef __APPLE__
+#include <CoreVideo/CoreVideo.h>
+#endif
+
+void check_video_resume(void *surface, const char *decoder) {
+    struct Progress { std::atomic<int> frames{0}, pauses{0}, audio{0}, audio_stops{0}; std::atomic<bool> blue{false}; } progress;
+    AirplayCallbacks cb{}; cb.context = &progress;
+    cb.event = [](void *context, const char *type, const char *, int, int) {
+        if (!strcmp(type, "playing")) static_cast<Progress *>(context)->frames.fetch_add(1);
+        if (!strcmp(type, "paused")) static_cast<Progress *>(context)->pauses.fetch_add(1);
+        if (!strcmp(type, "audio")) static_cast<Progress *>(context)->audio.fetch_add(1);
+        if (!strcmp(type, "audio_stopped")) static_cast<Progress *>(context)->audio_stops.fetch_add(1);
+    };
+#ifdef __APPLE__
+    cb.frame = [](void *context, void *frame) {
+        auto image = static_cast<CVPixelBufferRef>(frame);
+        CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+        auto *pixel = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
+        if (pixel && pixel[0] > 200 && pixel[1] < 30 && pixel[2] < 30)
+            static_cast<Progress *>(context)->blue.store(true);
+        CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+    };
+#endif
+    auto p = std::make_unique<AirplayPlayer>(cb, surface, decoder, "");
+    const auto receive = receiver_callbacks(p.get());
+    float width = 640, height = 360;
+    receive.video_report_size(receive.cls, &width, &height, nullptr, nullptr);
+    auto feed = [&](int first, int end) {
+        const auto start = realtime_ns();
+        for (int i = first; i < end; ++i) {
+            video_decode_struct data{};
+            data.data = const_cast<uint8_t *>(resume_frames[i]); data.data_len = int(resume_sizes[i]);
+            data.ntp_time_local = start + int64_t(i - first) * kSecond / 60;
+            receive.video_process(receive.cls, nullptr, &data);
+        }
+    };
+    auto wait = [&](int before) {
+        const auto limit = monotonic_ns() + kSecond;
+        while (progress.frames.load() <= before && monotonic_ns() < limit)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        return progress.frames.load() > before;
+    };
+    feed(0, 3);
+    if (!wait(0)) throw std::runtime_error("video resume fixture has no initial image");
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    const auto audio_generation = p->pcm->generation();
+    const auto media_time = realtime_ns();
+    const auto deadline = p->timeline.deadline(media_time);
+    const int16_t audio[] = {1000, -1000, 2000, -2000};
+    p->pcm->write(audio, 2, deadline, audio_generation);
+    const auto visible = progress.frames.load();
+    receive.video_pause(receive.cls);
+    if (progress.pauses.load() != 1) throw std::runtime_error("sender pause has no distinct UI event");
+    feed(3, 4); // A queued inter frame still updates references while presentation is paused.
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    if (progress.frames.load() != visible)
+        throw std::runtime_error("paused sender still presents video");
+    const auto before = progress.frames.load();
+    receive.video_resume(receive.cls);
+    feed(4, 9); // Continue the same GOP without another IDR or configuration packet.
+    if (!wait(before)) throw std::runtime_error("video input resumes but produces no image after sender pause");
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+#ifdef __APPLE__
+    if (!progress.blue.load()) throw std::runtime_error("resumed video retains the old image");
+#endif
+    if (p->pcm->generation() != audio_generation)
+        throw std::runtime_error("video pause flushes continuing audio");
+    if (p->timeline.deadline(media_time) != deadline)
+        throw std::runtime_error("video pause resets the shared media clock");
+    int16_t sound[4]{}; p->pcm->read(sound, 2, deadline);
+    if (!std::equal(std::begin(audio), std::end(audio), std::begin(sound)))
+        throw std::runtime_error("video pause discards queued audio");
+    audio_decode_struct packet{}; packet.ct = 4;
+    packet.data = const_cast<uint8_t *>(aac_0); packet.data_len = sizeof(aac_0);
+    packet.ntp_time_local = realtime_ns();
+    receive.audio_process(receive.cls, nullptr, &packet);
+    packet.data = const_cast<uint8_t *>(aac_1); packet.data_len = sizeof(aac_1);
+    receive.audio_process(receive.cls, nullptr, &packet);
+    if (progress.audio.load() != 1) throw std::runtime_error("decoded PCM has no single audio UI event");
+    receive.audio_flush(receive.cls);
+    if (progress.audio_stops.load() != 1) throw std::runtime_error("audio flush has no pause UI event");
+}
+
+#ifdef __APPLE__
+int main() {
+    try { check_video_resume(nullptr, nullptr); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
+    catch (const std::exception &error) { std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
+}
+#else
+#include <jni.h>
+#include <android/native_window_jni.h>
+extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_TestActivity_resume(
+        JNIEnv *env, jobject, jobject surface, jstring decoder) {
+    auto *window = ANativeWindow_fromSurface(env, surface);
+    const char *name = env->GetStringUTFChars(decoder, nullptr);
+    std::string result;
+    try { check_video_resume(window, name); result = "PASS: sender video pause/resume"; }
+    catch (const std::exception &error) { result = std::string("FAIL: ") + error.what(); }
+    env->ReleaseStringUTFChars(decoder, name); ANativeWindow_release(window);
+    return env->NewStringUTF(result.c_str());
+}
+#endif

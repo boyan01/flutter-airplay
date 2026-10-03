@@ -15,7 +15,7 @@ import android.view.Display
 import android.view.Surface
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
-import io.github.jqssun.airplay.renderer.VideoRenderer
+import io.github.jqssun.airplay.renderer.DecoderSelector
 import java.io.File
 import java.security.SecureRandom
 import java.util.concurrent.Executors
@@ -30,18 +30,19 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     private val registrations = mutableListOf<Registration>()
     private var texture: TextureRegistry.SurfaceTextureEntry? = null
     private var surface: Surface? = null
-    @Volatile private var renderer: VideoRenderer? = null
     private var multicast: WifiManager.MulticastLock? = null
     private var pendingStart: MethodChannel.Result? = null
     private var busy = false
     private var running = false
     private var generation = 0
-    @Volatile private var frames = 0L
+    private var frames = 0L
+    private var decodedWidth = 0
+    private var decodedHeight = 0
     // Accessed by the bridge only on the Android main thread. A live JNI host
     // must remain stoppable even if its decoder reports an error.
     val isActive: Boolean get() = busy || running
-    private fun send(message: String, state: String = "waiting") {
-        main.post { emit(mapOf("state" to state, "message" to message)) }
+    private fun send(message: String, state: String = "waiting", epoch: Int = generation) {
+        main.post { if (epoch == generation) emit(mapOf("state" to state, "message" to message)) }
     }
     private fun diagnostic(message: String) {
         Log.i("AirPlayPlayback", message)
@@ -75,14 +76,6 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             diagnostic("Receiver request: H.264, 1920x1080, maxFPS=60; sender chooses actual size/rate")
             texture = textures.createSurfaceTexture().also { it.surfaceTexture().setDefaultBufferSize(1920, 1080) }
             surface = Surface(texture!!.surfaceTexture())
-            renderer = VideoRenderer().also {
-                it.onDiagnostic = ::diagnostic
-                it.selectDecoder(60)
-                it.setResolution(1920,1080)
-                it.setSurface(surface!!)
-                it.onError = { frames=0;send(it, "error") }
-                it.onOutput = { if (frames++ == 0L) send("正在播放屏幕镜像", "playing") }
-            }
             val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             multicast = wifi.createMulticastLock("FlutterAirPlayDiscovery").also { it.setReferenceCounted(false); it.acquire() }
         } catch (e: Exception) {
@@ -93,6 +86,9 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         send("正在启动接收器", "starting")
         worker.execute {
             try {
+                val selector = DecoderSelector().also { it.onDiagnostic = ::diagnostic }
+                val decoder = selector.avc()?.name ?: error("No H.264 decoder available")
+                val fallback = selector.software(DecoderSelector.AVC, 1920, 1080)?.name ?: ""
                 val prefs=context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 val hex=prefs.getString("identity",null) ?: ByteArray(6).also {
                     SecureRandom().nextBytes(it); it[0]=((it[0].toInt() or 2) and 254).toByte()
@@ -100,7 +96,8 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
                     prefs.edit().putString("identity",it).apply()
                 }
                 val identity=hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath)
+                val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath,
+                    surface!!, decoder, fallback, epoch)
                 val videoTxt=parseTxt(txtNative(false)); val audioTxt=parseTxt(txtNative(true))
                 main.post {
                     if(epoch!=generation) return@post
@@ -136,8 +133,6 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             val split=item.indexOf('='.code.toByte())
             if(split>0)items[String(item,0,split,Charsets.US_ASCII)]=item.copyOfRange(split+1,item.size)
         }
-        // This player advertises only the encoded audio formats it decodes.
-        if(items.containsKey("cn"))items["cn"]="1,2,3".toByteArray()
         return items
     }
     private fun register(name:String,type:String,port:Int,txt:Map<String,ByteArray>,epoch:Int,done:()->Unit) {
@@ -161,7 +156,9 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             if(!cancelled && epoch==generation) { send("设备发现失败 ($code)，请停止后重试","error");stopInternal(null) }
         } }
         override fun onServiceUnregistered(value:NsdServiceInfo) { registered=false }
-        override fun onUnregistrationFailed(value:NsdServiceInfo,code:Int) { send("设备发现注销失败 ($code)","error") }
+        override fun onUnregistrationFailed(value:NsdServiceInfo,code:Int) { main.post {
+            diagnostic("设备发现注销失败 ($code)")
+        } }
     }
     fun stop(result:MethodChannel.Result) {
         if(busy && !running) { result.error("busy","正在启动，请稍后停止",null);return }
@@ -180,33 +177,40 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         }
     }
     private fun cleanupSurface() {
-        renderer?.release();renderer=null
         surface?.release();surface=null
         texture?.release();texture=null
         multicast?.let { if(it.isHeld)it.release() };multicast=null
     }
     fun close() { stopInternal(null); worker.shutdown() }
-    // JNI callbacks stay off the UI thread; only state events are marshalled to it.
-    fun onNativeLog(level: Int, bytes: ByteArray) {
-        diagnostic("[Native level=$level] ${bytes.toString(Charsets.UTF_8)}")
+    // Epochs are immutable in JNI and checked after dispatch to the main thread.
+    fun onNativeLog(epoch: Int, level: Int, bytes: ByteArray) {
+        val text = bytes.toString(Charsets.UTF_8)
+        main.post { if (epoch == generation) diagnostic("[Native level=$level] $text") }
     }
-    fun onClientName(bytes: ByteArray) {
-        val name = bytes.toString(Charsets.UTF_8).filter { it.code >= 32 && it.code != 127 }.trim()
-        main.post { emit(mapOf("clientName" to name, "state" to "connecting")) }
-    }
-    fun onVideoData(data:ByteArray,pts:Long) { renderer?.feedFrame(data,pts) }
-    fun onVideoSize(width:Int,height:Int,streamWidth:Int,streamHeight:Int) {
-        diagnostic("Protocol video: source=${width}x${height}, stream=${streamWidth}x${streamHeight}")
-        renderer?.setResolution(width,height)
+    fun onNativeEvent(epoch: Int, type: String, bytes: ByteArray, width: Int, height: Int) {
+        val detail = bytes.toString(Charsets.UTF_8)
         main.post {
-            texture?.surfaceTexture()?.setDefaultBufferSize(width,height)
-            diagnostic("Flutter texture requested: ${width}x${height}")
-            emit(mapOf("width" to width,"height" to height))
+            if (epoch != generation) return@post
+            when (type) {
+                "client" -> emit(mapOf("clientName" to detail, "state" to "connecting"))
+                "connecting" -> send("已建立连接，等待第一帧画面", "connecting")
+                "playing" -> {
+                    if (frames == 0L || width != decodedWidth || height != decodedHeight) {
+                        decodedWidth = width; decodedHeight = height
+                        emit(mapOf("width" to width, "height" to height))
+                    }
+                    if (frames++ == 0L) send("正在播放屏幕镜像", "playing")
+                }
+                "size" -> texture?.surfaceTexture()?.setDefaultBufferSize(width, height)
+                "paused", "reset" -> { frames = 0; emit(mapOf("width" to 0, "height" to 0, "state" to type)) }
+                "audio", "audio_stopped" -> emit(mapOf("state" to type))
+                "waiting" -> send("等待 iPhone 屏幕镜像", "waiting")
+                "error" -> { frames = 0; send(detail, "error") }
+            }
         }
     }
-    fun onVideoReset() { renderer?.stopSession(); frames=0;send("等待屏幕镜像", "reset") }
-    fun onNativeState(message:String) { send(message, if(message == "mirroring") "connecting" else if(frames>0) "playing" else "waiting") }
-    private external fun startNative(name:String,identity:ByteArray,keyPath:String):Int
-    private external fun txtNative(raop:Boolean):ByteArray
+    private external fun startNative(name: String, identity: ByteArray, keyPath: String,
+                                     surface: Surface, decoder: String, fallback: String, epoch: Int): Int
+    private external fun txtNative(raop: Boolean): ByteArray
     private external fun stopNative()
 }

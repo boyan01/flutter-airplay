@@ -26,8 +26,11 @@ sequence before flushing platform playback.
 Control request and response summaries are logged at INFO level to diagnose
 handshake progress without enabling headers, key material or payload dumps.
 
-The macOS executable enables legacy pairing by default, matching the Android
-host's advertised capability when an iPhone switches between receivers.
+The shared C++ host enables legacy pairing on both platforms. Its build
+overrides `RAOP_CN` to advertise only ALAC, AAC and AAC-ELD, which its bundled
+FFmpeg decoder supports. The upstream default remains available to other hosts.
+The current Flutter application uses the C++ library rather than the vendored
+GStreamer executable and its frame socket.
 
 For an upstream update, compare or merge from the base commit, update this
 record, and run the platform builds and native regressions. Keep upstream

@@ -162,6 +162,143 @@ void main() {
     });
   }
 
+  void media(FakeReceiver backend, {bool audio = true, bool paused = false}) {
+    backend.state('streaming');
+    backend.controller.add({
+      'type': 'media',
+      'audioPlaying': audio,
+      'videoPaused': paused,
+    });
+    backend.controller.add({
+      'type': 'video',
+      'textureId': 0,
+      'videoWidth': 0,
+      'videoHeight': 0,
+    });
+  }
+
+  testWidgets('Audio and sender pause have their own page until a new frame', (
+    tester,
+  ) async {
+    final backend = await launch(tester, platform: 'android');
+    backend.controller.add({'type': 'client', 'name': 'Alice’s iPhone'});
+    backend.state('streaming');
+    await tester.pump();
+    expect(find.text('Alice’s iPhone 正在连接…'), findsOneWidget);
+    media(backend);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('audioPage')), findsOneWidget);
+    expect(find.text('音频播放中'), findsOneWidget);
+    expect(find.text('已连接 · Alice’s iPhone'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byKey(const Key('homeInstructions')), findsNothing);
+    frame(backend);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('playerPage')), findsOneWidget);
+    media(backend, paused: true);
+    await tester.pumpAndSettle();
+    expect(find.text('画面已暂停'), findsOneWidget);
+    expect(find.text('音频仍在播放'), findsOneWidget);
+    expect(find.text('亮屏并继续屏幕镜像，画面会自动恢复。'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(backend.stops, 0);
+    frame(backend);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('audioPage')), findsNothing);
+    expect(find.byKey(const Key('playerPage')), findsOneWidget);
+  });
+
+  testWidgets(
+    'Paused TV keeps its connection and supports explicit D-pad disconnect',
+    (tester) async {
+      final backend = await launch(
+        tester,
+        platform: 'android',
+        tv: true,
+        size: const Size(960, 540),
+      );
+      frame(backend);
+      await tester.pumpAndSettle();
+      media(backend, paused: true);
+      await tester.pumpAndSettle();
+      expect(find.text('投屏已结束'), findsNothing);
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('openSettings')))
+            .focusNode
+            ?.hasFocus,
+        true,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(backend.stops, 0);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pumpAndSettle();
+      expect(backend.stops, 1);
+      expect(backend.starts, 2);
+      expect(find.text('可被发现'), findsOneWidget);
+    },
+  );
+
+  for (final locale in ['zh', 'en']) {
+    testWidgets(
+      '$locale audio page fits small windows, large text and landscape',
+      (tester) async {
+        tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final backend = await launch(
+          tester,
+          locale: locale,
+          size: const Size(390, 560),
+        );
+        media(backend, paused: true);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('macWindowBar')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.binding.setSurfaceSize(const Size(700, 390));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.byKey(const Key('disconnect')));
+        await tester.tap(find.byKey(const Key('disconnect')));
+        await tester.pumpAndSettle();
+        expect(backend.stops, 1);
+      },
+    );
+  }
+
+  test(
+    'Media flags survive snapshots, fresh frames and clear on session end',
+    () async {
+      final backend = FakeReceiver(autoStart: false);
+      final model = ReceiverModel(backend);
+      await model.initialize();
+      final snapshot = await backend.snapshot();
+      snapshot.addAll({
+        'status': 'streaming',
+        'audioPlaying': true,
+        'videoPaused': true,
+      });
+      backend.controller.add({'type': 'snapshot', 'data': snapshot});
+      expect(model.showAudioPage, true);
+      frame(backend);
+      expect(model.videoPaused, false);
+      expect(model.audioPlaying, true);
+      expect(model.showAudioPage, false);
+      for (final status in ['stopping', 'stopped', 'error', 'waiting']) {
+        media(backend, paused: true);
+        backend.state(status);
+        expect(model.audioPlaying, false);
+        expect(model.videoPaused, false);
+        expect(model.showAudioPage, false);
+      }
+      model.dispose();
+      await backend.controller.close();
+    },
+  );
+
   testWidgets('Launch automatically receives without an idle preview', (
     tester,
   ) async {

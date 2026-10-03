@@ -4,18 +4,12 @@
     "commit": "c8defdd70d7e6a04f4f1b71d353653682d594106",
     "license": "GPL-3.0-only",
     "copied": [
-      "app/src/main/cpp/audio_engine.cpp",
-      "app/src/main/cpp/audio_engine.h",
-      "app/src/main/cpp/audio_decoder.h",
-      "app/src/main/cpp/audio_output.h",
-      "app/src/main/cpp/audio_time.h",
-      "app/src/main/cpp/timeline_buffer.h",
-      "app/src/main/cpp/log_sink.h",
-      "app/src/main/cpp/cmake/BuildFFmpeg.cmake",
-      "app/src/main/kotlin/io/github/jqssun/airplay/renderer/VideoRenderer.kt",
-      "app/src/main/kotlin/io/github/jqssun/airplay/renderer/VideoPipeline.kt",
-      "app/src/main/kotlin/io/github/jqssun/airplay/renderer/EglCore.kt",
       "app/src/main/kotlin/io/github/jqssun/airplay/renderer/DecoderSelector.kt"
+    ],
+    "derived": [
+      "native/player/audio_decoder.h",
+      "native/player/android_audio.cpp",
+      "native/cmake/BuildFFmpeg.cmake"
     ]
   },
   "oboe": {
@@ -29,7 +23,7 @@
     "tag": "n7.1.1",
     "commit": "db69d06eeeab4f46da15030a80d539efb4503ca8",
     "license": "LGPL-2.1-or-later",
-    "configuration": "disable-all, enable-avcodec, enable-decoder=alac, static, no asm, no network"
+    "configuration": "disable-all, enable-avcodec, enable-decoder=aac,alac, static, no asm, no network"
   },
   "openssl": {
     "repository": "https://github.com/openssl/openssl.git",

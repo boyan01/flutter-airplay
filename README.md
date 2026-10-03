@@ -1,7 +1,8 @@
 # Flutter AirPlay
 
 一个 GPLv3 开源的 AirPlay 接收器，用于在同一局域网内接收 iPhone 屏幕镜像。
-macOS 和 Android 共用 Flutter 界面，接收协议与音视频播放由原生代码处理。
+macOS 和 Android 共用 Flutter 界面、UxPlay 接收协议与 C++ 播放核心。
+共享核心处理音频解码、时间戳、缓冲和会话重置，视频解码与音频输出使用各平台的系统接口。
 
 应用默认启动接收。待命首页显示设备名和投屏指引，收到画面后自动切换到播放页。
 提供设备名设置、接收开关、全屏和日志；外观跟随系统，TV 始终使用深色。
@@ -15,7 +16,7 @@ Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一�
 
 | 平台 | 当前支持范围 |
 | --- | --- |
-| macOS | 当前开发目标为 Apple Silicon，运行依赖本机 Homebrew 动态库与插件，尚未提供独立安装包 |
+| macOS | macOS 12+、Apple Silicon，应用包内置依赖，无需安装 Homebrew 或 GStreamer |
 | Android 手机 | Android 8.0（API 26）及以上，当前仅打包 arm64-v8a |
 | Android TV | 共用 Android 应用，提供 TV 布局与遥控器方向键操作，当前仅打包 arm64-v8a |
 
@@ -59,9 +60,10 @@ Android 位于应用外部文件目录 `Android/data/io.github.boyan01.flutter_a
 
 ## 分发与许可
 
-macOS Debug/Profile/Release 当前均为非沙箱的本地开发应用，依赖本机 Homebrew 动态库与插件。
-不能直接将 `.app` 复制给没有这些依赖的 Mac。独立分发还需要依赖打包、
-Developer ID 签名、公证和局域网访问权限配置。
+macOS 应用采用 VideoToolbox / CoreAudio，Android 采用 NDK MediaCodec / Oboe。
+FFmpeg（AAC、AAC-ELD、ALAC）、OpenSSL 和 libplist 静态链接到共享播放库。
+macOS 可以打包为独立运行的 `.app` 与 ZIP，当前使用本地 ad-hoc 签名、非沙箱运行。
+面向互联网分发仍需 Developer ID 签名和公证；首次运行时应允许局域网访问。
 应用不会修改系统 AirPlay Receiver、防火墙、系统音量或凭据。
 
 项目使用 [GPLv3](LICENSE)。分发时保留第三方版权与许可声明，并履行相应源码义务。

@@ -117,5 +117,18 @@
         "type": "String"
       }
     }
+  },
+  "audioPlaying": "Audio playing",
+  "videoPaused": "Video paused",
+  "audioContinues": "Audio is still playing",
+  "videoResumeHelp": "Wake your iPhone and continue Screen Mirroring. Video will resume automatically.",
+  "audioOnlyHelp": "Only audio is available. Video will appear automatically when it arrives.",
+  "clientConnected": "Connected · {name}",
+  "@clientConnected": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

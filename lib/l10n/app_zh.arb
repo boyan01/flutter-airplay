@@ -110,5 +110,18 @@
         "type": "String"
       }
     }
+  },
+  "audioPlaying": "音频播放中",
+  "videoPaused": "画面已暂停",
+  "audioContinues": "音频仍在播放",
+  "videoResumeHelp": "亮屏并继续屏幕镜像，画面会自动恢复。",
+  "audioOnlyHelp": "当前只有音频。收到投屏画面后，会自动切回视频。",
+  "clientConnected": "已连接 · {name}",
+  "@clientConnected": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

@@ -679,6 +679,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Opening at login requires macOS 13 or later'**
   String get loginUnavailable;
+
+  /// No description provided for @audioPlaying.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio playing'**
+  String get audioPlaying;
+
+  /// No description provided for @videoPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Video paused'**
+  String get videoPaused;
+
+  /// No description provided for @audioContinues.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio is still playing'**
+  String get audioContinues;
+
+  /// No description provided for @videoResumeHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Wake your iPhone and continue Screen Mirroring. Video will resume automatically.'**
+  String get videoResumeHelp;
+
+  /// No description provided for @audioOnlyHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Only audio is available. Video will appear automatically when it arrives.'**
+  String get audioOnlyHelp;
+
+  /// No description provided for @clientConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected · {name}'**
+  String clientConnected(String name);
 }
 
 class _AppLocalizationsDelegate

@@ -12,3 +12,9 @@ PRODUCT_BUNDLE_IDENTIFIER = org.flutterairplay.receiver
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Airplay Receiver contributors. GPL-3.0-or-later.
+
+// The C++ player uses static third-party libraries and system media frameworks.
+SWIFT_OBJC_BRIDGING_HEADER = Runner/Receiver-Bridging-Header.h
+LIBRARY_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/../build/macos-native
+OTHER_LDFLAGS = $(inherited) -lairplay_player
+ARCHS = arm64

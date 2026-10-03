@@ -311,4 +311,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loginUnavailable => 'Opening at login requires macOS 13 or later';
+
+  @override
+  String get audioPlaying => 'Audio playing';
+
+  @override
+  String get videoPaused => 'Video paused';
+
+  @override
+  String get audioContinues => 'Audio is still playing';
+
+  @override
+  String get videoResumeHelp =>
+      'Wake your iPhone and continue Screen Mirroring. Video will resume automatically.';
+
+  @override
+  String get audioOnlyHelp =>
+      'Only audio is available. Video will appear automatically when it arrives.';
+
+  @override
+  String clientConnected(String name) {
+    return 'Connected · $name';
+  }
 }

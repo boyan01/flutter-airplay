@@ -13,9 +13,10 @@ The shared receive core is maintained in `vendor/UxPlay/`. Upstream provenance
 and local modifications are recorded in [UPSTREAM.md](vendor/UxPlay/UPSTREAM.md).
 Original copyright and license notices remain with the source.
 
-## Android reference
+## Shared C++ player and Android reference
 
-The Android player includes source derived from
+The shared player retains derived audio configuration, device-loss handling
+and FFmpeg build configuration. The Android decoder selector also derives from
 https://github.com/jqssun/android-airplay-server.
 Copied paths and the upstream commit are recorded in
 [dependencies.lock.json](android/dependencies.lock.json).

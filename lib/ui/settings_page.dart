@@ -171,7 +171,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
-          if (desktop)
+          if (model.supportsExecutablePath)
             ExpansionTile(
               title: Text(l10n(context).advanced),
               tilePadding: EdgeInsets.zero,
@@ -236,7 +236,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 applicationName: 'Flutter AirPlay',
               ),
               child: Text(
-                'UxPlay + GStreamer · GPLv3 · ${l10n(context).licenses}',
+                'UxPlay + C++ · GPLv3 · ${l10n(context).licenses}',
               ),
             )
           else

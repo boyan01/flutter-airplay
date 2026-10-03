@@ -12,6 +12,38 @@ class ReceiverStateTest {
         accept(mapOf("state" to "playing", "message" to "decoded output"))
     }
 
+    @Test fun senderPauseKeepsAudioAndNewFrameRestoresVideo() {
+        val state = playingState()
+        state.accept(mapOf("state" to "audio"))
+        state.accept(mapOf("state" to "paused"))
+        assertEquals("streaming", state.snapshot()["status"])
+        assertEquals(true, state.snapshot()["audioPlaying"])
+        assertEquals(true, state.snapshot()["videoPaused"])
+        assertEquals(0, state.snapshot()["videoWidth"])
+        state.accept(mapOf("state" to "playing"))
+        assertEquals(false, state.snapshot()["videoPaused"])
+        assertEquals(1920, state.snapshot()["videoWidth"])
+        state.accept(mapOf("state" to "waiting"))
+        assertEquals(false, state.snapshot()["audioPlaying"])
+        assertEquals(false, state.snapshot()["videoPaused"])
+    }
+
+    @Test fun audioWithoutVideoHasAConnectedSnapshotAndFlushClearsAudio() {
+        val state = ReceiverState()
+        state.startRequested()
+        state.accept(mapOf("state" to "audio"))
+        assertEquals("streaming", state.snapshot()["status"])
+        assertEquals(true, state.snapshot()["audioPlaying"])
+        assertEquals(false, state.snapshot()["videoPaused"])
+        assertEquals(0, state.snapshot()["videoWidth"])
+        state.accept(mapOf("state" to "audio_stopped"))
+        assertEquals(false, state.snapshot()["audioPlaying"])
+        state.accept(mapOf("state" to "audio"))
+        state.accept(mapOf("state" to "reset"))
+        assertEquals(false, state.snapshot()["audioPlaying"])
+        assertEquals(false, state.snapshot()["videoPaused"])
+    }
+
     @Test fun waitingDoesNotClaimDecodedVideo() {
         val state = ReceiverState()
         state.startRequested()

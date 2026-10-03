@@ -26,3 +26,7 @@ materials can be rebuilt using the supplied scripts and pinned source locks.
 Flutter SDK/engine are under the BSD-3-Clause license; standard Flutter
 third-party engine notices are included by the Flutter build tool.
 No DRM-protected video playback or HLS player is advertised by this host.
+
+Shared playback: native/player/ and native/cmake/ contain derived AAC/ALAC
+configuration, Oboe recovery and FFmpeg build settings from the Android reference.
+Both platforms statically link FFmpeg AAC and ALAC decoders (LGPL-2.1-or-later).

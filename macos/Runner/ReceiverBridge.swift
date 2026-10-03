@@ -16,9 +16,6 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler {
         let output = FrameTexture(registry: textures)
         video = output
         host.videoOutput = output
-        output.onDimensions = { [weak self] width, height in
-            self?.host.queue.async { [weak self] in self?.host.videoDimensions(width: width, height: height) }
-        }
         methods = FlutterMethodChannel(name: "org.airplayreceiver/control", binaryMessenger: messenger)
         events = FlutterEventChannel(name: "org.airplayreceiver/events", binaryMessenger: messenger)
         events?.setStreamHandler(self)
