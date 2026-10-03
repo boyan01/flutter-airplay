@@ -3,8 +3,10 @@
 一个 GPLv3 开源的 AirPlay 接收器，用于在同一局域网内接收 iPhone 屏幕镜像。
 macOS 和 Android 共用 Flutter 界面，接收协议与音视频播放由原生代码处理。
 
-应用提供设备名设置、启动与停止接收、内嵌画面预览、全屏、主题切换和日志查看。
-Android 还提供 TV 布局与遥控器方向键操作。当前 macOS 只维护应用内嵌播放。
+应用默认启动接收。待命首页显示设备名和投屏指引，收到画面后自动切换到播放页。
+提供设备名设置、接收开关、全屏和日志；外观跟随系统，TV 始终使用深色。
+界面支持简体中文和英文，跟随系统语言。原生错误原因和运行日志保留宿主原文。
+Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一个应用窗口中播放。
 不支持 DRM 内容，不承诺点对点连接。
 
 当前版本为 **0.1.2+3**。这是仍在验证中的本地开发版本，尚未提供可独立分发的 macOS 安装包。
@@ -13,128 +15,57 @@ Android 还提供 TV 布局与遥控器方向键操作。当前 macOS 只维护�
 
 | 平台 | 当前实现 | 已记录的验证与限制 |
 | --- | --- | --- |
-| macOS | UxPlay 子进程接收，GStreamer 解码与音频播放，FlutterTexture 显示画面 | Apple Silicon 构建、合成回归与界面检查通过；当前内嵌版本有真实 iPhone 连接及解码事件，实际画面、声音和同步仍待确认；Intel 未验证 |
-| Android 手机 | JNI 接收核心，MediaCodec/EGL 视频，Oboe 音频 | arm64 构建和原生回归通过；共享界面在真机完成启停、方向键与全屏检查；当前构建的 iPhone 音画播放仍待确认 |
+| macOS | UxPlay 子进程接收，GStreamer 解码与音频播放，FlutterTexture 显示画面 | Apple Silicon 构建、合成回归与界面检查通过；当前内嵌版本有真实 iPhone 连接及解码事件，用户已确认隐藏后投屏自动弹出、旋转时窗口比例正确、结束后回首页并在 3 秒后隐藏；声音和同步仍待确认，Intel 未验证 |
+| Android 手机 | JNI 接收核心，MediaCodec/EGL 视频，Oboe 音频 | arm64 构建和原生回归通过；本轮 UI 的 Debug 版本已观察到真实 iPhone 画面及发送端名称，用户确认声音、旋转和结束后返回正常；随后生命周期等小修已重新安装，最终 APK 的真实播放尚未复验，音画同步与长期稳定性未验收 |
 | Android TV | 共用 Android 原生播放与 Flutter 界面，提供 TV 布局、焦点和 D-pad 操作 | 已做组件测试和手机方向键检查；未完成真实 TV 播放验收，当前仅打包 arm64-v8a |
 
-当前构建的真实 iPhone 音画播放、同步、旋转、重连和持续稳定性仍需验证。
+手机已完成上述真实投屏检查；macOS 与 TV 的真实播放、音画同步和持续稳定性仍需分别验收。
 构建成功、接收状态和合成测试不能代替真机播放检查。
-
-## 从源码运行
-
-在仓库根目录执行以下命令。项目通过 `.fvmrc` 固定 Flutter **3.47.2**，
-Dart 版本要求见 `pubspec.yaml`。使用 FVM 时，将下方 `flutter` 替换为 `fvm flutter`。
-
-### macOS
-
-需要 Xcode 的 macOS SDK，以及 CMake、pkg-config、libplist、OpenSSL 和 GStreamer。
-当前构建在 Apple Silicon Mac 上使用 Homebrew 依赖：
-
-```sh
-brew install cmake pkg-config libplist openssl@3 gstreamer
-flutter pub get
-./scripts/build_receiver.sh
-flutter run -d macos
-```
-
-也可以构建并启动 Release 应用：
-
-```sh
-flutter build macos --release
-open "build/macos/Build/Products/Release/Flutter AirPlay.app"
-```
-
-原生脚本直接编译 `vendor/UxPlay/`，在 `build/uxplay-native/` 生成产物，
-再复制到 `native/receiver/uxplay`。应用构建时将接收器放入应用资源目录，无需 `sudo make install`。
-修改原生源码后，先重新运行原生脚本，再重新构建应用。
-
-设置中的高级核心路径必须指向本项目提供事件协议的 `uxplay`。
-普通 Homebrew UxPlay 不提供该协议，会导致启动超时。
-
-### Android
-
-当前原生构建脚本面向 macOS 开发环境，需要 Android SDK、
-NDK **28.2.13676358** 和 SDK CMake **3.22.1**。
-应用最低 Android API 为 **26**，当前只构建 **arm64-v8a**。
-
-```sh
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-flutter pub get
-./android/scripts/build_native.sh
-flutter build apk --release --target-platform android-arm64
-```
-
-原生脚本按 `android/dependencies.lock.json` 获取并验证依赖，生成 JNI 播放库。
-必须先构建 JNI，否则 APK 打包会失败并提示重建命令。
-
-APK 输出为 `build/app/outputs/flutter-apk/app-release.apk`。
-连接兼容的 Android 设备后，可安装：
-
-```sh
-adb install -r build/app/outputs/flutter-apk/app-release.apk
-```
-
-当前 Release APK 使用本地 debug 签名。覆盖安装要保留数据，必须保持包名与签名一致。
-这不是正式分发签名。原生依赖、构建与测试说明见 [Android 开发文档](docs/ANDROID.md)。
 
 ## 使用
 
 1. 将 iPhone 与接收设备连接到同一局域网。
-2. 打开应用，按需在设置中修改设备名，再点击“启动接收”。如出现局域网访问提示，允许访问。
-3. 在 iPhone 控制中心打开“屏幕镜像”，选择应用显示的设备名。
-4. 在应用内查看画面，声音由接收设备播放。点击展开按钮进入全屏预览。
-5. 点击“停止投屏”或“停止接收”结束接收。修改设备名前先停止接收。
+2. 打开应用，默认自动接收。如出现局域网访问提示，允许访问。自动接收可在设置中关闭。
+3. 在 iPhone 控制中心打开“屏幕镜像”，选择首页显示的设备名。
+4. 收到画面后自动进入播放页。手机与 TV 自动隐藏系统栏，手机方向跟随画面；macOS 窗口跟随画面比例。
+5. 点击画面、移动鼠标或按遥控器显示控件。“断开投屏”结束当前投屏后恢复待命；当前通过停止并重启接收器实现。
+   要完全停止接收，使用首页的“接收投屏”开关；TV 关闭接收后可通过首页的“打开接收”恢复。
 
-macOS 支持 `⌘R` 启停、`⌘F` 全屏、`⌘,` 设置、`⌘L` 日志，`Esc` 退出全屏。
-Android 支持方向键与 Enter/Select；Back 优先关闭弹窗或退出全屏，退出全屏不会停止接收。
+接收中可修改设备名，保存后自动重启；当前投屏会结束。Android 离开前台后停止接收，
+返回前台时按自动接收设置恢复。手机仅接收期间保持常亮，TV 在应用前台期间保持常亮。
+
+macOS 保留标准带标题栏的 NSWindow，使用 `fullSizeContentView` 让 Flutter 内容占满窗口。
+标题栏背景透明，原生标题和窗口按钮隐藏，窗口内可见内容全部由 Flutter 绘制。
+顶部 Flutter 按钮提供关闭、最小化和全屏；标题区域使用 nativeapi 的 `startDragging()` 启动系统原生拖窗，双击切换全屏。
+播放时顶部按钮随覆盖层一起隐藏，关窗继续遵守菜单栏驻留设置。
+首页取消播放比例约束，退出全屏后恢复 440 × 560 的内容尺寸。
+运行 `./scripts/test_window.sh` 可检查首页、横竖屏播放和全屏中结束投屏后的窗口恢复。
+该测试需要先构建 macOS Debug 应用，并在已登录的 macOS 图形会话中运行；不验证真实投屏画面或声音。
+
+macOS 支持 `⌘R` 启停、`⌃⌘F` 全屏、`⌘,` 设置、`⌘L` 日志、`⌘.` 断开，`Esc` 退出全屏。
+播放控件在鼠标静止 2.5 秒后隐藏；双击画面切换全屏。
+手机控件 3 秒后隐藏。Back 优先隐藏控件；控件隐藏时按 Back 显示断开提示，2 秒内再次按 Back 才断开。
+TV 按 OK / 方向键 / Menu 显示控件，默认焦点为“继续观看”，5 秒后隐藏；Back 只显隐控件，不断开投屏。
+TV 设置使用全屏页面，待命首页默认聚焦“设置”，关闭或出错时聚焦“打开接收”或“重试”。
+
+macOS 支持菜单栏驻留、播放置顶、防止显示器休眠、连接时显示窗口及可选全屏。
+默认关闭窗口后继续驻留接收；关闭播放窗口会先断开投屏。登录启动使用 macOS 13+ 的系统服务。
+发送端名称来自接收协议，缺失时使用 iPhone。菜单栏与 Flutter 共用中英文资源。
+用户已在真实 iPhone 会话中确认隐藏后自动显示、旋转比例和结束后延迟隐藏。
+登录启动及播放防息屏断言的创建、释放仍待实际验收。
+
+多语言文案位于 `lib/l10n/app_en.arb` 和 `lib/l10n/app_zh.arb`，使用 Flutter 官方
+`flutter_localizations` 与 `intl`。修改资源后运行 `flutter gen-l10n`。
+这轮 UI 改动的组件测试覆盖状态切换、改名重启、返回键、TV 默认焦点、语言切换和小窗口大字号。
+Android 已观察到后台返回后的接收恢复和重新投屏；前后台异步启停有独立单测。
+真实 TV、常亮释放和长期稳定性仍需设备验收。
 
 若设备无法被发现，先确认接收器处于等待状态、两端网络可互通，并查看应用日志。
-“等待连接”表示服务已启动，不证明 iPhone 一定能发现它。
-“已连接”也不代表画面和声音都已正常输出：macOS 收到媒体数据即可进入该状态，
-Android 则在视频解码输出后进入该状态。实际播放仍需观察确认。
+“可被发现”表示服务已启动，不证明 iPhone 一定能发现它。
+连接状态也不代表画面和声音都已正常输出：macOS 收到媒体数据即可进入该状态，
+Android 在获得发送端信息时显示连接提示，收到视频解码输出后才显示播放器。实际播放仍需观察确认。
 
-## 开发与回归
-
-只有一个 Flutter 产品入口：`lib/main.dart`。代码按职责维护：
-
-| 路径 | 职责 |
-| --- | --- |
-| `lib/`、`test/` | 共享界面、接收状态模型、平台通道与 Flutter 测试 |
-| `macos/Runner/` | 接收子进程、帧传输、FlutterTexture 与 macOS 生命周期 |
-| `android/app/src/main/` | Android 平台通道、JNI 接收、视频与音频播放 |
-| `vendor/UxPlay/` | 两个平台共用的接收核心；直接维护源码 |
-| `scripts/`、`android/tests/`、`android/scripts/` | 原生构建与合成回归 |
-| `docs/` | 界面、平台接口与原生开发说明 |
-
-macOS 目前使用软件 H.264 解码，将 BGRA 帧经私有 Unix socket 传给 Swift，
-复制到 IOSurface CVPixelBuffer 后交给 FlutterTexture。尚未实现硬件解码或零拷贝。
-Android 在应用进程内接收和播放。接收协议与平台播放保持边界，不引入 Go 组件。
-
-Flutter 检查与 macOS 原生回归：
-
-```sh
-flutter analyze
-flutter test
-./scripts/build_receiver.sh
-./scripts/test_native.sh "$PWD/native/receiver/uxplay"
-./scripts/test_frames.sh
-./scripts/test_audio.sh
-./scripts/test_sync.sh
-./scripts/test_rtp.sh
-./scripts/test_recovery.sh
-flutter build macos --release
-```
-
-Android 接收核心的主机合成回归：
-
-```sh
-HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" ./android/scripts/test_host.sh
-HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" HOST_SANITIZE=ON ./android/scripts/test_host.sh
-```
-
-涉及共享接收核心的修改，需要验证 macOS 与 Android 构建及相关回归。
-这些测试覆盖生命周期、帧传输、音频解码、时钟调度、RTP 重启与恢复等行为，使用合成输入。
-合成回归不能证明真机播放效果；日志与截图保存在忽略的 `artifacts/` 中。
+开发环境、构建与测试命令见 [AGENTS.md](AGENTS.md)。
 
 ## 分发与许可
 
@@ -146,6 +77,3 @@ Developer ID 签名、公证和局域网权限验收。
 项目使用 [GPLv3](LICENSE)。分发时保留第三方版权与许可声明，并履行相应源码义务。
 第三方来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，
 UxPlay 上游版本与基准 commit 见 [UPSTREAM.md](vendor/UxPlay/UPSTREAM.md)。
-
-更多说明：[共享界面](docs/UI.md) · [Android 平台接口](docs/ANDROID_UI.md) ·
-[Android 原生开发](docs/ANDROID.md)。

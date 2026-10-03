@@ -26,9 +26,19 @@ class ReceiverModel extends ChangeNotifier {
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _logs = <ReceiverLog>[];
   String status = 'stopped';
-  String message = '接收器未启动';
+  String message = 'off';
   String name = 'Flutter AirPlay';
   String path = '';
+  bool autoStart = true;
+  String? clientName;
+  bool supportsLaunchAtLogin = false;
+  final desktopOptions = <String, bool>{
+    'launchAtLogin': false,
+    'keepInMenuBar': true,
+    'showOnConnect': true,
+    'fullscreenOnConnect': false,
+    'alwaysOnTop': false,
+  };
   int textureId = -1, videoWidth = 0, videoHeight = 0;
   bool get hasVideo => textureId >= 0 && videoWidth > 0 && videoHeight > 0;
 
@@ -55,8 +65,9 @@ class ReceiverModel extends ChangeNotifier {
     'streaming',
     'stopping',
   }.contains(status);
-  bool get editable => loaded && !busy && !active;
-  bool get canStart => editable;
+  bool get editable =>
+      loaded && !busy && !{'checking', 'starting', 'stopping'}.contains(status);
+  bool get canStart => loaded && !busy && !active;
   bool get canStop => active && status != 'stopping' && !busy;
 
   Future<void> initialize() async {
@@ -69,6 +80,7 @@ class ReceiverModel extends ChangeNotifier {
     );
     try {
       _snapshot(await repository.snapshot());
+      if (autoStart && status == 'stopped') await start(name, path);
     } catch (error) {
       notice = commandError = _error(error);
       loaded = true;
@@ -82,13 +94,19 @@ class ReceiverModel extends ChangeNotifier {
       _platform = capabilities['platform'] as String? ?? _platform;
       isTelevision = capabilities['isTelevision'] as bool? ?? false;
       _supportsExecutablePath = capabilities['supportsExecutablePath'] as bool?;
+      supportsLaunchAtLogin =
+          capabilities['supportsLaunchAtLogin'] as bool? ?? false;
     }
     status = data['status'] as String;
     message = data['message'] as String;
     pid = data['pid'] as int? ?? 0;
-    if (!loaded) {
-      name = data['name'] as String;
-      path = data['path'] as String? ?? '';
+    name = data['name'] as String;
+    path = data['path'] as String? ?? '';
+    autoStart = data['autoStart'] as bool? ?? true;
+    clientName = (data['clientName'] as String?)?.trim();
+    if (clientName?.isEmpty ?? false) clientName = null;
+    for (final key in desktopOptions.keys.toList()) {
+      desktopOptions[key] = data[key] as bool? ?? desktopOptions[key]!;
     }
     textureId = data['textureId'] as int? ?? -1;
     videoWidth = data['videoWidth'] as int? ?? 0;
@@ -115,9 +133,14 @@ class ReceiverModel extends ChangeNotifier {
         message = event['message'] as String;
         pid = event['pid'] as int? ?? 0;
         if ({'stopped', 'stopping', 'error', 'waiting'}.contains(status)) {
+          clientName = null;
           videoWidth = 0;
           videoHeight = 0;
         }
+        _notify();
+      case 'client':
+        clientName = (event['name'] as String?)?.trim();
+        if (clientName?.isEmpty ?? false) clientName = null;
         _notify();
       case 'video':
         textureId = event['textureId'] as int;
@@ -137,7 +160,7 @@ class ReceiverModel extends ChangeNotifier {
   }
 
   String _error(Object error) => error is PlatformException
-      ? error.message ?? '原生接收器操作失败'
+      ? error.message ?? 'nativeError'
       : error.toString();
 
   Future<void> _command(
@@ -153,7 +176,9 @@ class ReceiverModel extends ChangeNotifier {
       await action();
       notice = success;
     } catch (error) {
-      notice = commandError = _error(error);
+      if (error is! PlatformException || error.code != 'cancelled') {
+        notice = commandError = _error(error);
+      }
     } finally {
       busy = false;
       _notify();
@@ -162,15 +187,37 @@ class ReceiverModel extends ChangeNotifier {
 
   String? validateName(String value) {
     final clean = value.trim();
-    if (clean.isEmpty) return '请输入设备名';
+    if (clean.isEmpty) return 'nameRequired';
     if (utf8.encode(clean).length > 50 ||
         clean.runes.any((r) => r < 32 || r == 127)) {
-      return '设备名最多 50 个 UTF-8 字节，不能含换行';
+      return 'nameInvalid';
     }
     return null;
   }
 
-  Future<void> save(String nextName, String nextPath) async {
+  // macOS stop acknowledges the request before its owned process exits.
+  Future<void> _stopAndWait() async {
+    final stopped = Completer<void>();
+    void changed() {
+      if (status == 'stopped' && !stopped.isCompleted) stopped.complete();
+    }
+
+    addListener(changed);
+    try {
+      await repository.stop();
+      changed();
+      await stopped.future.timeout(const Duration(seconds: 8));
+    } finally {
+      removeListener(changed);
+    }
+  }
+
+  Future<void> save(
+    String nextName,
+    String nextPath, {
+    bool? autoStart,
+    Map<String, bool>? desktopOptions,
+  }) async {
     if (!editable) return;
     final error = validateName(nextName);
     if (error != null) {
@@ -178,11 +225,31 @@ class ReceiverModel extends ChangeNotifier {
       _notify();
       return;
     }
+    final restart =
+        active && (nextName.trim() != name || nextPath.trim() != path);
     await _command(() async {
-      await repository.save(nextName.trim(), nextPath.trim());
+      if (restart) await _stopAndWait();
+      await repository.save(
+        nextName.trim(),
+        nextPath.trim(),
+        autoStart: autoStart ?? this.autoStart,
+        desktopOptions: desktopOptions ?? this.desktopOptions,
+      );
       name = nextName.trim();
       path = nextPath.trim();
-    }, success: '设置已保存');
+      this.autoStart = autoStart ?? this.autoStart;
+      if (desktopOptions != null) this.desktopOptions.addAll(desktopOptions);
+      if (restart) await repository.start(name, path);
+    }, success: 'saved');
+  }
+
+  // The current native protocol has no session-only disconnect command.
+  Future<void> disconnect() async {
+    if (!canStop) return;
+    await _command(() async {
+      await _stopAndWait();
+      await repository.start(name, path);
+    });
   }
 
   Future<void> start(String nextName, String nextPath) async {
@@ -206,10 +273,10 @@ class ReceiverModel extends ChangeNotifier {
   }
 
   Future<void> check(String nextPath) async {
-    if (!editable) return;
+    if (!canStart) return;
     await _command(
       () => repository.check(nextPath.trim()),
-      success: '依赖检查通过，可以启动接收器',
+      success: 'checkPassed',
     );
   }
 

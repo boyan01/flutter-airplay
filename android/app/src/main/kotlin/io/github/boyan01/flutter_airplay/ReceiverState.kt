@@ -13,12 +13,16 @@ internal class ReceiverState {
         private set
     private var width = 1920
     private var height = 1080
+    private var clientName = ""
+    private var decodedVideo = false
     private var failure: String? = null
     private var logId = 0
     private val logs = ArrayDeque<Map<String, Any>>()
 
     fun startRequested() {
         failure = null
+        clientName = ""
+        decodedVideo = false
         textureId = -1L
         width = 1920
         height = 1080
@@ -37,23 +41,29 @@ internal class ReceiverState {
     }
 
     fun accept(event: Map<String, Any>) {
+        (event["clientName"] as? String)?.let { clientName = it }
         (event["width"] as? Number)?.let { width = it.toInt() }
         (event["height"] as? Number)?.let { height = it.toInt() }
         val raw = event["state"] as? String ?: return
         val detail = event["message"] as? String ?: message
         when (raw) {
             "ready" -> state(if (status == "streaming") "streaming" else "waiting", detail)
-            "playing" -> { failure = null; state("streaming", detail) }
+            "reset" -> { decodedVideo = false; state(if (clientName.isEmpty()) "waiting" else "streaming", detail) }
+            "connecting" -> { if (!decodedVideo) state("streaming", detail) }
+            "playing" -> { failure = null; decodedVideo = true; state("streaming", detail) }
             "error" -> error(detail)
             "stopped" -> {
+                clientName = ""
+                decodedVideo = false
                 textureId = -1L
                 state(if (failure == null) "stopped" else "error", failure ?: detail)
             }
-            "waiting", "starting" -> state(raw, detail)
+            "waiting", "starting" -> { decodedVideo = false; if (raw == "waiting") clientName = ""; state(raw, detail) }
         }
     }
 
     fun error(detail: String) {
+        decodedVideo = false
         failure = detail
         state("error", detail)
     }
@@ -72,10 +82,10 @@ internal class ReceiverState {
 
     fun snapshot(name: String, activePid: Int, isTelevision: Boolean): Map<String, Any> = mapOf(
         "status" to status, "message" to message, "pid" to activePid,
-        "name" to name, "path" to "", "textureId" to textureId,
+        "clientName" to clientName, "name" to name, "path" to "", "textureId" to textureId,
         // The root model displays video only after a real decoded output buffer.
-        "videoWidth" to if (status == "streaming") width else 0,
-        "videoHeight" to if (status == "streaming") height else 0,
+        "videoWidth" to if (status == "streaming" && decodedVideo) width else 0,
+        "videoHeight" to if (status == "streaming" && decodedVideo) height else 0,
         "logs" to logs.toList(),
         "capabilities" to mapOf("platform" to "android", "isTelevision" to isTelevision,
             "supportsExecutablePath" to false),

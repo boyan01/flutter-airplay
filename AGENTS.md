@@ -29,6 +29,55 @@
   in `artifacts/`. Keep logs, screenshots, binaries, credentials and device or
   network identifiers out of public source.
 
+## Build and run
+
+Run commands from the repository root. Use the Flutter version pinned in
+`.fvmrc`; replace `flutter` with `fvm flutter` when using FVM.
+Run `flutter pub get` before building either platform.
+
+### macOS
+
+Requires Xcode's macOS SDK and the native dependencies below. The current
+build uses Homebrew on Apple Silicon; Intel has not been validated.
+
+```sh
+brew install cmake pkg-config libplist openssl@3 gstreamer
+./scripts/build_receiver.sh
+flutter run -d macos
+# Build and launch the Release application:
+flutter build macos --release
+open "build/macos/Build/Products/Release/Flutter AirPlay.app"
+```
+
+The native script builds `vendor/UxPlay/` in `build/uxplay-native/` and copies
+its receiver to `native/receiver/uxplay`. The application bundles that receiver
+but still depends on local Homebrew libraries and plugins. It is an unsandboxed
+local development build, not a portable signed/notarized distribution.
+A custom receiver path must use this project's event protocol; stock Homebrew
+UxPlay cannot complete the host's startup handshake.
+
+### Android
+
+The native build script currently targets a macOS development host. Install the
+Android SDK, NDK 28.2.13676358 and SDK CMake 3.22.1. The product packages
+arm64-v8a only and requires Android API 26 or newer.
+
+```sh
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+./android/scripts/build_native.sh
+flutter build apk --release --target-platform android-arm64
+```
+
+The script fetches and verifies dependencies from `android/dependencies.lock.json`
+and builds OpenSSL and the JNI player. Caches live in ignored `android/.cache/`;
+native output lives in `build/android-native-arm64/` and is copied into
+`android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so`.
+APK packaging rejects a missing JNI library; build native code first.
+
+The APK is `build/app/outputs/flutter-apk/app-release.apk`. Local Release builds
+use debug signing. When installing an authorized device update, use
+`adb install -r` with the same application ID and signing key to retain data.
+
 ## Validation
 
 Run checks that match the changed code. Shared receive-core changes require both
@@ -37,27 +86,44 @@ receiver/player before packaging an application that uses changed native code.
 Documentation-only changes require link and diff checks; they do not require
 application builds.
 
-- Flutter: `flutter analyze` and `flutter test`.
-- macOS build: `./scripts/build_receiver.sh`, then `flutter build macos`.
-- macOS native regression: `./scripts/test_native.sh "$PWD/native/receiver/uxplay"`,
-  `./scripts/test_frames.sh`, `./scripts/test_audio.sh`, `./scripts/test_sync.sh`,
-  `./scripts/test_rtp.sh` and `./scripts/test_recovery.sh`.
-- Android build: `./android/scripts/build_native.sh`, then
-  `flutter build apk --release --target-platform android-arm64`.
-- Android native regression: `./android/scripts/test_host.sh`; build prerequisites,
-  OpenSSL selection and sanitizer commands are in `docs/ANDROID.md`.
+Flutter checks:
 
-Use synthetic inputs for native regression. Report the exact checks completed,
-their input and remaining gaps. Synthetic results, build success and receiver
-state events do not establish real iPhone image, audible sound, synchronization
-or Android-device support. Tie results to the tested build and report them in the
-final response and PR description when creating a PR.
+```sh
+flutter analyze
+flutter test
+```
 
-## Task-specific references
+macOS native regressions, after building the receiver:
 
-- For build/run instructions and distribution limits, read `README.md`.
-- Before changing shared UI or platform channels, read `docs/UI.md`; for Android
-  state, capabilities and Back/focus behavior, also read `docs/ANDROID_UI.md`.
-- Before changing Android native code or dependencies, read `docs/ANDROID.md`.
-- When updating dependencies or preparing distribution, read
-  `THIRD_PARTY_NOTICES.md` and preserve the bundled license assets.
+```sh
+./scripts/test_native.sh "$PWD/native/receiver/uxplay"
+./scripts/test_frames.sh
+./scripts/test_audio.sh
+./scripts/test_sync.sh
+./scripts/test_rtp.sh
+./scripts/test_recovery.sh
+```
+
+Android receive-core host regressions require CMake and native OpenSSL:
+
+```sh
+HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" ./android/scripts/test_host.sh
+HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" HOST_SANITIZE=ON ./android/scripts/test_host.sh
+```
+
+These fixtures exercise the shared receive core and DNS/TXT adapter with
+synthetic inputs; they are not the Android product's JNI playback host.
+For Kotlin state-adapter changes, use the configured Gradle executable and JDK:
+
+```sh
+"$GRADLE_BIN" -p android :app:testDebugUnitTest -Ptarget-platform=android-arm64
+```
+
+Report the exact checks completed, their input and remaining gaps. Synthetic
+results, build success and receiver state events do not establish real iPhone
+image, audible sound, synchronization or Android-device support. Tie results to
+the tested build and report them in the final response and PR description when
+creating a PR. Keep current support limits in `README.md`.
+
+When updating dependencies or preparing distribution, read
+`THIRD_PARTY_NOTICES.md` and preserve the bundled license assets.

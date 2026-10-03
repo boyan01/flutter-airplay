@@ -18,6 +18,7 @@ protocol ReceiverVideoOutput: AnyObject {
 final class ReceiverHost {
     let queue = DispatchQueue(label: "org.airplayreceiver.process")
     var videoOutput: ReceiverVideoOutput?
+    private var clientName = ""
     private var videoWidth = 0
     private var videoHeight = 0
     var onEvent: (([String: Any]) -> Void)?
@@ -44,12 +45,19 @@ final class ReceiverHost {
     }
 
     func snapshot() -> [String: Any] {
-        ["status": status, "message": message, "pid": process?.processIdentifier ?? 0,
-         "name": defaults.string(forKey: "receiverName") ?? "Flutter AirPlay",
+        var data: [String: Any] = ["status": status, "message": message, "pid": process?.processIdentifier ?? 0,
+         "clientName": clientName, "name": defaults.string(forKey: "receiverName") ?? "Flutter AirPlay",
          "path": defaults.string(forKey: "receiverPath") ?? "",
          "textureId": videoOutput?.textureIdentifier ?? -1,
          "videoWidth": videoWidth, "videoHeight": videoHeight,
-         "logs": logs]
+         "logs": logs, "autoStart": defaults.object(forKey: "receiverAutoStart") as? Bool ?? true]
+        for (key, value) in ["launchAtLogin": false, "keepInMenuBar": true, "showOnConnect": true,
+                              "fullscreenOnConnect": false, "alwaysOnTop": false] {
+            data[key] = defaults.object(forKey: key) as? Bool ?? value
+        }
+        data["capabilities"] = ["platform": "macos", "supportsExecutablePath": true,
+                               "supportsLaunchAtLogin": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 13]
+        return data
     }
 
     private func log(_ text: String) {
@@ -63,21 +71,38 @@ final class ReceiverHost {
 
     private func state(_ next: String, _ detail: String) {
         status = next
+        if ["waiting", "stopping", "stopped", "error"].contains(next) {
+            clientName = ""; videoWidth = 0; videoHeight = 0
+        }
         message = detail
         onEvent?(["type": "state", "status": status, "message": message,
                   "pid": process?.processIdentifier ?? 0])
     }
 
-    func save(name: String, path: String) throws {
-        guard process == nil else { throw ReceiverFailure(message: "请先停止接收器再修改设置。") }
+    func save(name: String, path: String, autoStart: Bool? = nil, options: [String: Bool] = [:]) throws {
+        let unchanged = name == defaults.string(forKey: "receiverName") &&
+            path == (defaults.string(forKey: "receiverPath") ?? "")
+        guard process == nil || unchanged else { throw ReceiverFailure(message: "请先停止接收器再修改设置。") }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty, cleanName.utf8.count <= 50,
               !cleanName.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
             throw ReceiverFailure(message: "设备名不能为空，最多 50 个 UTF-8 字节，不能含换行。")
         }
+        if let autoStart = autoStart { defaults.set(autoStart, forKey: "receiverAutoStart") }
+        for (key, value) in options where ["launchAtLogin", "keepInMenuBar", "showOnConnect", "fullscreenOnConnect", "alwaysOnTop"].contains(key) {
+            defaults.set(value, forKey: key)
+        }
         defaults.set(cleanName, forKey: "receiverName")
         defaults.set(path.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "receiverPath")
     }
+
+    // Native menus use the same owned receiver while the window is hidden.
+    func disconnect() {
+        guard status == "streaming" else { return }
+        restartAfterStop = true
+        stop()
+    }
+    private var restartAfterStop = false
 
     private func executable(_ name: String) -> String? {
         let roots = ["/opt/homebrew/bin", "/usr/local/bin",
@@ -262,6 +287,12 @@ final class ReceiverHost {
         guard !line.isEmpty else { return }
         log(line)
         guard !stopping, process != nil else { return }
+        if line.hasPrefix("AIRPLAY_RECEIVER_EVENT client ") {
+            clientName = String(line.dropFirst("AIRPLAY_RECEIVER_EVENT client ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            onEvent?(["type": "client", "name": clientName])
+            if videoWidth == 0 { state("streaming", "已建立连接，等待第一帧画面") }
+            return
+        }
         switch line {
         case "AIRPLAY_RECEIVER_EVENT ready":
             state("waiting", "等待 iPhone · 请在控制中心选择此设备")
@@ -293,6 +324,12 @@ final class ReceiverHost {
             state("error", "接收核心意外退出（\(task.terminationStatus)），请查看日志。")
         }
         stopping = false
+        if restartAfterStop {
+            restartAfterStop = false
+            do { try start(name: defaults.string(forKey: "receiverName") ?? "Flutter AirPlay",
+                           path: defaults.string(forKey: "receiverPath") ?? "") }
+            catch { state("error", error.localizedDescription) }
+        }
     }
 
     func stop(finalError: String? = nil) {
@@ -317,6 +354,7 @@ final class ReceiverHost {
     // Called only during application termination; wait is bounded and owns only our PID.
     func shutdown() {
         queue.sync {
+            restartAfterStop = false
             defer {
                 videoOutput?.end()
                 if let workspace = pluginWorkspace { try? FileManager.default.removeItem(at: workspace) }

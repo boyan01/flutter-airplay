@@ -27,6 +27,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     private var surface: Surface? = null
     @Volatile private var renderer: VideoRenderer? = null
     private var multicast: WifiManager.MulticastLock? = null
+    private var pendingStart: MethodChannel.Result? = null
     private var busy = false
     private var running = false
     private var generation = 0
@@ -44,6 +45,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             name.any { it.code < 32 || it.code == 127 }) {
             result.error("name", "设备名需要 1–50 个 UTF-8 字节，不能含控制字符", null); return
         }
+        pendingStart = result
         busy = true
         val epoch = ++generation
         frames = 0
@@ -61,6 +63,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             multicast = wifi.createMulticastLock("FlutterAirPlayDiscovery").also { it.setReferenceCounted(false); it.acquire() }
         } catch (e: Exception) {
             cleanupSurface(); busy=false
+            pendingStart = null
             result.error("playback", e.message, null);return
         }
         send("正在启动接收器", "starting")
@@ -85,16 +88,18 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
                     try {
                         register(name,"_airplay._tcp",port,videoTxt,epoch,done)
                         register("${hex.uppercase()}@$name","_raop._tcp",port,audioTxt,epoch,done)
+                        pendingStart = null
                         result.success(mapOf("textureId" to texture!!.id(), "width" to 1920,"height" to 1080, "name" to name))
                     } catch(e:Exception) {
                         busy=false
+                        pendingStart = null
                         result.error("discovery", e.message,null)
                         stopInternal(null)
                     }
                 }
             } catch (e: Exception) {
                 stopNative()
-                main.post { if(epoch==generation) { cleanupSurface();busy=false;send(e.message?:"启动失败","error");result.error("start",e.message,null) } }
+                main.post { if(epoch==generation) { cleanupSurface();busy=false;pendingStart=null;send(e.message?:"启动失败","error");result.error("start",e.message,null) } }
             }
         }
     }
@@ -138,7 +143,11 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         if(busy && !running) { result.error("busy","正在启动，请稍后停止",null);return }
         stopInternal(result)
     }
+    // Backgrounding must cancel startup too, even before discovery is ready.
+    fun stopForBackground(result: MethodChannel.Result) { stopInternal(result) }
     private fun stopInternal(result:MethodChannel.Result?) {
+        pendingStart?.error("cancelled", "应用已离开前台", null)
+        pendingStart = null
         ++generation;busy=true;running=false
         registrations.forEach { it.cancel() };registrations.clear()
         worker.execute {
@@ -154,13 +163,17 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     }
     fun close() { stopInternal(null); worker.shutdown() }
     // JNI callbacks stay off the UI thread; only state events are marshalled to it.
+    fun onClientName(bytes: ByteArray) {
+        val name = bytes.toString(Charsets.UTF_8).filter { it.code >= 32 && it.code != 127 }.trim()
+        main.post { emit(mapOf("clientName" to name, "state" to "connecting")) }
+    }
     fun onVideoData(data:ByteArray,pts:Long) { renderer?.feedFrame(data,pts) }
     fun onVideoSize(width:Int,height:Int) {
         renderer?.setResolution(width,height)
         main.post { texture?.surfaceTexture()?.setDefaultBufferSize(width,height);emit(mapOf("width" to width,"height" to height)) }
     }
-    fun onVideoReset() { renderer?.stopSession(); frames=0;send("等待屏幕镜像", "waiting") }
-    fun onNativeState(message:String) { send(message, if(frames>0) "playing" else "waiting") }
+    fun onVideoReset() { renderer?.stopSession(); frames=0;send("等待屏幕镜像", "reset") }
+    fun onNativeState(message:String) { send(message, if(message == "mirroring") "connecting" else if(frames>0) "playing" else "waiting") }
     private external fun startNative(name:String,identity:ByteArray,keyPath:String):Int
     private external fun txtNative(raop:Boolean):ByteArray
     private external fun stopNative()

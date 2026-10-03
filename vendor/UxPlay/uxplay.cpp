@@ -2302,6 +2302,15 @@ extern "C" void report_client_request(void *cls, char *deviceid, char * model, c
         *admit = false;
         LOGI("*** attempt to connect by blocked client (clientID %s): DENIED\n", deviceid);
     }
+    if (*admit && name) {
+        // Keep sender text within one bounded protocol line.
+        std::string client;
+        for (size_t i = 0; name[i] && i < 512; ++i) {
+            unsigned char byte = static_cast<unsigned char>(name[i]);
+            if (byte >= 32 && byte != 127) client += name[i];
+        }
+        receiver_event((std::string("client ") + client).c_str());
+    }
     // Pass device model to renderer for device frame display
     if (*admit && use_video) {
         video_renderer_set_device_model(model, name);

@@ -4,7 +4,12 @@ import 'package:flutter/services.dart';
 abstract class ReceiverRepository {
   Stream<Map<String, dynamic>> get events;
   Future<Map<String, dynamic>> snapshot();
-  Future<void> save(String name, String path);
+  Future<void> save(
+    String name,
+    String path, {
+    bool autoStart = true,
+    Map<String, bool> desktopOptions = const {},
+  });
   Future<void> start(String name, String path);
   Future<void> stop();
   Future<void> check(String path);
@@ -30,8 +35,16 @@ class NativeReceiverRepository implements ReceiverRepository {
   };
 
   @override
-  Future<void> save(String name, String path) =>
-      _control.invokeMethod('save', _settings(name, path));
+  Future<void> save(
+    String name,
+    String path, {
+    bool autoStart = true,
+    Map<String, bool> desktopOptions = const {},
+  }) => _control.invokeMethod('save', {
+    ..._settings(name, path),
+    'autoStart': autoStart,
+    ...desktopOptions,
+  });
   @override
   Future<void> start(String name, String path) =>
       _control.invokeMethod('start', _settings(name, path));

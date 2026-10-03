@@ -7,6 +7,8 @@ import android.content.res.Configuration
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Process
+import android.app.Activity
+import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -20,8 +22,14 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     private var sink: EventChannel.EventSink? = null
     private var closed = false
     private val host = PlaybackHost(context, engine.renderer) { event ->
-        if (!closed) { state.accept(event); publish() }
+        if (!closed) { state.accept(event); publish(); reconcileLifecycle() }
     }
+    private val lifecycle = ReceiverLifecycle(
+        active = { host.isActive },
+        stop = ::stopForLifecycle,
+        start = ::startForLifecycle,
+    )
+    private val foreground: Boolean get() = lifecycle.foreground
     private val control = MethodChannel(engine.dartExecutor.binaryMessenger, "org.airplayreceiver/control")
     private val events = EventChannel(engine.dartExecutor.binaryMessenger, "org.airplayreceiver/events")
 
@@ -35,19 +43,69 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     private fun snapshot(): Map<String, Any> {
         val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        return state.snapshot(name(), if (host.isActive) Process.myPid() else 0, television)
+        return state.snapshot(name(), if (host.isActive) Process.myPid() else 0, television) +
+            mapOf("autoStart" to preferences.getBoolean("autoStart", true))
     }
 
-    private fun publish() { sink?.success(mapOf("type" to "snapshot", "data" to snapshot())) }
+    private fun publish() {
+        val data = snapshot()
+        val television = (data["capabilities"] as Map<*, *>)["isTelevision"] == true
+        val awake = foreground && (television || host.isActive)
+        (context as? Activity)?.window?.let { window ->
+            if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        sink?.success(mapOf("type" to "snapshot", "data" to data))
+    }
+
+    fun onForeground() {
+        lifecycle.onForeground(preferences.getBoolean("autoStart", true))
+        publish()
+    }
+
+    fun onBackground() { lifecycle.onBackground(); publish() }
+
+    private fun reconcileLifecycle() { if (!closed) lifecycle.reconcile() }
+
+    private fun stopForLifecycle(done: (Boolean) -> Unit) {
+        state.stopRequested()
+        host.stopForBackground(object : MethodChannel.Result {
+            override fun success(value: Any?) { done(true); publish() }
+            override fun error(code: String, message: String?, details: Any?) {
+                state.error(message ?: "停止接收失败"); done(false); publish()
+            }
+            override fun notImplemented() { done(false) }
+        })
+    }
+
+    private fun startForLifecycle() {
+        if (closed) return
+        try {
+            checkPlayback()
+            state.startRequested()
+            host.start(name(), object : MethodChannel.Result {
+                override fun success(value: Any?) { state.started(value as Map<*, *>); publish(); reconcileLifecycle() }
+                override fun error(code: String, message: String?, details: Any?) {
+                    if (code != "cancelled") state.error(message ?: "启动接收失败")
+                    publish()
+                }
+                override fun notImplemented() {}
+            })
+        } catch (error: Exception) { state.error(error.message ?: "启动接收失败"); publish() }
+    }
 
     private fun command(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
                 "snapshot" -> result.success(snapshot())
                 "save" -> {
-                    requireIdle()
                     requireEmbeddedPath(call)
-                    saveName(requestedName(call))
+                    val nextName = requestedName(call)
+                    check(!host.isActive || nextName == name()) { "请等待接收器停止后再修改设备名。" }
+                    saveName(nextName)
+                    call.argument<Boolean>("autoStart")?.let {
+                        preferences.edit().putBoolean("autoStart", it).apply()
+                    }
                     // Root ReceiverModel updates its editable fields after save succeeds.
                     result.success(null)
                 }
@@ -60,6 +118,8 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                     result.success(null)
                 }
                 "start" -> {
+                    check(foreground) { "请在应用前台启动接收。" }
+                    lifecycle.cancelResume()
                     requireIdle()
                     requireEmbeddedPath(call)
                     val name = requestedName(call)
@@ -71,6 +131,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                     publish()
                 }
                 "stop" -> {
+                    lifecycle.cancelResume()
                     if (!host.isActive) { result.success(null); return }
                     state.stopRequested()
                     host.stop(completion(result, starting = false))
@@ -89,10 +150,11 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
             if (starting) state.started(value as Map<*, *>)
             publish()
             result.success(null)
+            reconcileLifecycle()
         }
         override fun error(code: String, message: String?, details: Any?) {
             if (closed) return
-            state.error(message ?: "原生接收器操作失败")
+            if (code != "cancelled") state.error(message ?: "原生接收器操作失败")
             publish()
             result.error(code, message, details)
         }
@@ -126,9 +188,40 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     override fun onCancel(arguments: Any?) { sink = null }
     override fun close() {
         closed = true
+        lifecycle.close()
         control.setMethodCallHandler(null)
         events.setStreamHandler(null)
         sink = null
         host.close()
+    }
+}
+
+/** Serializes foreground transitions while native startup/stop is asynchronous. */
+internal class ReceiverLifecycle(
+    private val active: () -> Boolean,
+    private val stop: ((Boolean) -> Unit) -> Unit,
+    private val start: () -> Unit,
+) {
+    var foreground = true
+        private set
+    private var stopping = false
+    private var resumePending = false
+    private var closed = false
+    fun onForeground(autoStart: Boolean) {
+        foreground = true; resumePending = autoStart; reconcile()
+    }
+    fun onBackground() {
+        foreground = false; resumePending = false; reconcile()
+    }
+    fun cancelResume() { resumePending = false }
+    fun close() { closed = true; resumePending = false }
+    fun reconcile() {
+        if (closed || stopping) return
+        if (!foreground && active()) {
+            stopping = true
+            stop { success -> stopping = false; if (success) reconcile() }
+        } else if (foreground && resumePending && !active()) {
+            resumePending = false; start()
+        }
     }
 }

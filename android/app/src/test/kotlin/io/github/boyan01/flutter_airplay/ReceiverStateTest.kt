@@ -69,6 +69,23 @@ class ReceiverStateTest {
             "supportsExecutablePath" to false), snapshot["capabilities"])
     }
 
+    @Test fun connectingWaitsForDecodedVideoAndResetPreservesSender() {
+        val state = ReceiverState()
+        state.startRequested()
+        state.started(mapOf("textureId" to 7L, "width" to 1920, "height" to 1080))
+        state.accept(mapOf("state" to "connecting", "clientName" to "Alice’s iPhone"))
+        assertEquals("streaming", state.snapshot()["status"])
+        assertEquals("Alice’s iPhone", state.snapshot()["clientName"])
+        assertEquals(0, state.snapshot()["videoWidth"])
+        state.accept(mapOf("state" to "playing"))
+        assertEquals(1920, state.snapshot()["videoWidth"])
+        state.accept(mapOf("state" to "reset"))
+        assertEquals("Alice’s iPhone", state.snapshot()["clientName"])
+        assertEquals(0, state.snapshot()["videoWidth"])
+        state.accept(mapOf("state" to "waiting"))
+        assertEquals("", state.snapshot()["clientName"])
+    }
+
     @Test fun namesRespectSharedUtf8Boundary() {
         assertTrue(ReceiverState.validName("a".repeat(50)))
         assertFalse(ReceiverState.validName("a".repeat(51)))

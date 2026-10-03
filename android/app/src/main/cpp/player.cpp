@@ -18,7 +18,7 @@ extern "C" {
 namespace {
 struct Player {
     JavaVM *vm{}; jobject host{};
-    jmethodID frame{}, size{}, state{}, reset{};
+    jmethodID frame{}, size{}, state{}, reset{}, client{};
     raop_t *raop{}; dnssd_t *dns{}; AudioEngine *audio{};
     int64_t wallToMono{};
     std::atomic<bool> closing{false};
@@ -72,9 +72,21 @@ void audioFlush(void *cls) { auto p=(Player*)cls;audio_engine_pause(p->audio);au
 void reset(void *cls,reset_type_t) {videoFlush(cls);audioFlush(cls);}
 void connReset(void *cls,int) {videoFlush(cls);audioFlush(cls);state((Player*)cls,"连接已断开，等待重新连接");}
 void nothing(void*){}
+void client(void *cls, char *, char *, char *name, bool *admit) {
+    *admit = true;
+    auto p = static_cast<Player *>(cls);
+    if (p->closing || !name) return;
+    Env env(p); if (!env.e) return;
+    size_t length = strnlen(name, 512);
+    auto bytes = env.e->NewByteArray(static_cast<jsize>(length));
+    if (!bytes) return;
+    env.e->SetByteArrayRegion(bytes, 0, static_cast<jsize>(length), reinterpret_cast<const jbyte *>(name));
+    env.e->CallVoidMethod(p->host, p->client, bytes);
+    env.e->DeleteLocalRef(bytes);
+}
 void connected(void *cls){((Player*)cls)->connections.fetch_add(1);}
 void disconnected(void *cls){auto p=(Player*)cls;if(p->connections.fetch_sub(1)==1){videoFlush(cls);audio_engine_pause(p->audio);state(p,"等待 iPhone 连接");}}
-void mirror(void *cls,bool running){state((Player*)cls,running?"正在接收屏幕镜像":"等待 iPhone 连接");}
+void mirror(void *cls,bool running){state((Player*)cls,running?"mirroring":"等待 iPhone 连接");}
 double volume(void*){return 0.0;}
 void volumeSet(void*,float){} // sender volume never changes Android system volume
 int codec(void*,video_codec_t c){return c==VIDEO_CODEC_H264?0:-1;}
@@ -88,6 +100,7 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     auto p=std::make_unique<Player>(); env->GetJavaVM(&p->vm);p->host=env->NewGlobalRef(host);
     auto klass=env->GetObjectClass(host);
     p->frame=env->GetMethodID(klass,"onVideoData","([BJ)V");p->size=env->GetMethodID(klass,"onVideoSize","(II)V");
+    p->client=env->GetMethodID(klass,"onClientName","([B)V");
     p->state=env->GetMethodID(klass,"onNativeState","(Ljava/lang/String;)V");p->reset=env->GetMethodID(klass,"onVideoReset","()V");env->DeleteLocalRef(klass);
     if(env->ExceptionCheck())return 0;
     p->wallToMono=now(CLOCK_MONOTONIC)-now(CLOCK_REALTIME);
@@ -96,7 +109,7 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     raop_callbacks_t cb{};cb.cls=p.get();cb.audio_process=audio;cb.video_process=video;
     cb.audio_get_format=format;cb.video_report_size=size;cb.audio_flush=audioFlush;cb.video_flush=videoFlush;
     cb.video_pause=videoFlush;cb.video_resume=nothing;cb.conn_feedback=nothing;cb.conn_reset=connReset;cb.video_reset=reset;
-    cb.conn_init=connected;cb.conn_destroy=disconnected;cb.mirror_video_running=mirror;
+    cb.report_client_request=client;cb.conn_init=connected;cb.conn_destroy=disconnected;cb.mirror_video_running=mirror;
     cb.audio_set_client_volume=volume;cb.audio_set_volume=volumeSet;cb.video_set_codec=codec;
     p->raop=raop_init(&cb);if(!p->raop){fail(env,"Cannot initialize AirPlay core");return 0;}
     raop_set_log_callback(p->raop,log,nullptr);raop_set_log_level(p->raop,3);

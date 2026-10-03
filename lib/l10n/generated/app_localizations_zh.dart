@@ -1,0 +1,308 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for Chinese (`zh`).
+class AppLocalizationsZh extends AppLocalizations {
+  AppLocalizationsZh([String locale = 'zh']) : super(locale);
+
+  @override
+  String get settings => '设置';
+
+  @override
+  String get logs => '接收日志';
+
+  @override
+  String get sessionEnded => '投屏已结束';
+
+  @override
+  String get fullscreenFailed => '无法切换全屏';
+
+  @override
+  String get unavailable => '无法接收投屏';
+
+  @override
+  String get ready => '可被发现 · 等待 iPhone';
+
+  @override
+  String get connecting => 'iPhone 正在连接…';
+
+  @override
+  String get starting => '正在启动…';
+
+  @override
+  String get stopping => '正在停止…';
+
+  @override
+  String get off => '接收已关闭 · 不会被发现';
+
+  @override
+  String get loading => '正在读取状态…';
+
+  @override
+  String get retry => '重试';
+
+  @override
+  String get start => '打开接收';
+
+  @override
+  String get awaitingFrame => '已建立连接，等待第一帧画面';
+
+  @override
+  String get reconnectHelp => '如果长时间无画面，请在 iPhone 上重新选择。';
+
+  @override
+  String get sameWifiTv => 'iPhone 与电视连接同一 Wi-Fi';
+
+  @override
+  String get sameWifi => 'iPhone 与本机连接同一 Wi-Fi';
+
+  @override
+  String get controlCenter => '打开控制中心，点按「屏幕镜像」';
+
+  @override
+  String get check => '检查环境';
+
+  @override
+  String get viewLogs => '查看日志';
+
+  @override
+  String get rename => '修改设备名';
+
+  @override
+  String get tvHeading => '用 iPhone 投屏到这台电视';
+
+  @override
+  String get logsShort => '日志';
+
+  @override
+  String get foregroundHelp => '请保持本应用在前台 · 不支持 DRM 内容';
+
+  @override
+  String get receive => '接收投屏';
+
+  @override
+  String get macAudioHelp => '声音由此 Mac 播放 · 不支持 DRM 内容';
+
+  @override
+  String get noLogs => '暂无日志。启动接收后可在这里查看运行情况。';
+
+  @override
+  String get logsCopied => '日志已复制';
+
+  @override
+  String get copyLogs => '复制日志';
+
+  @override
+  String get clear => '清空';
+
+  @override
+  String get back => '返回';
+
+  @override
+  String get confirmBack => '再次返回将断开投屏';
+
+  @override
+  String get playing => 'iPhone · 投屏中';
+
+  @override
+  String get disconnect => '断开投屏';
+
+  @override
+  String get continueWatching => '继续观看';
+
+  @override
+  String get fullscreen => '切换全屏（⌃⌘F）';
+
+  @override
+  String get videoLabel => 'iPhone 投屏画面';
+
+  @override
+  String get name => '设备名';
+
+  @override
+  String get nameHelp => '显示在 iPhone「屏幕镜像」列表中';
+
+  @override
+  String get confirm => '确认';
+
+  @override
+  String get autoStart => '打开应用时自动接收';
+
+  @override
+  String get restartHelp => '修改设备名后会重新启动接收，当前投屏将结束。';
+
+  @override
+  String get advanced => '高级';
+
+  @override
+  String get path => 'UxPlay 路径';
+
+  @override
+  String get pathHelp => '留空使用应用内置接收器';
+
+  @override
+  String get licenses => '开源许可';
+
+  @override
+  String get cancel => '取消';
+
+  @override
+  String get saving => '保存中…';
+
+  @override
+  String get done => '完成';
+
+  @override
+  String get nameRequired => '请输入设备名';
+
+  @override
+  String get nameInvalid => '设备名最多 50 个 UTF-8 字节，不能含换行';
+
+  @override
+  String get nativeError => '原生接收器操作失败';
+
+  @override
+  String get saved => '设置已保存';
+
+  @override
+  String get checkPassed => '依赖检查通过，可以启动接收器';
+
+  @override
+  String selectReceiver(String name) {
+    return '选择「$name」';
+  }
+
+  @override
+  String get discoverable => '可被发现';
+
+  @override
+  String get openControlCenter => '打开 iPhone 控制中心';
+
+  @override
+  String get tapMirroring => '点按「屏幕镜像」';
+
+  @override
+  String get foregroundOnly => '请保持本应用在前台';
+
+  @override
+  String get drmNotice => '不支持 DRM 内容';
+
+  @override
+  String clientConnecting(String name) {
+    return '$name 正在连接…';
+  }
+
+  @override
+  String clientPlaying(String name) {
+    return '$name · 投屏中';
+  }
+
+  @override
+  String get general => '通用';
+
+  @override
+  String get playback => '播放';
+
+  @override
+  String get launchAtLogin => '登录时打开';
+
+  @override
+  String get keepInMenuBar => '关闭窗口后保留在菜单栏';
+
+  @override
+  String get showOnConnect => '收到投屏时显示窗口';
+
+  @override
+  String get fullscreenOnConnect => '投屏时自动全屏';
+
+  @override
+  String get alwaysOnTop => '播放窗口置顶';
+
+  @override
+  String get openApp => '打开 Flutter AirPlay';
+
+  @override
+  String get showPlayer => '显示播放窗口';
+
+  @override
+  String get quitApp => '退出 Flutter AirPlay';
+
+  @override
+  String get about => '关于 Flutter AirPlay';
+
+  @override
+  String get receiverMenu => '接收';
+
+  @override
+  String get viewMenu => '显示';
+
+  @override
+  String get windowMenu => '窗口';
+
+  @override
+  String get helpMenu => '帮助';
+
+  @override
+  String get editMenu => '编辑';
+
+  @override
+  String get hideApp => '隐藏 Flutter AirPlay';
+
+  @override
+  String get hideOthers => '隐藏其他';
+
+  @override
+  String get showAll => '显示全部';
+
+  @override
+  String get actualSize => '实际大小';
+
+  @override
+  String get fitScreen => '适合屏幕';
+
+  @override
+  String get minimize => '最小化';
+
+  @override
+  String get zoom => '缩放';
+
+  @override
+  String get close => '关闭';
+
+  @override
+  String get bringAll => '前置全部';
+
+  @override
+  String get instructions => '使用说明';
+
+  @override
+  String get undo => '撤销';
+
+  @override
+  String get redo => '重做';
+
+  @override
+  String get cut => '剪切';
+
+  @override
+  String get copy => '复制';
+
+  @override
+  String get paste => '粘贴';
+
+  @override
+  String get selectAll => '全选';
+
+  @override
+  String get enterFullscreen => '进入全屏';
+
+  @override
+  String get exitFullscreen => '退出全屏';
+
+  @override
+  String get loginUnavailable => '登录启动需要 macOS 13 或更新版本';
+}

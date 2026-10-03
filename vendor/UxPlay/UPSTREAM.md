@@ -13,6 +13,11 @@ ownership and RTP recovery, embedded Flutter frame transport, and safe cleanup
 of partially initialized receivers and DNS objects. Original source-level
 copyright and license notices are retained.
 
+The UI redesign adds a bounded `AIRPLAY_RECEIVER_EVENT client <name>` event
+for admitted senders. Control bytes are removed so names cannot inject event
+lines. Android receives the same client-request callback through its JNI host;
+client identity never establishes decoded video readiness.
+
 For an upstream update, compare or merge from the base commit, update this
 record, and run the platform builds and native regressions. Keep upstream
 updates separate from feature changes.

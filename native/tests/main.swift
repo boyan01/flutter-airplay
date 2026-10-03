@@ -39,6 +39,9 @@ let video = TestVideoOutput()
 let host = ReceiverHost(bundledPath: mock, inspectorPath: "/usr/bin/true", defaults: defaults)
 host.videoOutput = video
 try host.queue.sync {
+    require(host.snapshot()["autoStart"] as? Bool == true, "auto receive defaults on")
+    try host.save(name: "Saved", path: "", autoStart: false)
+    require(host.snapshot()["autoStart"] as? Bool == false, "auto receive preference persists")
     do { _ = try host.check(path: "/missing/receiver"); require(false, "missing binary rejected") }
     catch { require(error.localizedDescription.contains("找不到"), "missing binary is actionable") }
     do { try host.save(name: "", path: ""); require(false, "invalid name rejected") }
@@ -48,13 +51,23 @@ try host.queue.sync {
 waitFor(host, "waiting")
 let pid = host.queue.sync { host.snapshot()["pid"] as! Int32 }
 try host.queue.sync {
+    try host.save(name: "Living Room; $(touch ignored)", path: "", autoStart: true)
+    require(host.snapshot()["autoStart"] as? Bool == true, "preference-only save does not stop reception")
+    do { try host.save(name: "Changed", path: ""); require(false, "active rename rejected until stopped") }
+    catch { require(true, "active rename requires completed stop") }
     try host.start(name: "duplicate", path: "")
     require(host.snapshot()["pid"] as! Int32 == pid, "duplicate start owns one process")
     host.receiveLine("connection request from iPhone")
     require(host.snapshot()["status"] as! String == "waiting", "connection request does not imply media")
+    host.receiveLine("AIRPLAY_RECEIVER_EVENT client Alice’s iPhone")
+    require(host.snapshot()["clientName"] as? String == "Alice’s iPhone", "sender name reaches shared snapshot")
+    require(host.snapshot()["videoWidth"] as? Int == 0, "connection waits for first decoded frame")
     host.receiveLine("AIRPLAY_RECEIVER_EVENT streaming")
     require(host.snapshot()["status"] as! String == "streaming", "media contract updates streaming")
+    host.videoDimensions(width: 1170, height: 2532)
     host.receiveLine("AIRPLAY_RECEIVER_EVENT waiting")
+    require(host.snapshot()["clientName"] as? String == "", "disconnect clears sender identity")
+    require(host.snapshot()["videoWidth"] as? Int == 0, "disconnect immediately clears native playback state")
     require(video.begins == 1 && video.clears == 1, "Embedded transport begins once and invalidates disconnect")
     host.stop()
     host.stop()
