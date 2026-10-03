@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-3.0-only
+cmake_minimum_required(VERSION 3.22.1)
+project(airplay_linux_regressions C CXX)
+find_package(PkgConfig REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(UXPLAY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/UxPlay")
+set(AIRPLAY_DNS_STUB ON)
+set(AIRPLAY_BUILD_TESTS OFF)
+add_subdirectory(../../native native)
+enable_testing()
+add_executable(linux_player_tests player_test.cpp)
+target_include_directories(linux_player_tests PRIVATE ../../native/player ../../native/player-tests)
+target_link_libraries(linux_player_tests PRIVATE airplay_player)
+add_test(NAME linux_playback COMMAND linux_player_tests)
+add_executable(linux_session_tests session_test.cpp)
+target_include_directories(linux_session_tests PRIVATE ../../native/player ../../native/player-tests)
+target_link_libraries(linux_session_tests PRIVATE airplay_player receiver_core)
+add_test(NAME linux_sender_resume COMMAND linux_session_tests)
+add_executable(linux_audio_decoder_tests audio_decoder_test.cpp)
+target_include_directories(linux_audio_decoder_tests PRIVATE ../../native/player ../../native/player-tests)
+target_link_libraries(linux_audio_decoder_tests PRIVATE airplay_player)
+add_test(NAME linux_audio_decode_recovery COMMAND linux_audio_decoder_tests)
+add_executable(linux_video_tests video_test.cpp)
+target_include_directories(linux_video_tests PRIVATE ../../native/player ../../native/player-tests)
+target_link_libraries(linux_video_tests PRIVATE airplay_player)
+add_test(NAME linux_generate_video_fixtures COMMAND bash
+  ${CMAKE_CURRENT_SOURCE_DIR}/generate_video_fixtures.sh ${CMAKE_CURRENT_BINARY_DIR}/video-fixtures)
+set_tests_properties(linux_generate_video_fixtures PROPERTIES FIXTURES_SETUP video-fixtures)
+add_test(NAME linux_video_reorder_recovery COMMAND linux_video_tests ${CMAKE_CURRENT_BINARY_DIR}/video-fixtures)
+set_tests_properties(linux_video_reorder_recovery PROPERTIES FIXTURES_REQUIRED video-fixtures)
+add_executable(linux_audio_output_tests audio_output_test.cpp)
+target_include_directories(linux_audio_output_tests PRIVATE ../../native/player)
+target_link_libraries(linux_audio_output_tests PRIVATE airplay_player)
+add_test(NAME linux_audio_unavailable_cleanup COMMAND linux_audio_output_tests)
+
+# Flutter publishes the C embedding headers/library while building the root app.
+# The core-only suite remains usable before the Flutter SDK is installed.
+set(AIRPLAY_FLUTTER_ENGINE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../flutter/ephemeral" CACHE PATH
+  "Directory containing flutter_linux/ and libflutter_linux_gtk.so")
+if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+  pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+  pkg_check_modules(AVAHI REQUIRED IMPORTED_TARGET avahi-client)
+  add_executable(linux_host_tests host_test.cc ../runner/receiver_host.cc
+    ../runner/frame_texture.cc ../runner/discovery.cc)
+  target_include_directories(linux_host_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
+  target_link_libraries(linux_host_tests PRIVATE airplay_player PkgConfig::GTK PkgConfig::AVAHI
+    "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+  add_test(NAME linux_flutter_host_lifecycle COMMAND linux_host_tests)
+  # Developer-only fixture; not installed in the product bundle or run by CTest.
+  add_executable(linux_synthetic_demo synthetic_demo.cc ../runner/frame_texture.cc ../runner/window_channel.cc)
+  target_include_directories(linux_synthetic_demo PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
+  target_link_libraries(linux_synthetic_demo PRIVATE airplay_player PkgConfig::GTK
+    "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+else()
+  message(STATUS "Flutter host tests unavailable: build the Linux Flutter app first, then reconfigure")
+endif()

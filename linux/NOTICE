@@ -1,0 +1,22 @@
+Flutter AirPlay Linux host
+
+Project source is licensed under GPL-3.0-only, except files with their own
+notices. Existing UxPlay, Apple ALAC and AAC configuration acknowledgements are
+preserved in the root THIRD_PARTY_NOTICES.md and bundled license assets.
+
+Linux links distribution-provided libraries rather than vendoring their code:
+- FFmpeg libavcodec, libavutil, libswscale, libswresample:
+  https://ffmpeg.org/legal.html
+  Most FFmpeg code is LGPL-2.1-or-later; optional components change the effective
+  build license to GPL. Check the chosen distribution's build/license notices.
+  No FDK-AAC dependency is used.
+- GTK 3 / GLib: LGPL-2.1-or-later, https://www.gtk.org/
+- PulseAudio: LGPL-2.1-or-later client libraries, https://www.freedesktop.org/wiki/Software/PulseAudio/
+- Avahi: LGPL-2.1-or-later, https://avahi.org/
+- OpenSSL: Apache-2.0 for OpenSSL 3, https://www.openssl.org/source/license.html
+- libplist: LGPL-2.1-or-later, https://github.com/libimobiledevice/libplist
+
+Use the exact licenses and notices from the packages you distribute. A build
+that relies on installed system libraries must declare those runtime package
+dependencies. Bundling third-party libraries requires retaining their licenses,
+notices and any source-offer obligations.
