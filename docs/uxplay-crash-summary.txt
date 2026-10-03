@@ -1,0 +1,34 @@
+uxplay-2026-10-03-112310.ips
+exception: {'codes': '0x0000000000000001, 0x0000758075807590', 'rawCodes': [1, 129194587616656], 'type': 'EXC_BAD_ACCESS', 'signal': 'SIGSEGV', 'subtype': 'KERN_INVALID_ADDRESS at 0x0000758075807590'}
+queue: com.Metal.CompletionQueueDispatch
+libobjcMsgSend4.dylib objc_msgSend
+IOGPU IOGPUMetalCommandBufferStorageReset
+IOGPU IOGPUMetalCommandBufferStorageDealloc
+IOGPU -[IOGPUMetalCommandBuffer didCompleteWithStartTime:endTime:error:]
+Metal -[_MTLCommandQueue commandBufferDidComplete:startTime:completionTime:error:]
+IOGPU IOGPUNotificationQueueDispatchAvailableCompletionNotifications
+IOGPU __IOGPUNotificationQueueSetDispatchQueue_block_invoke
+libdispatch.dylib _dispatch_client_callout4
+libdispatch.dylib _dispatch_mach_msg_invoke
+libdispatch.dylib _dispatch_lane_serial_drain
+libdispatch.dylib _dispatch_mach_invoke
+libdispatch.dylib _dispatch_lane_serial_drain
+libdispatch.dylib _dispatch_lane_invoke
+libdispatch.dylib _dispatch_lane_serial_drain
+uxplay-2026-10-03-112320.ips
+exception: {'codes': '0x0000000000000001, 0x00004e804f805090', 'rawCodes': [1, 86312996589712], 'type': 'EXC_BAD_ACCESS', 'signal': 'SIGSEGV', 'subtype': 'KERN_INVALID_ADDRESS at 0x00004e804f805090'}
+queue: com.apple.main-thread
+libobjcMsgSend14.dylib objc_msgSend
+AGXMetalG14X AGX::RenderCounterSamplingContextGen1::RenderCounterSamplingContextGen1(MTLRenderPassDescriptorPrivate const*)
+AGXMetalG14X -[AGXG14XFamilyRenderContext initWithCommandBuffer:descriptor:subEncoderIndex:framebuffer:]
+AGXMetalG14X -[AGXG14XFamilyCommandBuffer renderCommandEncoderWithDescriptor:]
+AppleMetalOpenGLRenderer GLDContextRec::beginRenderPass()
+AppleMetalOpenGLRenderer gldBeginPrimitiveBuffer(GLDContextRec*, unsigned int, int*)
+GLEngine gleBeginPrimitiveTCLFunc
+libgstosxvideo.dylib -[GstGLView drawQuad]
+libgstosxvideo.dylib -[GstGLView drawRect:]
+libgstosxvideo.dylib -[GstGLView displayTexture]
+libgstosxvideo.dylib -[GstOSXVideoSinkObject showFrame:]
+Foundation __NSThreadPerformPerform
+CoreFoundation __CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__
+CoreFoundation __CFRunLoopDoSource0

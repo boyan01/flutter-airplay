@@ -1,0 +1,463 @@
+diff --git a/lib/raop_rtp.c b/lib/raop_rtp.c
+index 64eb7fb..cfd8c7f 100644
+--- a/lib/raop_rtp.c
++++ b/lib/raop_rtp.c
+@@ -386,6 +386,8 @@ raop_rtp_thread_udp(void *arg)
+     socklen_t saddrlen = 0;
+     bool got_remote_control_saddr = false;
+     uint64_t video_arrival_offset = 0;
++    uint64_t diagnostic_time = raop_ntp_get_local_time();
++    unsigned long audio_packets = 0, empty_packets = 0, forwarded_frames = 0;
+ 
+     /* initial audio stream has no data */    
+     unsigned char no_data_marker[] = {0x00, 0x68, 0x34, 0x00 };
+@@ -421,6 +423,15 @@ raop_rtp_thread_udp(void *arg)
+             break;
+         }
+ 
++        /* Aggregate metadata only; do not enable key/media-bearing debug logging. */
++        uint64_t diagnostic_now = raop_ntp_get_local_time();
++        if (diagnostic_now - diagnostic_time >= 5ULL * SEC) {
++            diagnostic_time = diagnostic_now;
++            logger_log(raop_rtp->logger, LOGGER_INFO,
++                       "Audio transport: ct=%u packets=%lu no_data=%lu forwarded=%lu synced=%d",
++                       raop_rtp->ct, audio_packets, empty_packets, forwarded_frames, raop_rtp->initial_sync);
++        }
++
+         /* Set timeout value to 5ms */
+         tv.tv_sec = 0;
+         tv.tv_usec = 5000;
+@@ -568,6 +579,7 @@ raop_rtp_thread_udp(void *arg)
+             //int type_d = packet[1] & ~0x80;
+             //logger_log(raop_rtp->logger, LOGGER_DEBUG, "raop_rtp_thread_udp type_d 0x%02x, packetlen = %d", type_d, packetlen);
+ 	    
++            audio_packets++;
+             if (packetlen < 12)  {
+                 if (logger_debug) {
+                     char *str = utils_data_to_string(packet, packetlen, 16);
+@@ -589,6 +601,7 @@ raop_rtp_thread_udp(void *arg)
+             }	    
+ 
+             if (packetlen == 12 ||(packetlen == 16 && memcmp(packet + 12, no_data_marker, 4) == 0)) {
++                empty_packets++;
+                 /* this is a "no data" packet */
+ 	        /* the first such packet could be used to provide the initial rtptime and seqnum formerly given in the RECORD request */
+                 continue;
+@@ -628,6 +641,7 @@ raop_rtp_thread_udp(void *arg)
+                                    (double) audio_data.ntp_time_remote /SEC, rtp_timestamp, seqnum, type, payload_size);
+                     }
+ 
++                    forwarded_frames++;
+                     raop_rtp->callbacks.audio_process(raop_rtp->callbacks.cls, raop_rtp->ntp, &audio_data);
+                     free(payload);
+                 }
+@@ -684,6 +698,12 @@ raop_rtp_start_audio(raop_rtp_t *raop_rtp,  unsigned short *control_rport, unsig
+     }
+     *control_lport = raop_rtp->control_lport;
+     *data_lport = raop_rtp->data_lport;
++    /* A restarted audio stream has a new RTP epoch. Do not reuse an old sync anchor. */
++    raop_rtp->initial_sync = false;
++    raop_rtp->rtp_sync = 0;
++    raop_rtp->client_ntp_sync = 0;
++    logger_log(raop_rtp->logger, LOGGER_INFO, "Audio transport: reset RTP timing for new stream");
++
+     /* Create the thread and initialize running values */
+     raop_rtp->running = 1;
+     raop_rtp->joined = 0;
+diff --git a/renderers/audio_renderer.c b/renderers/audio_renderer.c
+index ddcd14e..b48d32f 100644
+--- a/renderers/audio_renderer.c
++++ b/renderers/audio_renderer.c
+@@ -24,6 +24,7 @@
+ #include <gst/gst.h>
+ #include <gst/app/gstappsrc.h>
+ #include "audio_renderer.h"
++#include "receiver_diagnostics.h"
+ #define SECOND_IN_NSECS 1000000000UL
+ 
+ #define NFORMATS 2     /* set to 4 to enable AAC_LD and PCM:  allowed, but  never seen in real-world use */
+@@ -48,10 +49,43 @@ typedef struct audio_renderer_s {
+     GstElement *volume;
+     GstBus *bus;
+     unsigned char ct;
++    gint encoded_buffers;
++    gint decoded_buffers;
++    gint push_failures;
++    gint64 diagnostic_time;
++    gint rejected_timestamps;
++    gint next_discontinuity;
++    gint64 rejection_time;
+ } audio_renderer_t ;
+ static audio_renderer_t *renderer_type[NFORMATS];
+ static audio_renderer_t *renderer = NULL;
+ 
++/* Low-rate diagnostics contain counters and signal levels, never media or keys. */
++static GstPadProbeReturn count_decoded_audio(GstPad *pad, GstPadProbeInfo *info, gpointer data) {
++    audio_renderer_t *audio = data;
++    if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER) {
++        g_atomic_int_inc(&audio->decoded_buffers);
++    }
++    return GST_PAD_PROBE_OK;
++}
++
++static void report_audio_input(audio_renderer_t *audio, guint64 timestamp) {
++    gint64 now = g_get_monotonic_time();
++    if (now - audio->diagnostic_time < 5 * G_USEC_PER_SEC) return;
++    audio->diagnostic_time = now;
++    gdouble volume = 0.0;
++    GstState state = GST_STATE_NULL;
++    GstState pending = GST_STATE_VOID_PENDING;
++    g_object_get(audio->volume, "volume", &volume, NULL);
++    gst_element_get_state(audio->pipeline, &state, &pending, 0);
++    logger_log(logger, LOGGER_INFO,
++               "Audio diagnostic: ct=%u encoded=%d decoded=%d push_errors=%d volume=%.3f state=%s pending=%s",
++               audio->ct, g_atomic_int_get(&audio->encoded_buffers),
++               g_atomic_int_get(&audio->decoded_buffers), g_atomic_int_get(&audio->push_failures),
++               volume, gst_element_state_get_name(state), gst_element_state_get_name(pending));
++    receiver_report_timing(logger, "audio", audio->pipeline, audio->appsrc, "audio_queue", timestamp, sync);
++}
++
+ /* GStreamer Caps strings for Airplay-defined audio compression types (ct) */
+ 
+ /* ct = 1; linear PCM (uncompressed): 44100/16/2, S16LE */
+@@ -145,7 +179,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
+         renderer_type[i] = (audio_renderer_t *)  calloc(1,sizeof(audio_renderer_t));
+         g_assert(renderer_type[i]);
+         GString *launch = g_string_new("appsrc name=audio_source ! ");
+-        g_string_append(launch, "queue ! ");
++        g_string_append(launch, "queue name=audio_queue ! ");
+         switch (i) {
+         case 0:    /* AAC-ELD */
+         case 2:    /* AAC-LC */
+@@ -161,11 +195,11 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
+         }
+         g_string_append (launch, "audioconvert ! ");
+         g_string_append (launch, "audioresample quality=10 ! ");    /* maximum resampling quality for 44.1kHz -> 48kHz audio */
+-        g_string_append (launch, "volume name=volume ! ");
++        g_string_append (launch, "level name=decoded_level interval=5000000000 ! volume name=volume ! ");
+ 
+         if (!audio_rtp) {
+             /* Normal path: local audio output */
+-            g_string_append (launch, "level ! ");
++            g_string_append (launch, "level name=output_level interval=5000000000 ! ");
+             g_string_append (launch, audiosink);
+             switch(i) {
+             case 1:  /*ALAC*/
+@@ -205,6 +239,9 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
+         renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
+         renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "audio_source");
+         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
++        GstPad *decoded_pad = gst_element_get_static_pad(renderer_type[i]->volume, "sink");
++        gst_pad_add_probe(decoded_pad, GST_PAD_PROBE_TYPE_BUFFER, count_decoded_audio, renderer_type[i], NULL);
++        gst_object_unref(decoded_pad);
+         switch (i) {
+         case 0:
+             caps =  gst_caps_from_string(aac_eld_caps);
+@@ -234,8 +271,8 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
+         g_string_free(launch, TRUE);
+         g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
+         gst_caps_unref(caps);
+-        g_object_unref(clock);
+     }
++    g_object_unref(clock);
+ }
+ 
+ void audio_renderer_stop() {
+@@ -286,19 +323,22 @@ void  audio_renderer_start(unsigned char *ct) {
+     int id = -1;
+     get_renderer_type(ct, &id);
+     if (id >= 0 && renderer) {
+-        if(*ct != renderer->ct) {
++        if (*ct == renderer->ct) {
++            /* SETUP can restart an RTP stream without changing its codec. */
++            audio_renderer_flush();
++        } else {
+             gst_app_src_end_of_stream(GST_APP_SRC(renderer->appsrc));
+             gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
+             logger_log(logger, LOGGER_INFO, "changed audio connection, format %s", format[id]);
+             renderer = renderer_type[id];
+             gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+-            gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
++            gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->pipeline);
+         }
+     } else if (id >= 0) {
+         logger_log(logger, LOGGER_INFO, "start audio connection, format %s", format[id]);
+         renderer = renderer_type[id];
+         gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+-        gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
++        gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->pipeline);
+     } else {
+         logger_log(logger, LOGGER_ERR, "unknown audio compression type ct = %d", *ct);
+     }
+@@ -307,9 +347,27 @@ void  audio_renderer_start(unsigned char *ct) {
+ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time) {
+     GstBuffer *buffer = NULL;
+ 
+-    if (!render_audio) return;    /* do nothing unless render_audio == TRUE */
++    if (!render_audio || !renderer || !data_len || *data_len <= 0 || !data) return;
+ 
+     GstClockTime pts = (GstClockTime) *ntp_time ;    /* now in nsecs */
++    if (sync && renderer->ct == 8) {
++        /* Mirror audio is live. A stale RTP epoch must never hold the sink for hours.
++         * Reject outliers rather than retiming them or shifting the video clock. */
++        GstClockTime now = gst_element_get_current_clock_time(renderer->pipeline);
++        gint64 lead = (gint64) pts - (gint64) now;
++        if (lead > 2 * (gint64) GST_SECOND || lead < -(gint64) GST_SECOND) {
++            g_atomic_int_inc(&renderer->rejected_timestamps);
++            g_atomic_int_set(&renderer->next_discontinuity, TRUE);
++            gint64 report_time = g_get_monotonic_time();
++            if (report_time - renderer->rejection_time >= 5 * G_USEC_PER_SEC) {
++                renderer->rejection_time = report_time;
++                logger_log(logger, LOGGER_WARNING,
++                           "Audio recovery: rejected out-of-window AAC-ELD timestamp lead_ms=%.1f total=%d",
++                           (double) lead / GST_MSECOND, g_atomic_int_get(&renderer->rejected_timestamps));
++            }
++            return;
++        }
++    }
+     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
+     if (sync) {
+         if (pts >= gst_audio_pipeline_base_time) {
+@@ -320,7 +378,6 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
+             return;
+         }
+     }
+-    if (data_len == 0 || renderer == NULL) return;
+ 
+     /* all audio received seems to be either ct = 8 (AAC_ELD 44100/2 spf 460 ) AirPlay Mirror protocol *
+      * or ct = 2 (ALAC 44100/16/2 spf 352) AirPlay protocol.                                           *
+@@ -335,6 +392,7 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
+     if (sync) {
+         GST_BUFFER_PTS(buffer) = pts;
+     }
++    if (renderer->ct == 8) GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale(480, GST_SECOND, 44100);
+     gst_buffer_fill(buffer, 0, data, *data_len);
+     bool valid = false;
+     switch (renderer->ct){
+@@ -364,10 +422,16 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
+         break;
+     }
+     if (valid) {
+-        gst_app_src_push_buffer(GST_APP_SRC(renderer->appsrc), buffer);
++        if (g_atomic_int_compare_and_exchange(&renderer->next_discontinuity, TRUE, FALSE)) {
++            GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_DISCONT);
++        }
++        g_atomic_int_inc(&renderer->encoded_buffers);
++        GstFlowReturn result = gst_app_src_push_buffer(GST_APP_SRC(renderer->appsrc), buffer);
++        if (result != GST_FLOW_OK) g_atomic_int_inc(&renderer->push_failures);
++        report_audio_input(renderer, *ntp_time);
+     } else {
+         logger_log(logger, LOGGER_ERR, "*** ERROR invalid  audio frame (compression_type %d) skipped ", renderer->ct);
+-        logger_log(logger, LOGGER_ERR, "***       first byte of invalid frame was  0x%2.2x ", (unsigned int) data[0]);
++        gst_buffer_unref(buffer);
+     }
+ }
+ 
+@@ -378,9 +442,19 @@ void audio_renderer_set_volume(double volume) {
+     volume = (volume > 10.0) ? 10.0 : volume;
+     volume = (volume < 0.0) ? 0.0 : volume;
+     g_object_set(renderer->volume, "volume", volume, NULL);
++    logger_log(logger, LOGGER_INFO, "Audio diagnostic: client volume=%.3f%s", volume,
++               volume == 0.0 ? " (muted by sender)" : "");
+ }
+ 
+ void audio_renderer_flush() {
++    if (!renderer) return;
++    /* READY cancels clock waits and clears appsrc, decoder and audio-device queues.
++     * Keep the user's volume and shared clock; only restart this audio pipeline. */
++    gst_element_set_state(renderer->pipeline, GST_STATE_READY);
++    gst_element_set_state(renderer->pipeline, GST_STATE_PLAYING);
++    gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->pipeline);
++    g_atomic_int_set(&renderer->next_discontinuity, TRUE);
++    logger_log(logger, LOGGER_INFO, "Audio recovery: flushed playback for new stream/FLUSH");
+ }
+ 
+ void audio_renderer_destroy() {
+@@ -418,9 +492,20 @@ static gboolean gstreamer_audio_pipeline_bus_callback(GstBus *bus, GstMessage *m
+     case GST_MESSAGE_EOS:
+         logger_log(logger, LOGGER_INFO, "GStreamer: End-Of-Stream (audio)");
+         break;
+-    case GST_MESSAGE_ELEMENT:
+-      // many "level" messages may be sent
++    case GST_MESSAGE_ELEMENT: {
++        const GstStructure *structure = gst_message_get_structure(message);
++        if (structure && gst_structure_has_name(structure, "level")) {
++            const GValue *value = gst_structure_get_value(structure, "rms");
++            const GValueArray *levels = value && G_VALUE_HOLDS_BOXED(value) ? g_value_get_boxed(value) : NULL;
++            if (levels && levels->n_values > 0) {
++                gdouble left = g_value_get_double(&levels->values[0]);
++                gdouble right = levels->n_values > 1 ? g_value_get_double(&levels->values[1]) : left;
++                logger_log(logger, LOGGER_INFO, "Audio diagnostic: %s RMS(dB)=%.1f,%.1f",
++                           GST_MESSAGE_SRC_NAME(message), left, right);
++            }
++        }
+         break;
++    }
+     default:
+         /* unhandled message */
+         logger_log(logger, LOGGER_DEBUG,"GStreamer unhandled audio bus message: src = %s type = %s",
+diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
+index 6f4a5ff..10306a3 100644
+--- a/renderers/video_renderer.c
++++ b/renderers/video_renderer.c
+@@ -23,6 +23,7 @@
+ #include <gst/gst.h>
+ #include <gst/app/gstappsrc.h>
+ #include "video_renderer.h"
++#include "receiver_diagnostics.h"
+ 
+ #define SECOND_IN_NSECS 1000000000UL
+ #define SECOND_IN_MICROSECS 1000000
+@@ -86,6 +87,7 @@ struct video_renderer_s {
+     gboolean eos;
+     gint64 duration;
+     gint buffering_level;
++    gint64 diagnostic_time;
+ #ifdef  X_DISPLAY_FIX
+     bool use_x11;
+     const char * server_name;
+@@ -361,7 +363,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
+             if (jpeg_pipeline) {
+                 g_string_append(launch, "jpegdec ");
+             } else {
+-                g_string_append(launch, "queue ! ");
++                g_string_append(launch, "queue name=video_queue ! ");
+                 g_string_append(launch, parser);
+                 g_string_append(launch, " ! ");
+                 if (!rtp) {
+@@ -645,6 +647,12 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+         }
+         gst_buffer_fill(buffer, 0, data, *data_len);
+         gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
++        gint64 now = g_get_monotonic_time();
++        if (now - renderer->diagnostic_time >= 5 * G_USEC_PER_SEC) {
++            renderer->diagnostic_time = now;
++            receiver_report_timing(logger, "video", renderer->pipeline, renderer->appsrc,
++                                   "video_queue", *ntp_time, sync);
++        }
+ #ifdef X_DISPLAY_FIX
+         if (renderer->gst_window && !(renderer->gst_window->window) && renderer->use_x11) {
+             X11_search_attempts++;
+diff --git a/uxplay.cpp b/uxplay.cpp
+index fad6c1e..027120a 100644
+--- a/uxplay.cpp
++++ b/uxplay.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ /**
+  * RPiPlay - An open-source AirPlay mirroring server for Raspberry Pi
+  * Copyright (C) 2019 Florian Draschbacher
+@@ -2222,6 +2223,17 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
+     }
+ }
+ 
++// Airplay Receiver integration: small, versioned process event contract.
++// Media handling stays native in UxPlay and GStreamer.
++static std::atomic<bool> receiver_media_active(false);
++static void receiver_event(const char *event) {
++    fprintf(stderr, "AIRPLAY_RECEIVER_EVENT %s\n", event);
++    fflush(stderr);
++}
++static void receiver_media_started() {
++    if (!receiver_media_active.exchange(true)) receiver_event("streaming");
++}
++
+ extern "C" void conn_init (void *cls) {
+     open_connections++;
+     LOGD("Open connections: %i", open_connections);
+@@ -2233,6 +2245,8 @@ extern "C" void conn_destroy (void *cls) {
+     open_connections--;
+     LOGD("Open connections: %i", open_connections);
+     if (open_connections == 0) {
++        receiver_media_active.store(false);
++        receiver_event("waiting");
+         remote_clock_offset = 0;
+         if (use_audio) {
+             audio_renderer_stop();
+@@ -2252,6 +2266,8 @@ extern "C" void conn_feedback (void *cls) {
+ }
+ 
+ extern "C" void conn_reset (void *cls, int reason) {
++    receiver_media_active.store(false);
++    receiver_event("waiting");
+     switch (reason) {
+     case 1:
+         LOGI("*** ERROR lost connection with client (network problem?)");
+@@ -2293,6 +2309,7 @@ extern "C" void report_client_request(void *cls, char *deviceid, char * model, c
+ }
+ 
+ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
++    if (data->data_len > 0) receiver_media_started();
+     if (dump_audio) {
+         dump_audio_to_file(data->data, data->data_len, (data->data)[0] & 0xf0);
+     }
+@@ -2328,6 +2345,7 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
+ }
+ 
+ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *data) {
++    if (data->data_len > 0) receiver_media_started();
+     if (dump_video) {
+         dump_video_to_file(data->data, data->data_len);
+     }
+@@ -2911,6 +2929,8 @@ int main (int argc, char *argv[]) {
+     }
+     
+     char *rcfile = NULL;
++    // Flush normal logs promptly when launched with pipes by the Flutter host.
++    setvbuf(stdout, NULL, _IOLBF, 0);
+     /* see if option -rc was given */
+     for (int i = 1; i < argc ; i++) {
+         std::string arg(argv[i]);
+@@ -3228,6 +3248,7 @@ int main (int argc, char *argv[]) {
+         stop_dnssd();
+         cleanup();
+     }
++    receiver_event("ready");
+     reconnect:
+     compression_type = 0;
+     close_window = new_window_closing_behavior;
+diff --git a/renderers/receiver_diagnostics.h b/renderers/receiver_diagnostics.h
+new file mode 100644
+index 0000000..818fed2
+--- /dev/null
++++ b/renderers/receiver_diagnostics.h
+@@ -0,0 +1,39 @@
++/* Airplay Receiver local integration. GPL-3.0-or-later; see ../LICENSE. */
++#ifndef RECEIVER_DIAGNOSTICS_H
++#define RECEIVER_DIAGNOSTICS_H
++#include <gst/gst.h>
++#include "../lib/logger.h"
++
++/* Metadata only. PTS lead is scheduled absolute time minus the shared clock. */
++static inline void receiver_report_timing(logger_t *log, const char *media,
++                                         GstElement *pipeline, GstElement *source,
++                                         const char *queue_name, guint64 timestamp,
++                                         gboolean synchronized) {
++    GstClock *clock = gst_element_get_clock(pipeline);
++    if (!clock) return;
++    GstClockTime now = gst_clock_get_time(clock);
++    GstClockTime base = gst_element_get_base_time(source);
++    guint64 source_time = 0, source_bytes = 0, queue_time = 0;
++    g_object_get(source, "current-level-bytes", &source_bytes, NULL);
++    if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "current-level-time")) {
++        g_object_get(source, "current-level-time", &source_time, NULL);
++    }
++    GstElement *queue = gst_bin_get_by_name(GST_BIN(pipeline), queue_name);
++    if (queue) {
++        g_object_get(queue, "current-level-time", &queue_time, NULL);
++        gst_object_unref(queue);
++    }
++    gboolean live = FALSE;
++    GstClockTime minimum = 0, maximum = GST_CLOCK_TIME_NONE;
++    GstQuery *latency = gst_query_new_latency();
++    if (gst_element_query(pipeline, latency)) gst_query_parse_latency(latency, &live, &minimum, &maximum);
++    gst_query_unref(latency);
++    logger_log(log, LOGGER_INFO,
++               "Sync diagnostic: %s sync=%d clock=%s pts_lead_ms=%.1f base_ms=%.1f appsrc_ms=%.1f queue_ms=%.1f queued_bytes=%" G_GUINT64_FORMAT " min_latency_ms=%.1f",
++               media, synchronized, GST_OBJECT_NAME(clock),
++               (double) ((gint64) timestamp - (gint64) now) / GST_MSECOND,
++               (double) base / GST_MSECOND, (double) source_time / GST_MSECOND,
++               (double) queue_time / GST_MSECOND, source_bytes, (double) minimum / GST_MSECOND);
++    gst_object_unref(clock);
++}
++#endif
