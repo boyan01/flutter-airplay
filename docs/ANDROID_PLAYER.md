@@ -91,7 +91,9 @@ verification; successful installation and launch on a physical Xiaomi 14
 both NSD registrations completed, showing **Flutter AirPlay Android** as its
 receiver name. App-scoped runtime logs contained no crash at startup. This
 is actual receiver startup/discovery observation, not an iPhone playback claim.
-No iPhone frame, sound or synchronization observation has been completed here.
+After the discovery correction below, the user confirmed actual iPhone
+discovery/connection, visible mirrored image and audible sound. Synchronization,
+rotation, reconnect and sustained-playback acceptance remain separate.
 
 The APK contains only arm64 native libraries (receiver/player, Flutter app,
 Flutter engine), nine bundled license files, and is 26,746,428 bytes.
@@ -102,5 +104,15 @@ UxPlay's feature table defines bit 7 as screen mirroring; HLS uses bits 0/4.
 Version 0.1.1+2 retains bit 7, disables HLS 0/4 and HEVC 42. The updated APK
 was installed and restarted on the physical device. An independent LAN DNS-SD
 lookup confirmed `features=0x5A7FFEE6,0x0` (initial incorrect value
-`0x5A7FFE66,0x0`) and a reachable advertised TCP endpoint. User confirmation
-of iPhone discovery/connection and playback is still pending.
+`0x5A7FFE66,0x0`) and a reachable advertised TCP endpoint. The user subsequently confirmed: **已看到并连接，有画面和声音**. This
+is real user acceptance of discovery, connection, image and sound on the
+connected physical device, rather than a synthetic playback claim.
+
+Integration checkpoint: merged macOS main commit
+`ff019a9d5f66aec45c24d259c4916fd4f5783d4e` in order, with no conflicts or
+manual shared Dart/Mac changes. Rebuilt Android foundation/player native
+libraries; shared Flutter analyze is clean and all nine shared widget tests
+pass. Mac native/playback code was not independently changed by this branch.
+The installed Android host remains isolated under `android-player/`; adapting
+its channel names/event schema to `org.airplayreceiver/control` and
+`org.airplayreceiver/events` is needed before using the main Dart UI directly.
