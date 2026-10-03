@@ -2,6 +2,11 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
+  override func close() {
+    (NSApp.delegate as? AppDelegate)?.receiver.dispose()
+    super.close()
+  }
+
   override func awakeFromNib() {
     let controller = FlutterViewController()
     contentViewController = controller
@@ -9,7 +14,7 @@ class MainFlutterWindow: NSWindow {
     minSize = NSSize(width: 760, height: 650)
     center()
     RegisterGeneratedPlugins(registry: controller)
-    (NSApp.delegate as? AppDelegate)?.receiver.install(on: controller.engine.binaryMessenger)
+    (NSApp.delegate as? AppDelegate)?.receiver.install(on: controller.engine.binaryMessenger, textures: controller.engine)
     super.awakeFromNib()
   }
 }

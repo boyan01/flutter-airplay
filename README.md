@@ -1,8 +1,9 @@
 # Flutter AirPlay
 
-第一阶段的 GPLv3 开源 iPhone 投屏接收器：Flutter 负责设备名、启动/停止、状态与日志，
-Swift 管理 UxPlay 子进程，UxPlay + GStreamer 在独立窗口显示画面并播放音频。
-**本阶段没有把画面嵌入 Flutter。** 只面向同局域网；不支持 DRM 内容，不承诺点对点连接。
+GPLv3 开源 iPhone 投屏接收器：Flutter 负责设备名、启动/停止、状态与日志，
+Swift 管理 UxPlay 子进程，并将 GStreamer 解码帧显示为 FlutterTexture；音频由 macOS 播放。
+应用内预览支持全屏与横竖屏比例变化；macOS 产品只维护内嵌显示路径。
+只面向同局域网；不支持 DRM 内容，不承诺点对点连接。
 
 ## 本机直接运行
 
@@ -14,7 +15,9 @@ open "build/macos/Build/Products/Release/Flutter AirPlay.app"
 
 在界面点击“启动接收”，允许 macOS 局域网访问提示（如果出现）。
 iPhone 与 Mac 连接同一局域网，打开控制中心 → 屏幕镜像 → 选择界面中的设备名。
-连接后会另开视频窗口；声音由 Mac 播放。点击“停止接收”或退出主应用会清理接收进程。
+默认在应用内预览画面；点击预览右上角展开，Esc 返回，也可用 macOS 窗口全屏按钮。
+声音由 Mac 播放。
+点击“停止接收”、关闭主窗口或退出主应用会清理接收进程与本地帧通道。
 设备名与可选的核心路径保存在本应用自己的 UserDefaults；停止后可修改。
 
 ## 从源码构建
@@ -43,6 +46,7 @@ Homebrew uxplay 不提供事件协议，会明确报告启动超时。
 flutter analyze
 flutter test
 ./scripts/test_native.sh "$PWD/native/receiver/uxplay"
+./scripts/test_frames.sh # Appsink/socket/CVPixelBuffer lifecycle and malformed/slow-reader checks
 ./scripts/test_audio.sh # This machine: Homebrew, synthetic ALAC to fakesink
 ./scripts/test_sync.sh # Synthetic real renderers: shared clock + PTS scheduling
 ./scripts/test_rtp.sh # Real loopback RTP stream restart epoch
@@ -54,8 +58,9 @@ flutter test
 ## 实现边界
 
 - Flutter 的 ReceiverModel / ReceiverRepository 与 Swift 原生 Process 边界分离。
-  目前不引入多平台框架。将来内嵌可在 macOS 原生层对接 Texture、CVPixelBuffer /
-  VideoToolbox，并保持接收会话与播放生命周期的边界；尚未实现这些接口。
+  macOS 使用软件 H.264 解码 → BGRA appsink → 有界私有 Unix socket → IOSurface
+  CVPixelBuffer → FlutterTexture。接收和原生音频/时钟保持独立；目前会复制像素，
+  未实现 VideoToolbox 硬件解码或零拷贝。大尺寸流的 CPU/内存/可见延迟仍需真机测量。
 - ready 表示接收器已创建服务并提交 Bonjour 注册。streaming 只在 UxPlay 收到非空
   音频/视频数据后触发；并不证明视频已经成功解码、所有帧已显示或声音可听。
   断开/网络重置回到 waiting。日志保留最多 300 行，不落盘，复制日志前可自行查看内容。
@@ -67,12 +72,16 @@ flutter test
 ## 已验证与后续工作
 
 原型已由用户确认真实 iPhone 能显示画面和播放音频。首轮连接曾遇到旧 osxvideosink
-崩溃，当前使用软件 H.264 解码 + glimagesink 绕开该路径。恢复共享时钟同步，并修复
+崩溃，原型曾使用软件 H.264 解码 + glimagesink 绕开该路径；当前应用改为内嵌 appsink。
+恢复共享时钟同步，并修复
 音频重新 SETUP 时复用旧 RTP 时间基准导致停止出声的问题；合成回归覆盖恢复行为。
 真实设备长时间播放、切视频、暂停/拖动及多次重连仍需要继续验收。
 
-目前正在实现 Flutter Texture 内嵌视频，独立窗口会保留作为回退。Android 接收与播放
-尚未实现；参考项目的存在不代表本项目已经支持 Android。
+FlutterTexture 内嵌路径已通过实际 H.264 renderer 合成帧与 CUA 可见横竖屏、全屏、
+启停和退出检查。这些合成结果不能代表新版真实 iPhone 音画/同步/稳定性验收。
+新版有真实 iPhone 连接及解码事件，但用户的音画确认仍待记录；观察到 IPv6 NTP
+“无路由”日志，未改变任何系统网络设置。Android 在独立工作流开发，尚未集成到本应用；
+参考项目或独立基础模块不代表当前应用已经支持 Android。
 
 ## 打包与权限限制
 

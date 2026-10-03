@@ -27,7 +27,17 @@ trap 'exit 0' TERM
 while true; do sleep 0.1; done
 """.write(toFile: mock, atomically: true, encoding: .utf8)
 try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mock)
+// Foundation-only host tests inject a bounded transport fixture, never a window.
+final class TestVideoOutput: ReceiverVideoOutput {
+    let textureIdentifier: Int64 = -1
+    var begins = 0, clears = 0, ends = 0
+    func begin() throws -> String { begins += 1; return temp.appendingPathComponent("frames.sock").path }
+    func clear() { clears += 1 }
+    func end() { ends += 1 }
+}
+let video = TestVideoOutput()
 let host = ReceiverHost(bundledPath: mock, inspectorPath: "/usr/bin/true", defaults: defaults)
+host.videoOutput = video
 try host.queue.sync {
     do { _ = try host.check(path: "/missing/receiver"); require(false, "missing binary rejected") }
     catch { require(error.localizedDescription.contains("找不到"), "missing binary is actionable") }
@@ -45,6 +55,7 @@ try host.queue.sync {
     host.receiveLine("AIRPLAY_RECEIVER_EVENT streaming")
     require(host.snapshot()["status"] as! String == "streaming", "media contract updates streaming")
     host.receiveLine("AIRPLAY_RECEIVER_EVENT waiting")
+    require(video.begins == 1 && video.clears == 1, "Embedded transport begins once and invalidates disconnect")
     host.stop()
     host.stop()
 }
@@ -55,6 +66,7 @@ waitFor(host, "waiting")
 let nextPID = host.queue.sync { host.snapshot()["pid"] as! Int32 }
 host.shutdown()
 require(kill(nextPID, 0) == -1, "application shutdown reaps its child")
+require(video.ends >= 2, "Stop/quit ends embedded output")
 let noGST = ReceiverHost(bundledPath: mock, inspectorPath: "/missing/gst-inspect", defaults: defaults)
 do { _ = try noGST.queue.sync { try noGST.check(path: "") }; require(false, "missing inspector rejected") }
 catch { require(true, "missing GStreamer inspector rejected") }
@@ -70,6 +82,7 @@ while true; do sleep 0.1; done
 """.write(toFile: stubborn, atomically: true, encoding: .utf8)
 try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stubborn)
 let stubbornHost = ReceiverHost(bundledPath: stubborn, inspectorPath: "/usr/bin/true", defaults: defaults)
+stubbornHost.videoOutput = TestVideoOutput()
 try stubbornHost.queue.sync { try stubbornHost.start(name: "Stubborn", path: "") }
 waitFor(stubbornHost, "waiting")
 stubbornHost.queue.sync { stubbornHost.stop() }
@@ -78,6 +91,7 @@ require(true, "SIGTERM-resistant child is force-stopped after three seconds")
 
 if CommandLine.arguments.count > 1 {
     let real = ReceiverHost(bundledPath: CommandLine.arguments[1], defaults: defaults)
+    real.videoOutput = TestVideoOutput()
     for check in 1...2 {
         let started = Date()
         _ = try real.queue.sync { try real.check(path: "") }

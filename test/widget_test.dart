@@ -76,7 +76,8 @@ void main() {
     final backend = FakeReceiver();
     await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
     await tester.pumpAndSettle();
-    expect(find.text('第一阶段 · 独立播放窗口'), findsOneWidget);
+    expect(find.text('Flutter 内嵌画面'), findsOneWidget);
+    expect(find.byType(DropdownButtonFormField<String>), findsNothing);
     await tester.enterText(
       find.byKey(const Key('receiverName')),
       'Living Room',
@@ -186,5 +187,69 @@ void main() {
     expect(model.validateName(List.filled(17, '器').join()), isNotNull);
     expect(model.validateName('Room\nTwo'), isNotNull);
     model.dispose();
+  });
+  testWidgets('Video dimensions, rotation, full preview and disconnect clear', (
+    tester,
+  ) async {
+    await screen(tester);
+    final backend = FakeReceiver();
+    await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
+    await tester.pumpAndSettle();
+    backend.state('streaming');
+    await tester.pumpAndSettle();
+    expect(find.byType(Texture), findsNothing);
+    void frame(int width, int height) => backend.controller.add({
+      'type': 'video',
+      'textureId': 0,
+      'videoWidth': width,
+      'videoHeight': height,
+    });
+    frame(160, 90);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Texture>(find.byType(Texture)).textureId, 0);
+    await tester.ensureVisible(find.byKey(const Key('expandPreview')));
+    await tester.tap(find.byKey(const Key('expandPreview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('collapsePreview')), findsOneWidget);
+    frame(90, 160);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<AspectRatio>(
+            find.ancestor(
+              of: find.byType(Texture),
+              matching: find.byType(AspectRatio),
+            ),
+          )
+          .aspectRatio,
+      90 / 160,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('collapsePreview')), findsNothing);
+    backend.state('waiting');
+    await tester.pumpAndSettle();
+    expect(find.byType(Texture), findsNothing);
+    expect(find.text('等待 iPhone 画面'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('Stop and error clear texture dimensions; settings API stays platform neutral', () async {
+    final backend = FakeReceiver();
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    for (final status in ['stopping', 'stopped', 'error']) {
+      backend.controller.add({
+        'type': 'video',
+        'textureId': 7,
+        'videoWidth': 320,
+        'videoHeight': 180,
+      });
+      expect(model.hasVideo, true);
+      backend.state(status, 0);
+      expect(model.hasVideo, false);
+    }
+    model.dispose();
+    await backend.controller.close();
   });
 }

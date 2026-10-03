@@ -7,9 +7,19 @@ struct ReceiverFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
+protocol ReceiverVideoOutput: AnyObject {
+    var textureIdentifier: Int64 { get }
+    func begin() throws -> String
+    func clear()
+    func end()
+}
+
 // All mutable receiver state is confined to queue. The Flutter bridge owns no process.
 final class ReceiverHost {
     let queue = DispatchQueue(label: "org.airplayreceiver.process")
+    var videoOutput: ReceiverVideoOutput?
+    private var videoWidth = 0
+    private var videoHeight = 0
     var onEvent: (([String: Any]) -> Void)?
     private var process: Process?
     private var output: Pipe?
@@ -35,8 +45,10 @@ final class ReceiverHost {
 
     func snapshot() -> [String: Any] {
         ["status": status, "message": message, "pid": process?.processIdentifier ?? 0,
-         "name": defaults.string(forKey: "receiverName") ?? "Airplay Receiver",
+         "name": defaults.string(forKey: "receiverName") ?? "Flutter AirPlay",
          "path": defaults.string(forKey: "receiverPath") ?? "",
+         "textureId": videoOutput?.textureIdentifier ?? -1,
+         "videoWidth": videoWidth, "videoHeight": videoHeight,
          "logs": logs]
     }
 
@@ -114,7 +126,7 @@ final class ReceiverHost {
         do {
             let names = ["coreelements", "app", "playback", "typefindfunctions", "videoparsersbad",
                          "libav", "audioconvert", "audioresample", "videoconvertscale",
-                         "opengl", "osxaudio", "applemedia", "autodetect", "volume", "level"]
+                         "osxaudio", "autodetect", "volume", "level"]
             for name in names {
                 let filename = "libgst\(name).dylib"
                 let original = source.appendingPathComponent(filename)
@@ -124,7 +136,7 @@ final class ReceiverHost {
                 }
             }
             pluginWorkspace = workspace
-            log("仅扫描 15 类必要 GStreamer 插件；使用独立临时 registry")
+            log("仅扫描 13 类必要 GStreamer 插件；使用独立临时 registry")
         } catch {
             try? FileManager.default.removeItem(at: workspace)
             throw error
@@ -162,7 +174,7 @@ final class ReceiverHost {
         }
         try preparePlugins(inspector: inspector)
         try probe(receiver, ["-rc", "/dev/null", "-h"])
-        for plugin in ["h264parse", "decodebin", "avdec_h264", "glimagesink", "osxaudiosink", "avdec_aac", "avdec_alac", "appsrc", "queue", "audioconvert", "audioresample", "volume", "level", "videoconvert", "videoscale"] {
+        for plugin in ["h264parse", "decodebin", "avdec_h264", "osxaudiosink", "avdec_aac", "avdec_alac", "appsrc", "appsink", "queue", "audioconvert", "audioresample", "volume", "level", "videoconvert", "videoscale"] {
             try probe(inspector, [plugin])
         }
         log("依赖检查通过：UxPlay + GStreamer 视频 / 音频插件")
@@ -178,9 +190,15 @@ final class ReceiverHost {
             let receiver = try check(path: path.trimmingCharacters(in: .whitespacesAndNewlines))
             let task = Process()
             task.executableURL = URL(fileURLWithPath: receiver)
+            guard let video = videoOutput else {
+                throw ReceiverFailure(message: "内嵌视频引擎未就绪，请重新打开应用。")
+            }
             task.arguments = ["-rc", "/dev/null", "-n", name.trimmingCharacters(in: .whitespacesAndNewlines),
-                              "-nh", "-vsync", "-avdec", "-vs", "glimagesink", "-as", "osxaudiosink"]
-            task.environment = environment()
+                              "-nh", "-vsync", "-avdec", "-vs", "appsink", "-vc",
+                              "videoconvert ! video/x-raw,format=BGRA", "-as", "osxaudiosink"]
+            var childEnvironment = environment()
+            childEnvironment["FLUTTER_AIRPLAY_FRAME_SOCKET"] = try video.begin()
+            task.environment = childEnvironment
             task.standardInput = FileHandle.nullDevice
             let pipe = Pipe()
             task.standardOutput = pipe
@@ -206,7 +224,7 @@ final class ReceiverHost {
                 }
             }
             try task.run()
-            log("播放路径：软件 H.264 解码 + GL 独立窗口 + macOS 音频")
+            log("播放路径：软件 H.264 解码 + Flutter 内嵌画面 + macOS 音频")
             log("同步策略：AirPlay 时间戳 + 共享系统时钟；音视频按 PTS 播放，无固定偏移")
             log("启动 UxPlay（PID \(task.processIdentifier)）；Bonjour，同局域网，动态端口")
             state("starting", "正在注册 Bonjour 接收服务…")
@@ -216,6 +234,7 @@ final class ReceiverHost {
                 self.stop(finalError: "接收服务启动超时，请查看日志与局域网权限。")
             }
         } catch {
+            videoOutput?.end()
             output?.fileHandleForReading.readabilityHandler = nil
             output = nil
             process = nil
@@ -238,7 +257,7 @@ final class ReceiverHost {
         }
     }
 
-    // Stable contract supplied by docs/uxplay-events.patch. No log-word guessing.
+    // Stable contract supplied by native/patches. No log-word guessing.
     func receiveLine(_ line: String) {
         guard !line.isEmpty else { return }
         log(line)
@@ -247,14 +266,22 @@ final class ReceiverHost {
         case "AIRPLAY_RECEIVER_EVENT ready":
             state("waiting", "等待 iPhone · 请在控制中心选择此设备")
         case "AIRPLAY_RECEIVER_EVENT streaming":
-            state("streaming", "已收到媒体流 · 画面在独立窗口中播放")
+            state("streaming", "已收到媒体流 · 画面显示后可确认连接成功")
         case "AIRPLAY_RECEIVER_EVENT waiting":
+            videoOutput?.clear()
             state("waiting", "连接已结束 · 等待下一次投屏")
         default: break
         }
     }
 
+    func videoDimensions(width: Int, height: Int) {
+        videoWidth = width; videoHeight = height
+        onEvent?(["type": "video", "textureId": videoOutput?.textureIdentifier ?? -1,
+                  "videoWidth": width, "videoHeight": height])
+    }
+
     private func finish(_ task: Process) {
+        videoOutput?.end()
         output?.fileHandleForReading.readabilityHandler = nil
         if !pending.isEmpty { log(String(decoding: pending, as: UTF8.self)); pending.removeAll() }
         process = nil
@@ -275,6 +302,7 @@ final class ReceiverHost {
         }
         if stopping { return }
         stopping = true
+        videoOutput?.end()
         if let detail = finalError { state("error", detail) }
         else { state("stopping", "正在停止接收器…") }
         if task.isRunning { task.terminate() }
@@ -290,6 +318,7 @@ final class ReceiverHost {
     func shutdown() {
         queue.sync {
             defer {
+                videoOutput?.end()
                 if let workspace = pluginWorkspace { try? FileManager.default.removeItem(at: workspace) }
                 pluginWorkspace = nil
             }

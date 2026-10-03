@@ -10,4 +10,4 @@
   `./scripts/test_recovery.sh`. Use synthetic inputs; logs go in ignored `artifacts/`.
 - Do not claim real iPhone image, sound, synchronization or Android device support
   from a synthetic test. Record the exact completed validation scope.
-- Retain standalone macOS playback as a fallback while embedding evolves.
+- Maintain only embedded macOS playback; do not add a standalone-window product mode.

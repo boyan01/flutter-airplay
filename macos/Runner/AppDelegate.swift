@@ -10,7 +10,7 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   override func applicationWillTerminate(_ notification: Notification) {
-    receiver.host.shutdown()
+    receiver.dispose()
     super.applicationWillTerminate(notification)
   }
 
