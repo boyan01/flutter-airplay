@@ -127,15 +127,33 @@ private:
     std::atomic<bool> mDrainRun{false};   // drain thread stop signal
 };
 
-// route ffmpeg warnings/errors to logcat
+// This ALAC decoder runs synchronously with thread_count=1. Scope its logger
+// to each FFmpeg call so the global callback never retains a receiver pointer.
+class FfmpegLogScope {
+public:
+    explicit FfmpegLogScope(LogSink &log) : previous(current) { current = &log; }
+    ~FfmpegLogScope() { current = previous; }
+    static inline thread_local LogSink *current = nullptr;
+private:
+    LogSink *previous;
+};
+
+// Route FFmpeg warnings/errors through the native diagnostics sink.
 static inline void installFfmpegLogcat() {
     static std::once_flag once;
     std::call_once(once, [] {
         av_log_set_level(AV_LOG_WARNING);
         av_log_set_callback([](void *, int level, const char *fmt, va_list vl) {
             if (level > av_log_get_level()) return;
-            __android_log_vprint(level <= AV_LOG_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN,
-                                 "ffmpeg", fmt, vl);
+            char message[1024];
+            vsnprintf(message, sizeof(message), fmt, vl);
+            if (auto log = FfmpegLogScope::current) {
+                if (level <= AV_LOG_ERROR) log->error("ffmpeg: %s", message);
+                else log->warn("ffmpeg: %s", message);
+            } else {
+                __android_log_print(level <= AV_LOG_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN,
+                                    "ffmpeg", "%s", message);
+            }
         });
     });
 }
@@ -148,18 +166,21 @@ public:
                                                    TimelineBuffer &timeline,
                                                    LogSink &log) {
         installFfmpegLogcat();
+        FfmpegLogScope scope(log);
         auto dec = std::unique_ptr<FfmpegAlacDecoder>(new FfmpegAlacDecoder(timeline, log));
         if (!dec->init(sampleRate, channels, spf)) return nullptr;
         return dec;
     }
 
     ~FfmpegAlacDecoder() override {
+        FfmpegLogScope scope(mLog);
         if (mFrame) av_frame_free(&mFrame);
         if (mPkt) av_packet_free(&mPkt);
         if (mCtx) avcodec_free_context(&mCtx);
     }
 
     bool decode(const uint8_t *data, size_t len, int64_t ptsNs) override {
+        FfmpegLogScope scope(mLog);
         if (len == 0 || len > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE) return false;
 
         if (mPkt->size < (int)len) {

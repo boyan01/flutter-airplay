@@ -83,6 +83,7 @@ class VideoPipeline {
             _initGl()
         } catch (e: Exception) {
             Log.e(TAG, "GL init failed", e)
+            onDiagnostic?.invoke("GL init failed: ${e.stackTraceToString()}")
             synchronized(lock) { running = false; lock.notifyAll() }
             return
         }
@@ -124,7 +125,9 @@ class VideoPipeline {
         if (surface == null || !surface.isValid) return
         window = egl.windowSurface(surface)
         if (window == EGL14.EGL_NO_SURFACE) {
-            Log.w(TAG, "eglCreateWindowSurface failed: ${EGL14.eglGetError()}")
+            val message = "eglCreateWindowSurface failed: ${EGL14.eglGetError()}"
+            Log.w(TAG, message)
+            onDiagnostic?.invoke(message)
             return
         }
         egl.makeCurrent(window)
@@ -229,7 +232,11 @@ class VideoPipeline {
             GLES20.glCompileShader(it)
             val ok = IntArray(1)
             GLES20.glGetShaderiv(it, GLES20.GL_COMPILE_STATUS, ok, 0)
-            if (ok[0] == 0) Log.e(TAG, "shader compile failed: ${GLES20.glGetShaderInfoLog(it)}")
+            if (ok[0] == 0) {
+                val message = "shader compile failed: ${GLES20.glGetShaderInfoLog(it)}"
+                Log.e(TAG, message)
+                onDiagnostic?.invoke(message)
+            }
         }
     }
 

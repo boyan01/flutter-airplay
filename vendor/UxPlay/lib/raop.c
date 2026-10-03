@@ -250,6 +250,13 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         cseq = cseq_buf;
     }
 
+    /* Trace control progress without recording headers, keys or payloads. */
+    const char *endpoint = url[0] == '/' ? url : "<stream>";
+    int endpoint_len = (int) strcspn(endpoint, "?");
+    if (endpoint_len > 32) endpoint_len = 32;
+    logger_log(raop->logger, LOGGER_INFO, "Control request: %.16s %.*s, CSeq=%s",
+               method, endpoint_len, endpoint, cseq ? cseq : "none");
+
     /* ¨identify if request is a response to a BLE beacon */    
     bool ble = false;
     if (!strcmp(protocol,"RTSP/1.0") && !cseq  && (strstr(url, "txtAirPlay") || strstr(url, "txtRAOP") )) {
@@ -492,6 +499,9 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     http_response_finish(*response, response_data, response_datalen);
     int len = 0;
     const char *data = http_response_get_data(*response, &len);
+    const char *status_start = strchr(data, ' ');
+    logger_log(raop->logger, LOGGER_INFO, "Control response: %.16s, CSeq=%s, status=%d, body=%d",
+               method, cseq ? cseq : "none", status_start ? atoi(status_start + 1) : 0, response_datalen);
     if (response_data && response_datalen > 0) {
         len -= response_datalen;
     } else {

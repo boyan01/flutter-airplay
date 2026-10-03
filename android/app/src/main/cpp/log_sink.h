@@ -6,12 +6,14 @@
 #include <android/log.h>
 #include <cstdarg>
 #include <cstdio>
+#include <functional>
 
 #define LOG_SINK_TAG "AirPlayNative"
 
-// Native audio diagnostics are emitted to logcat.
+// Keep logcat output and forward native audio diagnostics to the file logger.
 class LogSink {
 public:
+    explicit LogSink(std::function<void(int, const char *)> output = {}) : output_(output) {}
     void info(const char *fmt, ...)  __attribute__((format(printf, 2, 3))) {
         va_list ap; va_start(ap, fmt); vemit(ANDROID_LOG_INFO, fmt, ap); va_end(ap);
     }
@@ -27,8 +29,9 @@ private:
         char buf[256];
         vsnprintf(buf, sizeof(buf), fmt, ap);
         __android_log_print(prio, LOG_SINK_TAG, "%s", buf);
-
+        if (output_) output_(prio, buf);
     }
+    std::function<void(int, const char *)> output_;
 
 };
 

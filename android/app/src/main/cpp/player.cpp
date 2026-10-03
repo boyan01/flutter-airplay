@@ -11,6 +11,7 @@
 extern "C" {
 #include "raop.h"
 #include "dnssd.h"
+#include "logger.h"
 }
 #include "audio_engine.h"
 #include "log_sink.h"
@@ -18,7 +19,7 @@ extern "C" {
 namespace {
 struct Player {
     JavaVM *vm{}; jobject host{};
-    jmethodID frame{}, size{}, state{}, reset{}, client{};
+    jmethodID frame{}, size{}, state{}, reset{}, client{}, diagnostic{};
     raop_t *raop{}; dnssd_t *dns{}; AudioEngine *audio{};
     int64_t wallToMono{};
     std::atomic<bool> closing{false};
@@ -92,7 +93,17 @@ void mirror(void *cls,bool running){state((Player*)cls,running?"mirroring":"ç­‰å
 double volume(void*){return 0.0;}
 void volumeSet(void*,float){} // sender volume never changes Android system volume
 int codec(void*,video_codec_t c){return c==VIDEO_CODEC_H264?0:-1;}
-void log(void*,int level,const char*){if(level<=3)__android_log_print(ANDROID_LOG_WARN,"FlutterAirPlay","Receiver core warning (%d)",level);}
+void log(void *cls, int level, const char *message) {
+    auto p = static_cast<Player *>(cls);
+    if (p->closing || !message) return;
+    Env env(p); if (!env.e) return;
+    size_t length = strnlen(message, 4096);
+    auto bytes = env.e->NewByteArray(static_cast<jsize>(length));
+    if (!bytes) return;
+    env.e->SetByteArrayRegion(bytes, 0, static_cast<jsize>(length), reinterpret_cast<const jbyte *>(message));
+    env.e->CallVoidMethod(p->host, p->diagnostic, static_cast<jint>(level), bytes);
+    env.e->DeleteLocalRef(bytes);
+}
 void fail(JNIEnv *env,const char *message){auto c=env->FindClass("java/lang/IllegalStateException");env->ThrowNew(c,message);env->DeleteLocalRef(c);}
 }
 extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_PlaybackHost_startNative(JNIEnv*env,jobject host,jstring name,jbyteArray identity,jstring key) {
@@ -103,10 +114,13 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     auto klass=env->GetObjectClass(host);
     p->frame=env->GetMethodID(klass,"onVideoData","([BJ)V");p->size=env->GetMethodID(klass,"onVideoSize","(IIII)V");
     p->client=env->GetMethodID(klass,"onClientName","([B)V");
+    p->diagnostic=env->GetMethodID(klass,"onNativeLog","(I[B)V");
     p->state=env->GetMethodID(klass,"onNativeState","(Ljava/lang/String;)V");p->reset=env->GetMethodID(klass,"onVideoReset","()V");env->DeleteLocalRef(klass);
     if(env->ExceptionCheck())return 0;
     p->wallToMono=now(CLOCK_MONOTONIC)-now(CLOCK_REALTIME);
-    p->audio=audio_engine_create(std::make_shared<LogSink>(),44100,2);
+    p->audio=audio_engine_create(std::make_shared<LogSink>([target = p.get()](int level, const char *message) {
+        log(target, level, message);
+    }),44100,2);
     audio_engine_configure(p->audio,0,95,0,true,false,true);
     raop_callbacks_t cb{};cb.cls=p.get();cb.audio_process=audio;cb.video_process=video;
     cb.audio_get_format=format;cb.video_report_size=size;cb.audio_flush=audioFlush;cb.video_flush=videoFlush;
@@ -114,7 +128,7 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     cb.report_client_request=client;cb.conn_init=connected;cb.conn_destroy=disconnected;cb.mirror_video_running=mirror;
     cb.audio_set_client_volume=volume;cb.audio_set_volume=volumeSet;cb.video_set_codec=codec;
     p->raop=raop_init(&cb);if(!p->raop){fail(env,"Cannot initialize AirPlay core");return 0;}
-    raop_set_log_callback(p->raop,log,nullptr);raop_set_log_level(p->raop,3);
+    raop_set_log_callback(p->raop,log,p.get());raop_set_log_level(p->raop,LOGGER_INFO);
     unsigned char hw[6];env->GetByteArrayRegion(identity,0,6,(jbyte*)hw);
     char id[18];snprintf(id,sizeof(id),"%02X:%02X:%02X:%02X:%02X:%02X",hw[0],hw[1],hw[2],hw[3],hw[4],hw[5]);
     const char *k=env->GetStringUTFChars(key,nullptr);int rc=raop_init2(p->raop,1,id,k);env->ReleaseStringUTFChars(key,k);

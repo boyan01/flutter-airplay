@@ -187,6 +187,9 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     }
     fun close() { stopInternal(null); worker.shutdown() }
     // JNI callbacks stay off the UI thread; only state events are marshalled to it.
+    fun onNativeLog(level: Int, bytes: ByteArray) {
+        diagnostic("[Native level=$level] ${bytes.toString(Charsets.UTF_8)}")
+    }
     fun onClientName(bytes: ByteArray) {
         val name = bytes.toString(Charsets.UTF_8).filter { it.code >= 32 && it.code != 127 }.trim()
         main.post { emit(mapOf("clientName" to name, "state" to "connecting")) }

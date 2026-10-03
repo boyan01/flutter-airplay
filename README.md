@@ -50,6 +50,11 @@ macOS 支持菜单栏驻留、播放置顶、防止显示器休眠、连接时�
 “可被发现”表示服务已启动，不证明 iPhone 一定能发现它。
 连接提示表示发送端已连接，收到视频画面后才进入播放页。
 
+应用日志通过 `mixin_logger` 自动写入文件，最多保留 10 个文件，每个 5 MiB。
+macOS 位于 `~/Library/Application Support/org.flutterairplay.receiver/logs/`；
+Android 位于应用外部文件目录 `Android/data/io.github.boyan01.flutter_airplay/files/logs/`。
+文件包含 Flutter、接收核心和播放诊断，重启后保留。日志页“清空”只清空当前显示。
+
 开发环境、构建与测试命令见 [AGENTS.md](AGENTS.md)。
 
 ## 分发与许可

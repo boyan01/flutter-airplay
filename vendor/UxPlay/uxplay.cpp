@@ -159,7 +159,9 @@ static uint64_t remote_clock_offset = 0;
 static std::vector<std::string> allowed_clients;
 static std::vector<std::string> blocked_clients;
 static bool restrict_clients;
-static bool setup_legacy_pairing = false;
+// Match the Android receiver's pairing capability so an iPhone can hand off
+// an already paired mirroring session without downgrading the handshake.
+static bool setup_legacy_pairing = true;
 static unsigned char pin_pw = 0;  /* 0: no client access control; 1: onscreen pin ; 2: require password (same password for all clients)  3: random pw*/
 static std::string password = "";
 static guint min_password_length = MIN_PASSWORD_LENGTH;

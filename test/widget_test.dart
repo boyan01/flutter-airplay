@@ -6,6 +6,7 @@ import 'package:flutter_airplay/receiver/receiver_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mixin_logger/mixin_logger.dart' as logging;
 
 class FakeReceiver implements ReceiverRepository {
   FakeReceiver({
@@ -85,6 +86,42 @@ class FakeReceiver implements ReceiverRepository {
 }
 
 void main() {
+  test(
+    'Receiver logs persist once across snapshots, clearing and UI trimming',
+    () async {
+      final written = <String>[];
+      final previous = logging.onWriteToFile;
+      logging.onWriteToFile = written.add;
+      final backend = FakeReceiver(autoStart: false);
+      final model = ReceiverModel(backend);
+      addTearDown(() async {
+        model.dispose();
+        await backend.controller.close();
+        logging.onWriteToFile = previous;
+      });
+      await model.initialize();
+      written.clear();
+      Map<String, dynamic> entry(int id) => {
+        'id': id,
+        'time': '2026-01-01T00:00:00Z',
+        'text': 'Synthetic log $id',
+      };
+      final snapshot = await backend.snapshot();
+      snapshot['logs'] = [entry(1), entry(2)];
+      backend.controller.add({'type': 'snapshot', 'data': snapshot});
+      backend.controller.add({'type': 'log', 'entry': entry(2)});
+      model.clearLogs();
+      backend.controller.add({'type': 'snapshot', 'data': snapshot});
+      for (var id = 3; id <= 305; id++) {
+        backend.controller.add({'type': 'log', 'entry': entry(id)});
+      }
+      expect(written.length, 305);
+      expect(written.first, contains('Synthetic log 1'));
+      expect(written.last, contains('Synthetic log 305'));
+      expect(model.logs.length, 300);
+    },
+  );
+
   Future<FakeReceiver> launch(
     WidgetTester tester, {
     Size size = const Size(440, 650),

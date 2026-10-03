@@ -13,7 +13,10 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
+  mixin_logger: ^0.2.0
   nativeapi: 0.4.0
+  path: ^1.9.1
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

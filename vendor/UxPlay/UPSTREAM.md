@@ -23,6 +23,12 @@ buffer. Dequeue skips their empty payloads while preserving retransmission for
 actual packet loss. FLUSH clears this buffer and applies the sender's next
 sequence before flushing platform playback.
 
+Control request and response summaries are logged at INFO level to diagnose
+handshake progress without enabling headers, key material or payload dumps.
+
+The macOS executable enables legacy pairing by default, matching the Android
+host's advertised capability when an iPhone switches between receivers.
+
 For an upstream update, compare or merge from the base commit, update this
 record, and run the platform builds and native regressions. Keep upstream
 updates separate from feature changes.

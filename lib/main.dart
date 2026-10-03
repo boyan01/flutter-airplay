@@ -1,25 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:mixin_logger/mixin_logger.dart';
 
+import 'app_logging.dart';
 import 'receiver/receiver_model.dart';
 import 'receiver/receiver_repository.dart';
 import 'ui/receiver_screen.dart';
 import 'l10n/generated/app_localizations.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  LicenseRegistry.addLicense(() async* {
-    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-    for (final path in manifest.listAssets().where(
-      (path) => path.startsWith('android/app/src/main/assets/licenses/'),
-    )) {
-      final text = await rootBundle.loadString(path);
-      yield LicenseEntryWithLineBreaks([path.split('/').last], text);
-    }
-  });
-  runApp(ReceiverApp(model: ReceiverModel(NativeReceiverRepository())));
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await initializeLogging();
+    LicenseRegistry.addLicense(() async* {
+      final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+      for (final path in manifest.listAssets().where(
+        (path) => path.startsWith('android/app/src/main/assets/licenses/'),
+      )) {
+        final text = await rootBundle.loadString(path);
+        yield LicenseEntryWithLineBreaks([path.split('/').last], text);
+      }
+    });
+    runApp(ReceiverApp(model: ReceiverModel(NativeReceiverRepository())));
+  }, (error, stack) => e('Uncaught application error', error, stack));
 }
 
 class ReceiverApp extends StatelessWidget {

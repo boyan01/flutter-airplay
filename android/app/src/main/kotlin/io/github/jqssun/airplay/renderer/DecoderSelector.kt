@@ -14,12 +14,16 @@ import android.util.Log
 
 // moonlight-android MediaCodecHelper
 class DecoderSelector {
+    var onDiagnostic: ((String) -> Unit)? = null
 
     private val emulator = Build.HARDWARE == "ranchu" || Build.HARDWARE == "cheets" || Build.BRAND == "Android-x86"
 
     private val glRenderer by lazy {
         runCatching { EglCore().use { GLES20.glGetString(GLES20.GL_RENDERER) ?: "" } }
-            .getOrDefault("").lowercase().also { Log.i(TAG, "gl renderer: $it") }
+            .getOrDefault("").lowercase().also {
+                Log.i(TAG, "gl renderer: $it")
+                onDiagnostic?.invoke("gl renderer: $it")
+            }
     }
     private val adreno by lazy {
         if ("adreno" !in glRenderer) -1
@@ -96,6 +100,7 @@ class DecoderSelector {
         _knownSafe(mime, profile)
     } catch (e: Exception) {
         Log.w(TAG, "caps query failed", e)
+        onDiagnostic?.invoke("caps query failed: ${e.stackTraceToString()}")
         _first(mime)
     }
 

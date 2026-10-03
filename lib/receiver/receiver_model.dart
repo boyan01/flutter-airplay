@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:mixin_logger/mixin_logger.dart';
 
 import 'receiver_repository.dart';
 
@@ -25,6 +26,7 @@ class ReceiverModel extends ChangeNotifier {
   final ReceiverRepository repository;
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _logs = <ReceiverLog>[];
+  int _lastWrittenLogID = 0;
   String status = 'stopped';
   String message = 'off';
   String name = 'Flutter AirPlay';
@@ -73,7 +75,8 @@ class ReceiverModel extends ChangeNotifier {
   Future<void> initialize() async {
     _subscription = repository.events.listen(
       _event,
-      onError: (Object error) {
+      onError: (Object error, StackTrace stack) {
+        e('Receiver event stream failed', error, stack);
         notice = commandError = _error(error);
         _notify();
       },
@@ -81,7 +84,8 @@ class ReceiverModel extends ChangeNotifier {
     try {
       _snapshot(await repository.snapshot());
       if (autoStart && status == 'stopped') await start(name, path);
-    } catch (error) {
+    } catch (error, stack) {
+      e('Receiver initialization failed', error, stack);
       notice = commandError = _error(error);
       loaded = true;
       _notify();
@@ -97,6 +101,9 @@ class ReceiverModel extends ChangeNotifier {
       supportsLaunchAtLogin =
           capabilities['supportsLaunchAtLogin'] as bool? ?? false;
     }
+    if (status != data['status'] || message != data['message']) {
+      i('[Receiver state] ${data['status']}: ${data['message']}');
+    }
     status = data['status'] as String;
     message = data['message'] as String;
     pid = data['pid'] as int? ?? 0;
@@ -109,11 +116,19 @@ class ReceiverModel extends ChangeNotifier {
       desktopOptions[key] = data[key] as bool? ?? desktopOptions[key]!;
     }
     textureId = data['textureId'] as int? ?? -1;
-    videoWidth = data['videoWidth'] as int? ?? 0;
-    videoHeight = data['videoHeight'] as int? ?? 0;
+    final nextWidth = data['videoWidth'] as int? ?? 0;
+    final nextHeight = data['videoHeight'] as int? ?? 0;
+    if (nextWidth > 0 &&
+        nextHeight > 0 &&
+        (nextWidth != videoWidth || nextHeight != videoHeight)) {
+      i('[Receiver video] Decoded frame ready: ${nextWidth}x$nextHeight');
+    }
+    videoWidth = nextWidth;
+    videoHeight = nextHeight;
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
     for (final entry in data['logs'] as List? ?? const []) {
       final log = ReceiverLog(entry as Map);
+      _writeLog(log);
       byID[log.id] = log;
     }
     _logs
@@ -129,6 +144,7 @@ class ReceiverModel extends ChangeNotifier {
       case 'snapshot':
         _snapshot(Map<String, dynamic>.from(event['data'] as Map));
       case 'state':
+        i('[Receiver state] ${event['status']}: ${event['message']}');
         status = event['status'] as String;
         message = event['message'] as String;
         pid = event['pid'] as int? ?? 0;
@@ -143,16 +159,32 @@ class ReceiverModel extends ChangeNotifier {
         if (clientName?.isEmpty ?? false) clientName = null;
         _notify();
       case 'video':
+        if ((event['videoWidth'] as int) > 0 &&
+            (event['videoHeight'] as int) > 0 &&
+            (videoWidth != event['videoWidth'] ||
+                videoHeight != event['videoHeight'])) {
+          i(
+            '[Receiver video] Decoded frame ready: '
+            '${event['videoWidth']}x${event['videoHeight']}',
+          );
+        }
         textureId = event['textureId'] as int;
         videoWidth = event['videoWidth'] as int;
         videoHeight = event['videoHeight'] as int;
         _notify();
       case 'log':
         final entry = ReceiverLog(event['entry'] as Map);
+        _writeLog(entry);
         if (!_logs.any((item) => item.id == entry.id)) _logs.add(entry);
         _trim();
         _notify();
     }
+  }
+
+  void _writeLog(ReceiverLog entry) {
+    if (entry.id <= _lastWrittenLogID) return;
+    _lastWrittenLogID = entry.id;
+    i('[Receiver] ${entry.time} ${entry.text}');
   }
 
   void _trim() {
@@ -175,7 +207,8 @@ class ReceiverModel extends ChangeNotifier {
     try {
       await action();
       notice = success;
-    } catch (error) {
+    } catch (error, stack) {
+      e('Receiver command failed', error, stack);
       if (error is! PlatformException || error.code != 'cancelled') {
         notice = commandError = _error(error);
       }

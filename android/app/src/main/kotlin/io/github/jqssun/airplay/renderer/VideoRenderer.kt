@@ -33,7 +33,10 @@ class VideoRenderer {
     private var _ptsBaseUs = Long.MIN_VALUE
     private var _wallBaseNs = 0L
 
-    init { pipeline.onDiagnostic = ::diagnostic }
+    init {
+        pipeline.onDiagnostic = ::diagnostic
+        selector.onDiagnostic = ::diagnostic
+    }
 
     private fun diagnostic(message: String) {
         Log.i(TAG, message)
@@ -80,6 +83,7 @@ class VideoRenderer {
                 reportThroughput()
             } catch (e: Exception) {
                 Log.w(TAG, "Codec error, resetting", e)
+                onDiagnostic?.invoke("Codec error, resetting: ${e.stackTraceToString()}")
                 onError?.invoke("视频解码失败，请重新连接屏幕镜像")
                 stopCodec()
             }
@@ -136,6 +140,7 @@ class VideoRenderer {
             // strict hw decoders reject configs beyond their real limits
             val sw = selector.software(mime, videoWidth, videoHeight) ?: throw e
             Log.w(TAG, "Hardware decoder failed, trying software fallback", e)
+            onDiagnostic?.invoke("Hardware decoder failed, trying software fallback: ${e.stackTraceToString()}")
             _startWithLadder(sw, mime, s)
         }
         reportStartNs = System.nanoTime()
@@ -153,6 +158,7 @@ class VideoRenderer {
             } catch (e: Exception) {
                 if (!more) throw e
                 Log.w(TAG, "configure try $tryNum failed: $format", e)
+                onDiagnostic?.invoke("configure try $tryNum failed: $format; ${e.stackTraceToString()}")
                 tryNum++
             }
         }
