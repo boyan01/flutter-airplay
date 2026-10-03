@@ -148,9 +148,10 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     fun onServiceDestroyed(owner: ReceiverService) {
         if (service !== owner) return
         service = null
+        // Dart can queue a replacement start before the stopped Service is
+        // destroyed. The replacement Service must retain that pending request.
+        if (pendingStart != null) return
         lifecycle.cancelResume()
-        pendingStart?.second?.error("cancelled", "后台接收服务已停止", null)
-        pendingStart = null
         if (host.isActive) {
             state.stopRequested()
             host.stop(completion(object : MethodChannel.Result {
