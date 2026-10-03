@@ -1,0 +1,21 @@
+plugins { id 'com.android.library' version '9.1.0' }
+android {
+    namespace 'io.github.boyan01.airplay'
+    compileSdk 36
+    defaultConfig { minSdk 26; consumerProguardFiles 'consumer-rules.pro' }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.register('verifyNativeLibraries') {
+    doLast {
+        ['arm64-v8a', 'x86_64'].each { abi ->
+            if (!file("src/main/jniLibs/$abi/libairplay_receiver.so").exists()) {
+                throw new GradleException('Run scripts/build_native.sh before packaging the JNI AAR')
+            }
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn('verifyNativeLibraries') }
