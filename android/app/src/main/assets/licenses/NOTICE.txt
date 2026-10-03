@@ -1,0 +1,28 @@
+Flutter AirPlay Android standalone host, GPL-3.0-only.
+
+The Android playback implementation includes source derived from
+jqssun/android-airplay-server, GPL-3.0-only, commit
+c8defdd70d7e6a04f4f1b71d353653682d594106.
+https://github.com/jqssun/android-airplay-server
+Copyright holders are retained in upstream LICENSE and source notices.
+Copied paths and pinned sources appear in dependencies.lock.json.
+Changes: JNI host replaced to fit pinned UxPlay 1.73.7, Flutter embedded texture
+and explicit NSD lifecycle; VideoRenderer error/output callbacks added.
+The original package namespaces on copied renderer classes preserve provenance.
+
+UxPlay is pinned by ../native/uxplay.lock.json and prepared using the
+android-prototype source/lifetime patches. GPL-3.0-or-later UxPlay,
+LGPL-2.1-or-later libplist, Apache-2.0 OpenSSL, PlayFair and llhttp notices are
+packaged under assets/licenses. See ../android-prototype/NOTICE.
+
+Oboe 1.9.3, Copyright Google, Apache-2.0.
+https://github.com/google/oboe
+FFmpeg 7.1.1, Copyright the FFmpeg developers, LGPL-2.1-or-later.
+https://github.com/FFmpeg/FFmpeg
+This binary enables only the ALAC decoder and libavcodec/libavutil, without
+GPL/nonfree FFmpeg configuration options. LGPL source and static relinking
+materials can be rebuilt using the supplied scripts and pinned source locks.
+
+Flutter SDK/engine are under the BSD-3-Clause license; standard Flutter
+third-party engine notices are included by the Flutter build tool.
+No DRM-protected video playback or HLS player is advertised by this host.
