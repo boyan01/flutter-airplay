@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Flutter AirPlay</string>
+    <string name="receiver_channel">AirPlay 接收服务</string>
+    <string name="connection_channel">AirPlay 连接提醒</string>
+    <string name="receiver_waiting">正在后台等待 AirPlay 连接</string>
+    <string name="receiver_connected">正在接收 %1$s 的 AirPlay</string>
+    <string name="receiver_failed">接收器出错，请打开应用查看详情</string>
+    <string name="receiver_open">打开</string>
+    <string name="receiver_stop">停止接收</string>
+</resources>

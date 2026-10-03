@@ -189,6 +189,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get foregroundOnly => '请保持本应用在前台';
 
   @override
+  String get backgroundReceive => '退到后台后仍可接收投屏';
+
+  @override
+  String get backgroundLaunch => '收到投屏时自动打开应用';
+
+  @override
+  String get backgroundLaunchHelp =>
+      'Android 10 及以上需在系统设置中选择 Flutter AirPlay，允许显示在其他应用上层。未授权时，可点击连接通知打开。';
+
+  @override
+  String get appPermissions => '应用权限与通知';
+
+  @override
+  String get appPermissionsHelp => '部分设备还需允许后台弹出界面。请允许通知，以便通过连接提醒打开应用。';
+
+  @override
   String get drmNotice => '不支持 DRM 内容';
 
   @override

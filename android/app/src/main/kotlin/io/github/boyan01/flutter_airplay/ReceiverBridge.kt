@@ -8,6 +8,9 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Process
 import android.app.Activity
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
 import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -21,12 +24,15 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     private val state = ReceiverState()
     private var sink: EventChannel.EventSink? = null
     private var closed = false
+    private var activity: Activity? = null
+    private var pendingStart: Pair<String, MethodChannel.Result>? = null
+    var service: ReceiverService? = null
+    val isActive: Boolean get() = host.isActive || pendingStart != null
     private val host = PlaybackHost(context, engine.renderer) { event ->
         if (!closed) { state.accept(event); publish(); reconcileLifecycle() }
     }
     private val lifecycle = ReceiverLifecycle(
-        active = { host.isActive },
-        stop = ::stopForLifecycle,
+        active = { isActive },
         start = ::startForLifecycle,
     )
     private val foreground: Boolean get() = lifecycle.foreground
@@ -40,60 +46,120 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
 
     private fun name(): String = preferences.getString("name", "Flutter AirPlay Android")!!
 
-    private fun snapshot(): Map<String, Any> {
+    fun snapshot(): Map<String, Any> {
         val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        return state.snapshot(name(), if (host.isActive) Process.myPid() else 0, television) +
+        return state.snapshot(name(), if (isActive) Process.myPid() else 0, television) +
             mapOf("autoStart" to preferences.getBoolean("autoStart", true))
     }
 
     private fun publish() {
         val data = snapshot()
         val television = (data["capabilities"] as Map<*, *>)["isTelevision"] == true
-        val awake = foreground && (television || host.isActive)
-        (context as? Activity)?.window?.let { window ->
+        val awake = foreground && (television || isActive)
+        activity?.window?.let { window ->
             if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         sink?.success(mapOf("type" to "snapshot", "data" to data))
+        service?.update(data, foreground)
     }
 
-    fun onForeground() {
+    fun onForeground(activity: Activity) {
+        this.activity = activity
         lifecycle.onForeground(preferences.getBoolean("autoStart", true))
         publish()
     }
 
-    fun onBackground() { lifecycle.onBackground(); publish() }
+    fun onBackground(activity: Activity) {
+        if (this.activity !== activity) return
+        lifecycle.onBackground(); publish()
+    }
+
+    fun detach(activity: Activity) {
+        if (this.activity !== activity) return
+        onBackground(activity)
+        this.activity = null
+    }
 
     fun onDisplayChanged() { if (host.isActive) host.logDisplayInfo() }
+    fun refresh() { publish() }
 
     private fun reconcileLifecycle() { if (!closed) lifecycle.reconcile() }
-
-    private fun stopForLifecycle(done: (Boolean) -> Unit) {
-        state.stopRequested()
-        host.stopForBackground(object : MethodChannel.Result {
-            override fun success(value: Any?) { done(true); publish() }
-            override fun error(code: String, message: String?, details: Any?) {
-                state.error(message ?: "停止接收失败"); done(false); publish()
-            }
-            override fun notImplemented() { done(false) }
-        })
-    }
 
     private fun startForLifecycle() {
         if (closed) return
         try {
             checkPlayback()
-            state.startRequested()
-            host.start(name(), object : MethodChannel.Result {
-                override fun success(value: Any?) { state.started(value as Map<*, *>); publish(); reconcileLifecycle() }
-                override fun error(code: String, message: String?, details: Any?) {
-                    if (code != "cancelled") state.error(message ?: "启动接收失败")
-                    publish()
-                }
+            requestStart(name(), object : MethodChannel.Result {
+                override fun success(value: Any?) {}
+                override fun error(code: String, message: String?, details: Any?) {}
                 override fun notImplemented() {}
             })
         } catch (error: Exception) { state.error(error.message ?: "启动接收失败"); publish() }
+    }
+
+    private fun requestStart(name: String, result: MethodChannel.Result) {
+        state.startRequested()
+        pendingStart = name to result
+        try {
+            ReceiverService.start(context)
+        } catch (error: Exception) {
+            pendingStart = null
+            state.error(error.message ?: "启动后台接收失败")
+            publish()
+            result.error("service", error.message, null)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !preferences.getBoolean("notificationRequested", false)) {
+            activity?.let {
+                preferences.edit().putBoolean("notificationRequested", true).apply()
+                it.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+            }
+        }
+        publish()
+    }
+
+    /** Called only after the Service has posted its foreground notification. */
+    fun startPending() {
+        val request = pendingStart ?: return
+        pendingStart = null
+        host.start(request.first, completion(request.second, starting = true))
+        publish()
+    }
+
+    fun stop(result: MethodChannel.Result) {
+        lifecycle.cancelResume()
+        pendingStart?.second?.error("cancelled", "接收启动已取消", null)
+        pendingStart = null
+        if (!host.isActive) {
+            state.accept(mapOf("state" to "stopped", "message" to "接收器已停止"))
+            publish()
+            result.success(null)
+            return
+        }
+        state.stopRequested()
+        host.stop(completion(result, starting = false))
+        publish()
+    }
+
+    fun onServiceDestroyed(owner: ReceiverService) {
+        if (service !== owner) return
+        service = null
+        lifecycle.cancelResume()
+        pendingStart?.second?.error("cancelled", "后台接收服务已停止", null)
+        pendingStart = null
+        if (host.isActive) {
+            state.stopRequested()
+            host.stop(completion(object : MethodChannel.Result {
+                override fun success(value: Any?) {}
+                override fun error(code: String, message: String?, details: Any?) {}
+                override fun notImplemented() {}
+            }, starting = false))
+        }
+        publish()
     }
 
     private fun command(call: MethodCall, result: MethodChannel.Result) {
@@ -103,7 +169,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                 "save" -> {
                     requireEmbeddedPath(call)
                     val nextName = requestedName(call)
-                    check(!host.isActive || nextName == name()) { "请等待接收器停止后再修改设备名。" }
+                    check(!isActive || nextName == name()) { "请等待接收器停止后再修改设备名。" }
                     saveName(nextName)
                     call.argument<Boolean>("autoStart")?.let {
                         preferences.edit().putBoolean("autoStart", it).apply()
@@ -127,17 +193,10 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                     val name = requestedName(call)
                     checkPlayback()
                     saveName(name)
-                    state.startRequested()
-                    // PlaybackHost sets its active flag before any event is dispatched.
-                    host.start(name, completion(result, starting = true))
-                    publish()
+                    requestStart(name, result)
                 }
                 "stop" -> {
-                    lifecycle.cancelResume()
-                    if (!host.isActive) { result.success(null); return }
-                    state.stopRequested()
-                    host.stop(completion(result, starting = false))
-                    publish()
+                    stop(result)
                 }
                 else -> result.notImplemented()
             }
@@ -163,7 +222,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         override fun notImplemented() { if (!closed) result.notImplemented() }
     }
 
-    private fun requireIdle() { check(!host.isActive) { "请先停止接收器再修改设置或重新启动。" } }
+    private fun requireIdle() { check(!isActive) { "请先停止接收器再修改设置或重新启动。" } }
     private fun requireEmbeddedPath(call: MethodCall) {
         require(call.argument<String>("path").orEmpty().isBlank()) {
             "Android 使用内置接收核心，无需填写 UxPlay 路径。"
@@ -198,31 +257,26 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     }
 }
 
-/** Serializes foreground transitions while native startup/stop is asynchronous. */
+/** Backgrounding leaves the Service running; only foreground entry may auto-start. */
 internal class ReceiverLifecycle(
     private val active: () -> Boolean,
-    private val stop: ((Boolean) -> Unit) -> Unit,
     private val start: () -> Unit,
 ) {
-    var foreground = true
+    var foreground = false
         private set
-    private var stopping = false
     private var resumePending = false
     private var closed = false
     fun onForeground(autoStart: Boolean) {
         foreground = true; resumePending = autoStart; reconcile()
     }
     fun onBackground() {
-        foreground = false; resumePending = false; reconcile()
+        foreground = false
     }
     fun cancelResume() { resumePending = false }
     fun close() { closed = true; resumePending = false }
     fun reconcile() {
-        if (closed || stopping) return
-        if (!foreground && active()) {
-            stopping = true
-            stop { success -> stopping = false; if (success) reconcile() }
-        } else if (foreground && resumePending && !active()) {
+        if (closed) return
+        if (foreground && resumePending && !active()) {
             resumePending = false; start()
         }
     }

@@ -452,6 +452,36 @@ abstract class AppLocalizations {
   /// **'Keep this app in the foreground'**
   String get foregroundOnly;
 
+  /// No description provided for @backgroundReceive.
+  ///
+  /// In en, this message translates to:
+  /// **'AirPlay reception continues in the background'**
+  String get backgroundReceive;
+
+  /// No description provided for @backgroundLaunch.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the app when AirPlay connects'**
+  String get backgroundLaunch;
+
+  /// No description provided for @backgroundLaunchHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'On Android 10 or later, select Flutter AirPlay in system settings and allow display over other apps. Otherwise, tap the connection notification to open.'**
+  String get backgroundLaunchHelp;
+
+  /// No description provided for @appPermissions.
+  ///
+  /// In en, this message translates to:
+  /// **'App permissions and notifications'**
+  String get appPermissions;
+
+  /// No description provided for @appPermissionsHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Some devices also require permission to open windows from the background. Allow notifications to open the app from connection alerts.'**
+  String get appPermissionsHelp;
+
   /// No description provided for @drmNotice.
   ///
   /// In en, this message translates to:

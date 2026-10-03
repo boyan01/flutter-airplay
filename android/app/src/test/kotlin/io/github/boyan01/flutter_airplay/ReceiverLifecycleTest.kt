@@ -5,62 +5,70 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReceiverLifecycleTest {
-    @Test fun backgroundStopsPendingStartupAndForegroundWaitsForStop() {
-        var active = true // PlaybackHost also marks pending startup active.
-        var stops = 0
+    @Test fun backgroundKeepsPendingStartupAndActiveReception() {
+        var active = false
         var starts = 0
-        var completion: ((Boolean) -> Unit)? = null
-        val lifecycle = ReceiverLifecycle({ active }, { stops++; completion = it }, { starts++; active = true })
+        val lifecycle = ReceiverLifecycle({ active }, { starts++; active = true })
+        lifecycle.onForeground(true)
+        assertEquals(1, starts)
         lifecycle.onBackground()
         lifecycle.reconcile()
-        assertEquals(1, stops)
+        assertFalse(lifecycle.foreground)
+        assertTrue(active)
         lifecycle.onForeground(true)
-        assertEquals(0, starts)
-        active = false
-        completion!!(true)
         assertEquals(1, starts)
-        lifecycle.reconcile()
-        assertEquals(1, starts)
+        assertTrue(lifecycle.foreground)
     }
 
-    @Test fun disabledAutoStartAndShutdownDoNotResume() {
-        var active = true
+    @Test fun disabledAutoStartStillKeepsAnExistingReceiver() {
+        var active = false
         var starts = 0
-        var completion: ((Boolean) -> Unit)? = null
-        val lifecycle = ReceiverLifecycle({ active }, { completion = it }, { starts++ })
+        val lifecycle = ReceiverLifecycle({ active }, { starts++; active = true })
+        lifecycle.onForeground(false)
+        assertEquals(0, starts)
+        active = true
         lifecycle.onBackground()
         lifecycle.onForeground(false)
-        active = false
-        completion!!(true)
+        assertTrue(active)
         assertEquals(0, starts)
+    }
+
+    @Test fun returningDuringNativeStopWaitsForCompletion() {
+        var active = true
+        var starts = 0
+        val lifecycle = ReceiverLifecycle({ active }, { starts++; active = true })
+        lifecycle.onBackground()
         lifecycle.onForeground(true)
+        assertEquals(0, starts)
+        active = false
+        lifecycle.reconcile()
         assertEquals(1, starts)
-        lifecycle.close()
-        lifecycle.onForeground(true)
+        lifecycle.reconcile()
         assertEquals(1, starts)
     }
 
-    @Test fun returningToBackgroundDuringStopCancelsResume() {
+    @Test fun manualStopAndServiceShutdownCancelPendingResume() {
         var active = true
         var starts = 0
-        var completion: ((Boolean) -> Unit)? = null
-        val lifecycle = ReceiverLifecycle({ active }, { completion = it }, { starts++ })
-        lifecycle.onBackground()
-        lifecycle.onForeground(true)
-        lifecycle.onBackground()
-        active = false
-        completion!!(true)
-        assertEquals(0, starts)
-    }
-    @Test fun manualStopCancelsPendingForegroundResume() {
-        var active = true
-        var starts = 0
-        val lifecycle = ReceiverLifecycle({ active }, { it(true) }, { starts++ })
+        val lifecycle = ReceiverLifecycle({ active }, { starts++ })
         lifecycle.onForeground(true)
         lifecycle.cancelResume()
         active = false
         lifecycle.reconcile()
         assertEquals(0, starts)
+        lifecycle.close()
+        lifecycle.onForeground(true)
+        assertEquals(0, starts)
     }
 
+    @Test fun backgroundDoesNotRestartAnInactiveReceiver() {
+        var active = true
+        var starts = 0
+        val lifecycle = ReceiverLifecycle({ active }, { starts++ })
+        lifecycle.onForeground(true)
+        lifecycle.onBackground()
+        active = false
+        lifecycle.reconcile()
+        assertEquals(0, starts)
+    }
 }

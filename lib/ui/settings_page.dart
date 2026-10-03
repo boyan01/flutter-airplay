@@ -26,6 +26,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _autoStart = widget.model.autoStart;
   late final _options = Map<String, bool>.of(widget.model.desktopOptions);
   String? _error;
+  String? _systemSettingsError;
   ReceiverModel get model => widget.model;
   @override
   void dispose() {
@@ -72,6 +73,15 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _tvAutoStart(bool value) async {
     await model.save(model.name, model.path, autoStart: value);
     if (mounted) setState(() => _autoStart = model.autoStart);
+  }
+
+  Future<void> _systemSettings(String method) async {
+    try {
+      await const MethodChannel('org.flutterairplay/window')
+          .invokeMethod<void>(method);
+    } on PlatformException catch (error) {
+      if (mounted) setState(() => _systemSettingsError = error.message);
+    }
   }
 
   @override
@@ -163,6 +173,33 @@ class _SettingsPageState extends State<SettingsPage> {
             _option('fullscreenOnConnect', l10n(context).fullscreenOnConnect),
             _option('alwaysOnTop', l10n(context).alwaysOnTop),
           ],
+          if (model.platform == 'android') ...[
+            TvFocus(
+              outline: tv,
+              child: ListTile(
+                key: const Key('backgroundLaunch'),
+                title: Text(l10n(context).backgroundLaunch),
+                subtitle: Text(l10n(context).backgroundLaunchHelp),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _systemSettings('requestBackgroundLaunch'),
+              ),
+            ),
+            TvFocus(
+              outline: tv,
+              child: ListTile(
+                key: const Key('appPermissions'),
+                title: Text(l10n(context).appPermissions),
+                subtitle: Text(l10n(context).appPermissionsHelp),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _systemSettings('openAppSettings'),
+              ),
+            ),
+          ],
+          if (_systemSettingsError != null && model.platform == 'android')
+            Text(
+              _systemSettingsError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           if (model.active && !tv)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -235,9 +272,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 context: context,
                 applicationName: 'Flutter AirPlay',
               ),
-              child: Text(
-                'UxPlay + C++ · GPLv3 · ${l10n(context).licenses}',
-              ),
+              child: Text('UxPlay + C++ · GPLv3 · ${l10n(context).licenses}'),
             )
           else
             Text(

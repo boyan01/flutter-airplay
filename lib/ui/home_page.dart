@@ -293,7 +293,7 @@ class HomePage extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Text(
             model.platform == 'android'
-                ? l10n(context).foregroundOnly
+                ? l10n(context).backgroundReceive
                 : l10n(context).macAudioHelp,
             style: TextStyle(
               fontSize: 12,

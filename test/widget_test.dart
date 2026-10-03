@@ -361,6 +361,40 @@ void main() {
     expect(backend.stops, 1);
   });
 
+  testWidgets('Android system permission entries preserve reception', (
+    tester,
+  ) async {
+    const window = MethodChannel('org.flutterairplay/window');
+    final calls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(window, (
+      call,
+    ) async {
+      calls.add(call.method);
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        window,
+        null,
+      ),
+    );
+    final backend = await launch(tester, platform: 'android');
+    expect(find.text('退到后台后仍可接收投屏'), findsOneWidget);
+    await tester.tap(find.byTooltip('修改设备名'));
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('backgroundLaunch'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(calls, contains('requestBackgroundLaunch'));
+    final permissions = find.byKey(const Key('appPermissions'));
+    await tester.ensureVisible(permissions);
+    await tester.tap(permissions);
+    await tester.pumpAndSettle();
+    expect(calls, contains('openAppSettings'));
+    expect(backend.stops, 0);
+  });
+
   testWidgets(
     'Auto receive preference is saved without interrupting playback',
     (tester) async {

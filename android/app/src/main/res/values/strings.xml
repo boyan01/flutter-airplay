@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Flutter AirPlay</string>
+    <string name="receiver_channel">AirPlay receiver</string>
+    <string name="connection_channel">AirPlay connections</string>
+    <string name="receiver_waiting">Listening for AirPlay in the background</string>
+    <string name="receiver_connected">Receiving AirPlay from %1$s</string>
+    <string name="receiver_failed">Receiver error. Open the app for details.</string>
+    <string name="receiver_open">Open</string>
+    <string name="receiver_stop">Stop receiver</string>
+</resources>

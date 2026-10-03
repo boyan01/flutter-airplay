@@ -195,6 +195,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get foregroundOnly => 'Keep this app in the foreground';
 
   @override
+  String get backgroundReceive =>
+      'AirPlay reception continues in the background';
+
+  @override
+  String get backgroundLaunch => 'Open the app when AirPlay connects';
+
+  @override
+  String get backgroundLaunchHelp =>
+      'On Android 10 or later, select Flutter AirPlay in system settings and allow display over other apps. Otherwise, tap the connection notification to open.';
+
+  @override
+  String get appPermissions => 'App permissions and notifications';
+
+  @override
+  String get appPermissionsHelp =>
+      'Some devices also require permission to open windows from the background. Allow notifications to open the app from connection alerts.';
+
+  @override
   String get drmNotice => 'DRM content is not supported';
 
   @override

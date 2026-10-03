@@ -161,13 +161,10 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         } }
     }
     fun stop(result:MethodChannel.Result) {
-        if(busy && !running) { result.error("busy","正在启动，请稍后停止",null);return }
         stopInternal(result)
     }
-    // Backgrounding must cancel startup too, even before discovery is ready.
-    fun stopForBackground(result: MethodChannel.Result) { stopInternal(result) }
     private fun stopInternal(result:MethodChannel.Result?) {
-        pendingStart?.error("cancelled", "应用已离开前台", null)
+        pendingStart?.error("cancelled", "接收启动已取消", null)
         pendingStart = null
         ++generation;busy=true;running=false
         registrations.forEach { it.cancel() };registrations.clear()
