@@ -36,3 +36,11 @@ The encoder and conversion utility are excluded. Original copyright and license
 notices remain with the source. Local input-bound checks are recorded in
 [UPSTREAM.md](vendor/alac/UPSTREAM.md). The license is bundled in
 [ALAC-Apache-2.0.txt](android/app/src/main/assets/licenses/ALAC-Apache-2.0.txt).
+
+## Linux system dependencies
+
+The Linux host links distribution-provided FFmpeg, GTK/GLib, PulseAudio, Avahi,
+OpenSSL and libplist libraries. It does not vendor those sources or use FDK-AAC.
+Dependency licensing and distribution requirements are recorded in
+[NOTICE](linux/NOTICE). Preserve the exact notices and licenses of any packages
+included in a distribution; installed system libraries remain runtime dependencies.

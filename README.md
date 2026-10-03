@@ -2,7 +2,7 @@
 
 一个 GPLv3 开源的 AirPlay 接收器，用于在同一局域网内接收 iPhone 屏幕镜像。
 macOS 和 Android 共用 Flutter 界面、UxPlay 接收协议与 C++ 播放核心；
-Windows 和 iPad 宿主复用同一工程，当前属于待设备验证的实验性实现。
+Windows、Linux 和 iPad 宿主复用同一工程，当前属于待设备验证的实验性实现。
 共享核心处理时间戳、缓冲和会话重置，解码与音频输出使用平台适配层。
 
 应用默认启动接收。待命首页显示设备名和投屏指引，收到画面后自动切换到播放页。
@@ -22,6 +22,7 @@ Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一�
 | Android TV | 共用 Android 应用，提供 TV 布局与遥控器方向键操作，当前仅打包 arm64-v8a |
 | iPad | iPadOS 15+，前台接收实现；切到后台停止接收，真实 iPhone 播放仍需验证 |
 | Windows | Windows 10+ x64 实验性代码，尚未在 Windows 编译/运行；支持路径为 H.264、AAC-LC、ALAC，AAC-ELD 明确报错，不能保证 iPhone 镜像有声音 |
+| Linux 桌面 | GTK 3、FFmpeg 6+、PulseAudio 兼容音频服务和 Avahi 等系统依赖；H.264、AAC-LC、有限 AAC-ELD、ALAC 实现，真实 iPhone 播放仍需验证 |
 
 ## 使用
 
@@ -67,7 +68,8 @@ Android 位于应用外部文件目录 `Android/data/io.github.boyan01.flutter_a
 文件包含 Flutter、接收核心和播放诊断，重启后保留。日志页“清空”只清空当前显示。
 
 开发环境、构建与测试命令见 [AGENTS.md](AGENTS.md)。
-实验性宿主的构建和限制见 [iPad](ios/README.md) 与 [Windows](windows/README.md)。
+实验性宿主的构建和限制见 [iPad](ios/README.md)、[Windows](windows/README.md)
+与 [Linux](linux/README.md)。
 
 ## 分发与许可
 
