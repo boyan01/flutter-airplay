@@ -3,6 +3,7 @@
 #include "audio_decoder.h"
 #include "audio_clock_tests.h"
 #include "audio_fixtures.h"
+#include "audio_decoder_tests.h"
 #include "video_fixtures.h"
 #include <jni.h>
 #include <android/native_window_jni.h>
@@ -13,7 +14,7 @@
 extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_TestActivity_decode(
         JNIEnv *env, jobject, jobject surface, jstring decoder, jboolean portrait_mode) {
     using namespace airplay;
-    try { check_audio_clock(); }
+    try { check_audio_clock(); check_audio_decoder(); }
     catch (const std::exception &error) { return env->NewStringUTF(error.what()); }
     auto *window = ANativeWindow_fromSurface(env, surface);
     const char *name = env->GetStringUTFChars(decoder, nullptr);
@@ -40,19 +41,6 @@ extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_T
             return env->NewStringUTF(("FAIL: NDK output frames=" + std::to_string(frames) + " dimensions=" + std::to_string(width) + "x" + std::to_string(height)).c_str());
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         video->reset();
-    }
-    auto pcm = std::make_shared<AudioBuffer>();
-    AudioDecoder audio(pcm, [](const char *) {});
-    for (int ct : {2,4,8}) {
-        pcm->flush(); audio.format(ct, ct == 2 ? 4096 : ct == 4 ? 1024 : 512);
-        const auto *packet = ct == 2 ? alac_0 : ct == 4 ? aac_0 : eld_0;
-        const auto length = ct == 2 ? sizeof(alac_0) : ct == 4 ? sizeof(aac_0) : sizeof(eld_0);
-        const auto due = monotonic_ns();
-        if (!audio.decode(packet, length, ct, due)) return env->NewStringUTF("FAIL: shared Android audio decode");
-        std::vector<int16_t> sound((ct == 2 ? 4096 : ct == 4 ? 1024 : 512)*2);
-        pcm->read(sound.data(), sound.size()/2, due);
-        int peak = 0; for (auto sample : sound) peak = std::max(peak, std::abs(int(sample)));
-        if (peak < 50) return env->NewStringUTF("FAIL: shared Android decoded PCM");
     }
     // Exercise the real device output without emitting the test tone.
     auto output = make_audio_output(std::make_shared<AudioBuffer>());

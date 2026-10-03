@@ -2,7 +2,7 @@
 
 一个 GPLv3 开源的 AirPlay 接收器，用于在同一局域网内接收 iPhone 屏幕镜像。
 macOS 和 Android 共用 Flutter 界面、UxPlay 接收协议与 C++ 播放核心。
-共享核心处理音频解码、时间戳、缓冲和会话重置，视频解码与音频输出使用各平台的系统接口。
+共享核心处理时间戳、缓冲和会话重置，解码与音频输出使用平台适配层。
 
 应用默认启动接收。待命首页显示设备名和投屏指引，收到画面后自动切换到播放页。
 提供设备名设置、接收开关、全屏和日志；外观跟随系统，TV 始终使用深色。
@@ -66,7 +66,8 @@ Android 位于应用外部文件目录 `Android/data/io.github.boyan01.flutter_a
 ## 分发与许可
 
 macOS 应用采用 VideoToolbox / CoreAudio，Android 采用 NDK MediaCodec / Oboe。
-FFmpeg（AAC、AAC-ELD、ALAC）、OpenSSL 和 libplist 静态链接到共享播放库。
+macOS 音频使用 AudioConverter 解码；Android 的 AAC / AAC-ELD 使用 MediaCodec，ALAC 使用内置专用解码器。
+OpenSSL 和 libplist 静态链接到共享播放库。
 macOS 可以打包为独立运行的 `.app` 与 ZIP，当前使用本地 ad-hoc 签名、非沙箱运行。
 面向互联网分发仍需 Developer ID 签名和公证；首次运行时应允许局域网访问。
 应用不会修改系统 AirPlay Receiver、防火墙、系统音量或凭据。

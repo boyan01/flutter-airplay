@@ -15,11 +15,23 @@ Original copyright and license notices remain with the source.
 
 ## Shared C++ player and Android reference
 
-The shared player retains derived audio configuration, device-loss handling
-and FFmpeg build configuration. The Android decoder selector also derives from
+The shared player retains derived AirPlay audio configuration and device-loss
+handling. The Android decoder selector also derives from
 https://github.com/jqssun/android-airplay-server.
 Copied paths and the upstream commit are recorded in
 [dependencies.lock.json](android/dependencies.lock.json).
 Source notices are retained in [NOTICE](android/NOTICE),
 [CORE_NOTICE.md](android/CORE_NOTICE.md) and the bundled
 [license assets](android/app/src/main/assets/licenses/).
+
+## Apple ALAC decoder
+
+Source: https://github.com/macosforge/alac
+Base commit: c38887c5c5e64a4b31108733bd79ca9b2496d987
+License: Apache-2.0
+
+Decoder sources are maintained in `vendor/alac/` and linked only on Android.
+The encoder and conversion utility are excluded. Original copyright and license
+notices remain with the source. Local input-bound checks are recorded in
+[UPSTREAM.md](vendor/alac/UPSTREAM.md). The license is bundled in
+[ALAC-Apache-2.0.txt](android/app/src/main/assets/licenses/ALAC-Apache-2.0.txt).

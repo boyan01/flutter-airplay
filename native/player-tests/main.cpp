@@ -4,6 +4,7 @@
 #include "audio_clock_tests.h"
 #include <cstdio>
 #include "audio_fixtures.h"
+#include "audio_decoder_tests.h"
 #include "video_fixtures.h"
 #include <CoreVideo/CoreVideo.h>
 #include <stdexcept>
@@ -18,6 +19,7 @@ void check(bool condition, const char *description) { if (!condition) throw std:
 int main() {
     try {
         check_audio_clock();
+        check_audio_decoder();
         Timeline timeline;
         check(timeline.deadline(10000000000, 1000000000) == 1080000000, "first packet anchor");
         check(timeline.deadline(10010000000, 1100000000) == 1090000000, "audio/video preserve timestamp difference");
@@ -55,24 +57,6 @@ int main() {
         std::vector<uint8_t> annex{0,0,0,1,0x67,3,4,0,0,1,0x68,5,0,0,0,1,0x65,6};
         auto nals = split_nals(annex.data(), annex.size());
         check(nals.size() == 3 && nals[0].size() == 3 && nals[2][0] == 0x65, "Annex B three/four byte prefixes");
-        auto pcm = std::make_shared<AudioBuffer>();
-        AudioDecoder decoder(pcm, [](const char *) {});
-        const uint8_t invalid[] = {0xff,0xff,0xff};
-        check(!decoder.decode(invalid, sizeof(invalid), 99, due), "unsupported audio format rejected");
-        check(avcodec_find_decoder(AV_CODEC_ID_AAC) && avcodec_find_decoder(AV_CODEC_ID_ALAC), "bundled audio decoders exist");
-        for (const auto ct : {2, 4, 8}) {
-            pcm->flush(); decoder.format(ct, ct == 2 ? 4096 : ct == 4 ? 1024 : 512);
-            const auto *data = ct == 2 ? alac_0 : ct == 4 ? aac_0 : eld_0;
-            const auto size = ct == 2 ? sizeof(alac_0) : ct == 4 ? sizeof(aac_0) : sizeof(eld_0);
-            check(decoder.decode(data, size, ct, due), "synthetic audio packet decoded");
-            const int samples = ct == 2 ? 4096 : ct == 4 ? 1024 : 512;
-            std::vector<int16_t> sound(samples * 2);
-            pcm->read(sound.data(), samples, due);
-            int peak = 0; for (auto sample : sound) peak = std::max(peak, std::abs(int(sample)));
-            check(peak > 50, "decoded PCM contains synthetic tone");
-            decoder.flush(); pcm->read(sound.data(), samples, due);
-            check(std::all_of(sound.begin(), sound.end(), [](auto x) { return x == 0; }), "decoder FLUSH clears old PCM");
-        }
         int frames = 0, video_width = 0, video_height = 0;
         auto video = make_video_output(nullptr, nullptr, nullptr, {
             [&](void *frame, int w, int h, int64_t, uint64_t generation) {

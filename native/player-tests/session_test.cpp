@@ -77,11 +77,16 @@ void check_video_resume(void *surface, const char *decoder) {
     if (!std::equal(std::begin(audio), std::end(audio), std::begin(sound)))
         throw std::runtime_error("video pause discards queued audio");
     audio_decode_struct packet{}; packet.ct = 4;
-    packet.data = const_cast<uint8_t *>(aac_0); packet.data_len = sizeof(aac_0);
-    packet.ntp_time_local = realtime_ns();
-    receive.audio_process(receive.cls, nullptr, &packet);
-    packet.data = const_cast<uint8_t *>(aac_1); packet.data_len = sizeof(aac_1);
-    receive.audio_process(receive.cls, nullptr, &packet);
+    const auto audio_start = realtime_ns();
+    // System codecs can buffer initial AAC packets. The UI event must follow
+    // actual PCM production and still fire only once for the continuing stream.
+    for (int i = 0; i < 8; ++i) {
+        packet.data = const_cast<uint8_t *>(i ? aac_1 : aac_0);
+        packet.data_len = i ? sizeof(aac_1) : sizeof(aac_0);
+        packet.ntp_time_local = audio_start + int64_t(i) * 1024 * kSecond / kSampleRate;
+        receive.audio_process(receive.cls, nullptr, &packet);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
     if (progress.audio.load() != 1) throw std::runtime_error("decoded PCM has no single audio UI event");
     receive.audio_flush(receive.cls);
     if (progress.audio_stops.load() != 1) throw std::runtime_error("audio flush has no pause UI event");

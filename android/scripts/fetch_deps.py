@@ -8,7 +8,7 @@ app = Path(__file__).resolve().parents[1]
 cache = app / '.cache/deps'
 cache.mkdir(parents=True, exist_ok=True)
 lock = json.loads((app / 'dependencies.lock.json').read_text())
-for name in ('openssl', 'libplist', 'oboe', 'ffmpeg'):
+for name in ('openssl', 'libplist', 'oboe'):
     entry = lock[name]
     target = cache / name
     if not target.exists():

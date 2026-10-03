@@ -1,7 +1,7 @@
 # Playback fixtures
 
 `main.cpp` exercises the production C++ timeline, bounded PCM buffer, audio
-configuration and VideoToolbox adapter. It also starts the production receive
+platform audio decoder and VideoToolbox adapter. It also starts the production receive
 core, sends loopback RTSP requests and destroys/recreates the player.
 
 `audio_clock_tests.h` checks uninterrupted 440 Hz PCM while replaying device
@@ -10,8 +10,16 @@ a long interruption. Both the host regression and the Android fixture run it.
 
 Audio fixtures contain only a synthetic 880 Hz stereo tone. `audio_fixtures.h`
 was generated from FFmpeg AAC/ALAC and macOS AudioToolbox AAC-ELD packets. ALAC
-uses a 4096-sample frame; AAC uses 1024; AAC-ELD uses 512. These do not cover every
-sender configuration (in particular, AirPlay's 352/480-sample variants).
+uses a 4096-sample frame; AAC uses 1024; AAC-ELD uses 512 and 480.
+`audio_decoder_tests.h` also constructs a synthetic 352-sample uncompressed
+ALAC stereo packet. Both platform fixtures check queued PCM deadlines, format
+changes and FLUSH/restart. Android's system AAC decoder can buffer initial
+packets, so the fixtures feed a continuing stream before checking PCM.
+
+`alac_test.cpp` exercises the same standalone decoder used on Android. It checks
+bit-exact 352-sample PCM, compressed 4096-sample ALAC, oversized and truncated
+frames, 10000 deterministic malformed packets, and recovery after invalid input.
+Run `ALAC_SANITIZE=ON ./scripts/test_alac.sh` for the AddressSanitizer host build.
 
 Video fixtures contain one synthetic red frame in landscape and portrait,
 encoded with FFmpeg/libx264. The test checks decoded BGRA pixels, actual

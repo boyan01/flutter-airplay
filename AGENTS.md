@@ -59,8 +59,8 @@ open "build/macos/Build/Products/Release/Flutter AirPlay.app"
 ```
 
 The native script builds the shared C++ player in `build/macos-native/`, with
-static FFmpeg, OpenSSL and libplist. Xcode links and bundles this library;
-VideoToolbox, CoreAudio and Bonjour are system dependencies. Build native code
+static OpenSSL and libplist. Xcode links and bundles this library;
+VideoToolbox, AudioConverter, CoreAudio and Bonjour are system dependencies. Build native code
 before building Flutter. For an audited ad-hoc signed application and ZIP:
 
 ```sh
@@ -119,6 +119,9 @@ macOS native regressions, after building the shared player:
 These use synthetic audio/video and loopback protocol inputs. The former
 GStreamer and Kotlin/EGL playback fixtures were replaced with tests of the
 current C++ player and direct Flutter texture adapter.
+
+The standalone Android ALAC decoder also has a host regression for bit-exact
+PCM, malformed packets and recovery: `ALAC_SANITIZE=ON ./scripts/test_alac.sh`.
 
 For macOS window changes, build the Debug application and run
 `./scripts/test_window.sh` in a logged-in macOS GUI session.

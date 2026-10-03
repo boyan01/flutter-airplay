@@ -17,17 +17,15 @@ packaged under assets/licenses. See android/CORE_NOTICE.md.
 
 Oboe 1.9.3, Copyright Google, Apache-2.0.
 https://github.com/google/oboe
-FFmpeg 7.1.1, Copyright the FFmpeg developers, LGPL-2.1-or-later.
-https://github.com/FFmpeg/FFmpeg
-This binary enables only the ALAC decoder and libavcodec/libavutil, without
-GPL/nonfree FFmpeg configuration options. LGPL source and static relinking
-materials can be rebuilt using the supplied scripts and pinned source locks.
+Apple ALAC decoder, Copyright (c) 2011 Apple Inc., Apache-2.0.
+https://github.com/macosforge/alac
+Pinned decoder-only sources and local input-bound checks reside in vendor/alac/.
+AAC and AAC-ELD use Android MediaCodec. macOS audio uses AudioConverter.
 
 Flutter SDK/engine are under the BSD-3-Clause license; standard Flutter
 third-party engine notices are included by the Flutter build tool.
 No DRM-protected video playback or HLS player is advertised by this host.
 
-Shared C++ player: the derived AAC/ALAC configuration, Oboe device-loss handling
-and FFmpeg build configuration now reside in native/player/ and native/cmake/.
-Kotlin MediaCodec/EGL playback and the previous Android audio engine are replaced.
-FFmpeg builds include both AAC and ALAC decoders on Android and macOS.
+Shared C++ player: derived AirPlay audio configuration and Oboe device-loss
+handling reside in native/player/. Kotlin MediaCodec/EGL playback and the
+previous Android audio engine are replaced by the native platform adapters.

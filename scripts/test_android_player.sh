@@ -12,7 +12,6 @@ mkdir -p "$output/classes" "$output/lib/arm64-v8a" "$project_root/artifacts/andr
     -std=c++17 -shared -fPIC -static-libstdc++ -Wl,-z,max-page-size=16384 \
     -I "$project_root/native/player" -I "$project_root/native/player-tests" \
     -I "$project_root/vendor/UxPlay/lib" \
-    -I "$project_root/build/android-native-arm64/ffmpeg-shared-player/include" \
     "$project_root/native/player-tests/android/player_test.cpp" \
     "$project_root/native/player-tests/session_test.cpp" \
     -L "$project_root/android/app/src/main/jniLibs/arm64-v8a" -lairplay_player -landroid -lmediandk -llog \
