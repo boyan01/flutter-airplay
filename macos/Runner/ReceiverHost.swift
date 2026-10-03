@@ -257,7 +257,7 @@ final class ReceiverHost {
         }
     }
 
-    // Stable contract supplied by native/patches. No log-word guessing.
+    // Stable contract supplied by the maintained UxPlay source. No log-word guessing.
     func receiveLine(_ line: String) {
         guard !line.isEmpty else { return }
         log(line)

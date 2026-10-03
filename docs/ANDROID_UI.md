@@ -97,9 +97,7 @@ From repository root (installed Flutter 3.47.2 / SDK 36 / NDK 28.2.13676358 /
 CMake 3.22.1; local release builds use the existing debug signing convention):
 
 ```sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ./android-prototype/scripts/build_native.sh arm64-v8a
-python3 android/scripts/fetch_deps.py
-./android/scripts/build_native.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./android/scripts/build_native.sh
 flutter pub get
 flutter analyze
 flutter test

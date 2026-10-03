@@ -1,3 +1,4 @@
+#include <atomic>
 /**
  * RPiPlay - An open-source AirPlay mirroring server for Raspberry Pi
  * Copyright (C) 2019 Florian Draschbacher
@@ -2222,6 +2223,17 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
     }
 }
 
+// Airplay Receiver integration: small, versioned process event contract.
+// Media handling stays native in UxPlay and GStreamer.
+static std::atomic<bool> receiver_media_active(false);
+static void receiver_event(const char *event) {
+    fprintf(stderr, "AIRPLAY_RECEIVER_EVENT %s\n", event);
+    fflush(stderr);
+}
+static void receiver_media_started() {
+    if (!receiver_media_active.exchange(true)) receiver_event("streaming");
+}
+
 extern "C" void conn_init (void *cls) {
     open_connections++;
     LOGD("Open connections: %i", open_connections);
@@ -2233,6 +2245,8 @@ extern "C" void conn_destroy (void *cls) {
     open_connections--;
     LOGD("Open connections: %i", open_connections);
     if (open_connections == 0) {
+        receiver_media_active.store(false);
+        receiver_event("waiting");
         remote_clock_offset = 0;
         if (use_audio) {
             audio_renderer_stop();
@@ -2252,6 +2266,8 @@ extern "C" void conn_feedback (void *cls) {
 }
 
 extern "C" void conn_reset (void *cls, int reason) {
+    receiver_media_active.store(false);
+    receiver_event("waiting");
     switch (reason) {
     case 1:
         LOGI("*** ERROR lost connection with client (network problem?)");
@@ -2293,6 +2309,7 @@ extern "C" void report_client_request(void *cls, char *deviceid, char * model, c
 }
 
 extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
+    if (data->data_len > 0) receiver_media_started();
     if (dump_audio) {
         dump_audio_to_file(data->data, data->data_len, (data->data)[0] & 0xf0);
     }
@@ -2328,6 +2345,7 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
 }
 
 extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *data) {
+    if (data->data_len > 0) receiver_media_started();
     if (dump_video) {
         dump_video_to_file(data->data, data->data_len);
     }
@@ -2911,6 +2929,8 @@ int main (int argc, char *argv[]) {
     }
     
     char *rcfile = NULL;
+    // Flush normal logs promptly when launched with pipes by the Flutter host.
+    setvbuf(stdout, NULL, _IOLBF, 0);
     /* see if option -rc was given */
     for (int i = 1; i < argc ; i++) {
         std::string arg(argv[i]);
@@ -3228,6 +3248,7 @@ int main (int argc, char *argv[]) {
         stop_dnssd();
         cleanup();
     }
+    receiver_event("ready");
     reconnect:
     compression_type = 0;
     close_window = new_window_closing_behavior;

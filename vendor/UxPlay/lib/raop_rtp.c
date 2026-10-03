@@ -386,6 +386,8 @@ raop_rtp_thread_udp(void *arg)
     socklen_t saddrlen = 0;
     bool got_remote_control_saddr = false;
     uint64_t video_arrival_offset = 0;
+    uint64_t diagnostic_time = raop_ntp_get_local_time();
+    unsigned long audio_packets = 0, empty_packets = 0, forwarded_frames = 0;
 
     /* initial audio stream has no data */    
     unsigned char no_data_marker[] = {0x00, 0x68, 0x34, 0x00 };
@@ -419,6 +421,15 @@ raop_rtp_thread_udp(void *arg)
          /* Check if we are still running and process callbacks */
         if (raop_rtp_process_events(raop_rtp, NULL)) {
             break;
+        }
+
+        /* Aggregate metadata only; do not enable key/media-bearing debug logging. */
+        uint64_t diagnostic_now = raop_ntp_get_local_time();
+        if (diagnostic_now - diagnostic_time >= 5ULL * SEC) {
+            diagnostic_time = diagnostic_now;
+            logger_log(raop_rtp->logger, LOGGER_INFO,
+                       "Audio transport: ct=%u packets=%lu no_data=%lu forwarded=%lu synced=%d",
+                       raop_rtp->ct, audio_packets, empty_packets, forwarded_frames, raop_rtp->initial_sync);
         }
 
         /* Set timeout value to 5ms */
@@ -568,6 +579,7 @@ raop_rtp_thread_udp(void *arg)
             //int type_d = packet[1] & ~0x80;
             //logger_log(raop_rtp->logger, LOGGER_DEBUG, "raop_rtp_thread_udp type_d 0x%02x, packetlen = %d", type_d, packetlen);
 	    
+            audio_packets++;
             if (packetlen < 12)  {
                 if (logger_debug) {
                     char *str = utils_data_to_string(packet, packetlen, 16);
@@ -589,6 +601,7 @@ raop_rtp_thread_udp(void *arg)
             }	    
 
             if (packetlen == 12 ||(packetlen == 16 && memcmp(packet + 12, no_data_marker, 4) == 0)) {
+                empty_packets++;
                 /* this is a "no data" packet */
 	        /* the first such packet could be used to provide the initial rtptime and seqnum formerly given in the RECORD request */
                 continue;
@@ -628,6 +641,7 @@ raop_rtp_thread_udp(void *arg)
                                    (double) audio_data.ntp_time_remote /SEC, rtp_timestamp, seqnum, type, payload_size);
                     }
 
+                    forwarded_frames++;
                     raop_rtp->callbacks.audio_process(raop_rtp->callbacks.cls, raop_rtp->ntp, &audio_data);
                     free(payload);
                 }
@@ -684,6 +698,12 @@ raop_rtp_start_audio(raop_rtp_t *raop_rtp,  unsigned short *control_rport, unsig
     }
     *control_lport = raop_rtp->control_lport;
     *data_lport = raop_rtp->data_lport;
+    /* A restarted audio stream has a new RTP epoch. Do not reuse an old sync anchor. */
+    raop_rtp->initial_sync = false;
+    raop_rtp->rtp_sync = 0;
+    raop_rtp->client_ntp_sync = 0;
+    logger_log(raop_rtp->logger, LOGGER_INFO, "Audio transport: reset RTP timing for new stream");
+
     /* Create the thread and initialize running values */
     raop_rtp->running = 1;
     raop_rtp->joined = 0;

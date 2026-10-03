@@ -846,7 +846,7 @@ raop_start_httpd(raop_t *raop, unsigned short *port) {
 void
 raop_stop_httpd(raop_t *raop) {
     assert(raop);
-    httpd_stop(raop->httpd);
+    if (raop->httpd) httpd_stop(raop->httpd);
 }
 
 void raop_remove_known_connections(raop_t * raop) {

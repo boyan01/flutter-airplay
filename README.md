@@ -37,17 +37,16 @@ flutter build macos
 ```
 
 无需 sudo make install，UxPlay 只编译至项目内，再复制到 app 的 Resources/receiver。
-项目包含固定 UxPlay v1.73.7 上游源码，SHA-256 清单在 native/uxplay.lock.json。
-构建时验证源码并将 native/patches 补丁应用到 build/uxplay-src；不修改 vendor 原件。原生核心修改后必须重跑
-build_receiver.sh，并重构建应用。高级核心路径应指向本项目带事件补丁的 uxplay；普通
+项目直接维护 `vendor/UxPlay/` 中的 UxPlay 改版，macOS 和 Android 共用接收核心。
+上游基准版本与 commit 记录在 `vendor/UxPlay/UPSTREAM.md`，构建版本由本项目 Git 固定。
+直接修改该目录的源码；原生核心修改后必须重跑 `build_receiver.sh`，并重构建应用。
+高级核心路径应指向本项目提供事件协议的 uxplay；普通
 Homebrew uxplay 不提供事件协议，会明确报告启动超时。
 
 ## Android 与 TV 构建
 
 ```sh
 export ANDROID_HOME="$HOME/Library/Android/sdk"
-./android-prototype/scripts/build_native.sh arm64-v8a
-python3 android/scripts/fetch_deps.py
 ./android/scripts/build_native.sh
 flutter build apk --release --target-platform android-arm64
 ```
@@ -98,7 +97,7 @@ FlutterTexture 内嵌路径已通过实际 H.264 renderer 合成帧与 CUA 可�
 启停和退出检查。这些合成结果不能代表新版真实 iPhone 音画/同步/稳定性验收。
 新版有真实 iPhone 连接及解码事件，但用户的音画确认仍待记录；观察到 IPv6 NTP
 “无路由”日志，未改变任何系统网络设置。Android 原生宿主已迁入根 [`android/`](docs/ANDROID_UI.md)，复用相同 Flutter UI；
-[`android-prototype/`](docs/ANDROID.md)保留为 JNI 基础模块。旧独立 Flutter 入口已移除。Android 应用的发现、连接、画面和声音已由用户在真机确认；
+原生基础代码、补丁和构建脚本也统一维护在 `android/`，见[构建与回归说明](docs/ANDROID.md)。旧独立工程已移除。Android 应用的发现、连接、画面和声音已由用户在真机确认；
 同步、旋转、重连和持续稳定性仍需分别验收。
 
 ## 打包与权限限制

@@ -8,7 +8,7 @@ This macOS embedded checkpoint follows published baseline
 never reset or overwrite another session's working-tree changes.
 
 The macOS feature owner covers `macos/**`, Dart preview/model/repository,
-patch 0002 and frame/sync fixtures. Android work is in a separate workflow and
+embedded frame output and frame/sync fixtures. Android work is in a separate workflow and
 must coordinate any shared Dart, pubspec, root build or documentation change.
 The parent integration session owns the cross-platform summary/integration.
 
@@ -19,6 +19,9 @@ retired, with history preserved in Git. Both hosts use the shared receiver
 channel/model/screen. See [SHARED_UI_VALIDATION.md](SHARED_UI_VALIDATION.md) for
 0.1.2+3 build, signature and actual UI/device acceptance. Historical Android
 user-confirmed image/sound remains in [ANDROID_PLAYER.md](ANDROID_PLAYER.md).
+Android core dependencies and host regression fixtures now
+also live under `android/`; the standalone foundation AAR/device harness was
+retired. See [ANDROID.md](ANDROID.md) for the single native build command.
 The remaining macOS checkpoint sections below are historical context.
 
 ## Current macOS path
@@ -27,13 +30,15 @@ UxPlay v1.73.7 + GStreamer own AirPlay receiving, software H264 decode,
 macOS audio and the shared presentation clock. Flutter owns controls and
 preview. No Go component. Preserve receive/playback boundaries and GPL notices.
 
-Patch 0001 retains state markers, audio diagnostics, shared clock, RTP epoch
+The maintained UxPlay source retains state markers, audio diagnostics, shared clock, RTP epoch
 reset, bad AAC timestamp rejection and same-codec SETUP/FLUSH recovery.
-Patch 0002 adds BGRA appsink and a sender thread with one in-flight and one
+Its embedded frame output adds BGRA appsink and a sender thread with one in-flight and one
 replaceable pending frame. Socket send timeout/drop keeps network I/O off the
 streaming thread. Video stop invalidates pending/in-flight transport epochs.
-`vendor/UxPlay` remains pristine at `native/uxplay.lock.json`; edit generated
-`build/uxplay-src` and regenerate ordered `native/patches`.
+Edit `vendor/UxPlay` directly. macOS and Android share its receive core,
+including partial-initialization and DNS lifetime fixes. Upstream provenance
+is recorded in `vendor/UxPlay/UPSTREAM.md`; builds compile this source without
+applying patches.
 
 Embedded helper arguments are `-rc /dev/null -n <name> -nh -vsync -avdec
 -vs appsink -vc "videoconvert ! video/x-raw,format=BGRA" -as osxaudiosink`.

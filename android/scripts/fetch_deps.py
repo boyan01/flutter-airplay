@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Fetch pinned playback dependencies; never modify a dirty dependency tree."""
+"""Fetch pinned native dependencies; never modify a dirty dependency tree."""
 import json
 from pathlib import Path
 import subprocess
 app = Path(__file__).resolve().parents[1]
-cache = app.parent / 'android-prototype/.cache/deps'
+cache = app / '.cache/deps'
 cache.mkdir(parents=True, exist_ok=True)
 lock = json.loads((app / 'dependencies.lock.json').read_text())
-for name in ('oboe', 'ffmpeg'):
+for name in ('openssl', 'libplist', 'oboe', 'ffmpeg'):
     entry = lock[name]
     target = cache / name
     if not target.exists():

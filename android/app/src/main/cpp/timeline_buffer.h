@@ -168,36 +168,6 @@ private:
     bool mHaveBase = false;
 };
 
-// cumulative diagnostic counters, bumped from producer/consumer, read from stats thread
-class TimelineMetrics {
-public:
-    // packed: nests into AudioDebugData with fixed layout
-    struct __attribute__((packed)) Debug {
-        uint32_t trims, drops, silences, underruns;  // cumulative; 32-bit to avoid wrap
-    };
-
-    void countTrim()     { mTrims.fetch_add(1, std::memory_order_relaxed); }
-    void countDrop()     { mDrops.fetch_add(1, std::memory_order_relaxed); }
-    void countSilence()  { mSilences.fetch_add(1, std::memory_order_relaxed); }
-    void countUnderrun() { mUnderruns.fetch_add(1, std::memory_order_relaxed); }
-
-    // any thread
-    Debug debugInfo() const {
-        Debug d{};
-        d.trims = mTrims.load(std::memory_order_relaxed);
-        d.drops = mDrops.load(std::memory_order_relaxed);
-        d.silences = mSilences.load(std::memory_order_relaxed);
-        d.underruns = mUnderruns.load(std::memory_order_relaxed);
-        return d;
-    }
-
-private:
-    std::atomic<uint32_t> mTrims{0};      // backlog exceeded cap and was trimmed
-    std::atomic<uint32_t> mDrops{0};      // late packets dropped, pts slot already passed
-    std::atomic<uint32_t> mSilences{0};   // gaps filled with silence
-    std::atomic<uint32_t> mUnderruns{0};  // ring ran dry, output padded with silence
-};
-
 /*
  * Timeline-synchronized playout buffer: absorbs jitter, clock drift and clock resyncs,
  * syncs audio to its presentation-time tag.
@@ -250,10 +220,8 @@ public:
             // sender left gap: reproduce as silence so timing is exact
             const size_t silenceFrames = (size_t)(gapNs * mSampleRate / NS_PER_SEC);
             writeSilenceFrames(silenceFrames);
-            mMetrics.countSilence();
         } else if (gapNs < -SLACK_NS) {
             // slot already passed (late/overlap): drop
-            mMetrics.countDrop();
             return;
         }
         mRing.write(pcm, samples);
@@ -280,7 +248,6 @@ public:
         if (mAboveCapSinceNs != 0 && now - mAboveCapSinceNs >= TRIM_SUSTAIN_NS
                 && now - mLastTrimBlockNs >= TRIM_THROTTLE_NS) {
             mRing.skip(avail - tuned);
-            mMetrics.countTrim();
             mLastTrimBlockNs = now;
             mAboveCapSinceNs = 0;
         }
@@ -313,7 +280,6 @@ public:
             mPriming = true;
             mLastTrimBlockNs = now;  // hold off trims while rebuilding
             mUnderran.store(true, std::memory_order_relaxed);  // producer re-anchors
-            mMetrics.countUnderrun();
         }
     }
 
@@ -330,20 +296,6 @@ public:
     void flushAndReprime() {
         mRing.skip(mRing.available());
         mPriming = true;
-    }
-
-    // debug snapshot: backlog + tuned cushion (ms) + counters; reads only atomics, any thread
-    struct __attribute__((packed)) Debug {
-        uint16_t backlogMs;         // bounded by ring (few seconds)
-        uint16_t tunedCushionMs;    // bounded by MAX_CUSHION_MS
-        TimelineMetrics::Debug metrics;
-    };
-    Debug debugInfo() const {
-        Debug d{};
-        d.backlogMs = (uint16_t)(mRing.available() / mChannels * 1000 / mSampleRate);
-        d.tunedCushionMs = (uint16_t)(mTracker.target() / mChannels * 1000 / mSampleRate);
-        d.metrics = mMetrics.debugInfo();
-        return d;
     }
 
 private:
@@ -376,7 +328,6 @@ private:
     const int mChannels;
     DelayTracker mTracker;               // owns cushion policy; read live each read()
     SpscRing mRing;
-    TimelineMetrics mMetrics;
     bool mPriming = true;                // stream start: buffer output to build cushion
     uint32_t mPrimeSilenceFrames = 0;    // consumer-only: silence frames output while priming with partial data
     int64_t mLastTrimBlockNs = 0;        // consumer-only: last trim/underrun time (trim throttle)

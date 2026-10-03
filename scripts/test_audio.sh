@@ -14,5 +14,5 @@ export GST_DEBUG=1
 # pkg-config supplies compiler flags; there is no shell evaluation of its output.
 read -r -a gst_cflags <<< "$(pkg-config --cflags gstreamer-app-1.0)"
 read -r -a gst_libs <<< "$(pkg-config --libs gstreamer-app-1.0)"
-clang -I "$project_root/build/uxplay-src/renderers" "${gst_cflags[@]}" "$project_root/native/audio-tests/main.c" "$project_root/build/uxplay-src/lib/logger.c" "${gst_libs[@]}" -o "$test_root/audio-tests"
+clang -I "$project_root/vendor/UxPlay/renderers" "${gst_cflags[@]}" "$project_root/native/audio-tests/main.c" "$project_root/vendor/UxPlay/lib/logger.c" "${gst_libs[@]}" -o "$test_root/audio-tests"
 "$test_root/audio-tests"

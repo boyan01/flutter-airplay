@@ -32,96 +32,6 @@ extern "C" {
 
 static constexpr int CT_ALAC = 2, CT_AAC_LC = 4, CT_AAC_ELD = 8;
 
-class LatencyReporter {
-public:
-    LatencyReporter(const char *name, LogSink &log) : mName(name), mLog(log) {}
-
-    // no concurrent callers
-    void record(int64_t ns) {
-        if (mN == 0 || ns < mMinNs) mMinNs = ns;
-        if (ns > mMaxNs) mMaxNs = ns;
-        mSumNs += ns;
-        if (++mN >= UPDATE_FREQ) {
-            const int32_t meanUs = (int32_t)(mSumNs / mN / 1000);
-            mMeanUs.store(meanUs, std::memory_order_relaxed);
-            mMaxUs.store((int32_t)(mMaxNs / 1000), std::memory_order_relaxed);
-            if (mLogging.load(std::memory_order_relaxed)) {
-                mLog.info("%s latency: n=%lld min=%.2fms mean=%.2fms max=%.2fms (held=%zu)",
-                          mName, (long long)mN, mMinNs / 1e6, meanUs / 1000.0, mMaxNs / 1e6,
-                          mHeld.load(std::memory_order_relaxed));
-            }
-            mN = 0; mSumNs = 0; mMinNs = 0; mMaxNs = 0;
-        }
-    }
-
-    // # of operations currently in flight
-    void setHeld(size_t n) { mHeld.store(n, std::memory_order_relaxed); }
-
-    void setEnableLogging(bool on) { mLogging.store(on, std::memory_order_relaxed); }
-
-    // packed: nests into AudioDebugData with fixed layout
-    struct __attribute__((packed)) Debug {
-        int32_t meanUs, maxUs;  // latency in us
-        uint16_t held;          // operations in flight
-    };
-    Debug debugInfo() const {
-        Debug d{};
-        d.meanUs = mMeanUs.load(std::memory_order_relaxed);
-        d.maxUs = mMaxUs.load(std::memory_order_relaxed);
-        d.held = (uint16_t)mHeld.load(std::memory_order_relaxed);
-        return d;
-    }
-
-private:
-    static constexpr int64_t UPDATE_FREQ = 200;
-
-    const char *mName;
-    LogSink &mLog;                                       // not owned
-    std::atomic<bool> mLogging{false};
-    int64_t mN = 0, mSumNs = 0, mMinNs = 0, mMaxNs = 0;  // producer-thread accumulators
-    std::atomic<int32_t> mMeanUs{0}, mMaxUs{0};
-    std::atomic<size_t> mHeld{0};
-};
-
-// https://stackoverflow.com/a/44095383
-/*
- * SPSC queue to measure AMediaCodec decode latency: MediaCodec can't carry side data
- * across decode, so track queue times ourselves
- */
-struct LatencyProbe {
-    struct Entry { int64_t ptsUs; int64_t queueNs; };
-    static constexpr uint64_t CAP = 64;
-    Entry mBuf[CAP] = {};
-    std::atomic<uint64_t> mWrite{0};
-    std::atomic<uint64_t> mRead{0};
-
-    // call before feeding frame into MediaCodec
-    void record(int64_t ptsUs, int64_t queueNs) {
-        const uint64_t w = mWrite.load(std::memory_order_relaxed);
-        mBuf[w % CAP] = {ptsUs, queueNs};
-        mWrite.store(w + 1, std::memory_order_release);
-    }
-
-    // call after frame comes back; latency ns for ptsUs, or -1 if not recorded
-    int64_t match(int64_t ptsUs, int64_t nowNs) {
-        uint64_t r = mRead.load(std::memory_order_relaxed);
-        const uint64_t w = mWrite.load(std::memory_order_acquire);
-        for (; r < w; r++) {
-            if (mBuf[r % CAP].ptsUs == ptsUs) {
-                const int64_t lat = nowNs - mBuf[r % CAP].queueNs;
-                mRead.store(r + 1, std::memory_order_release);
-                return lat;
-            }
-        }
-        return -1;
-    }
-
-    size_t inFlight() const {
-        return (size_t)(mWrite.load(std::memory_order_relaxed) -
-                        mRead.load(std::memory_order_relaxed));
-    }
-};
-
 // decodes one encoded airplay audio packet and pushes PCM onto the timeline
 class Decoder {
 public:
@@ -164,8 +74,8 @@ static inline void buildAlacAtomCookie(uint8_t out[36], int sampleRate, int chan
 class MediaCodecDecoder : public Decoder {
 public:
     // takes ownership of already-created+started codec
-    MediaCodecDecoder(AMediaCodec *codec, TimelineBuffer &timeline, LatencyReporter &lat)
-        : mCodec(codec), mTimeline(timeline), mLat(lat) {
+    MediaCodecDecoder(AMediaCodec *codec, TimelineBuffer &timeline)
+        : mCodec(codec), mTimeline(timeline) {
         mDrainRun.store(true, std::memory_order_relaxed);
         mDrainThread = std::thread(&MediaCodecDecoder::drainLoop, this);
     }
@@ -187,7 +97,6 @@ public:
         if (!in) return false;
         const size_t n = len < cap ? len : cap;
         memcpy(in, data, n);
-        mProbe.record((int64_t)(ptsNs / 1000), monoNs());
         // still queue packets that are too large, but truncate them and report as error
         return AMediaCodec_queueInputBuffer(mCodec, (size_t)ii, 0, n, (uint64_t)(ptsNs / 1000), 0) ==
                    AMEDIA_OK && n == len;
@@ -208,18 +117,12 @@ private:
                                 (size_t)info.size / sizeof(int16_t),  // bytes -> samples
                                 (int64_t)info.presentationTimeUs * 1000);
             }
-            const int64_t nowNs = monoNs();
             AMediaCodec_releaseOutputBuffer(mCodec, (size_t)oi, false);
-            const int64_t lat = mProbe.match((int64_t)info.presentationTimeUs, nowNs);
-            if (lat >= 0) mLat.record(lat);
-            mLat.setHeld(mProbe.inFlight());
         }
     }
 
     AMediaCodec *mCodec;                  // owned
     TimelineBuffer &mTimeline;            // not owned
-    LatencyReporter &mLat;                // not owned
-    LatencyProbe mProbe;
     std::thread mDrainThread;
     std::atomic<bool> mDrainRun{false};   // drain thread stop signal
 };
@@ -242,10 +145,10 @@ class FfmpegAlacDecoder : public Decoder {
 public:
     // returns nullptr if codec can't be created/opened
     static std::unique_ptr<FfmpegAlacDecoder> make(int sampleRate, int channels, int spf,
-                                                   TimelineBuffer &timeline, LatencyReporter &lat,
+                                                   TimelineBuffer &timeline,
                                                    LogSink &log) {
         installFfmpegLogcat();
-        auto dec = std::unique_ptr<FfmpegAlacDecoder>(new FfmpegAlacDecoder(timeline, lat, log));
+        auto dec = std::unique_ptr<FfmpegAlacDecoder>(new FfmpegAlacDecoder(timeline, log));
         if (!dec->init(sampleRate, channels, spf)) return nullptr;
         return dec;
     }
@@ -258,7 +161,6 @@ public:
 
     bool decode(const uint8_t *data, size_t len, int64_t ptsNs) override {
         if (len == 0 || len > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE) return false;
-        const int64_t t0 = monoNs();
 
         if (mPkt->size < (int)len) {
             if (av_grow_packet(mPkt, (int)len - mPkt->size) < 0) return false;
@@ -293,14 +195,12 @@ public:
             pts += (int64_t)n * NS_PER_SEC / mCtx->sample_rate;
         }
 
-        mLat.record(monoNs() - t0);
-        mLat.setHeld(0);
         return true;
     }
 
 private:
-    FfmpegAlacDecoder(TimelineBuffer &timeline, LatencyReporter &lat, LogSink &log)
-        : mTimeline(timeline), mLat(lat), mLog(log) {}
+    FfmpegAlacDecoder(TimelineBuffer &timeline, LogSink &log)
+        : mTimeline(timeline), mLog(log) {}
 
     bool init(int sampleRate, int channels, int spf) {
         const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_ALAC);
@@ -340,7 +240,6 @@ private:
     AVFrame *mFrame = nullptr;       // owned
     std::vector<int16_t> mPcm;       // interleave scratch
     TimelineBuffer &mTimeline;
-    LatencyReporter &mLat;
     LogSink &mLog;
     int mChannels;
 };
@@ -420,7 +319,7 @@ static inline AMediaCodec *startAlacHwCodec(int sampleRate, int channels, int sp
 }
 
 static inline std::unique_ptr<Decoder> makeDecoder(int ct, int spf, int sampleRate, int channels,
-                                                   TimelineBuffer &timeline, LatencyReporter &lat,
+                                                   TimelineBuffer &timeline,
                                                    LogSink &log, bool forceSwAlac,
                                                    bool realtimePriority, bool lowLatency) {
     if (ct == CT_ALAC) {
@@ -428,10 +327,10 @@ static inline std::unique_ptr<Decoder> makeDecoder(int ct, int spf, int sampleRa
             if (AMediaCodec *codec = startAlacHwCodec(sampleRate, channels, spf, log,
                                                       realtimePriority, lowLatency)) {
                 log.info("ALAC: hardware decoder");
-                return std::make_unique<MediaCodecDecoder>(codec, timeline, lat);
+                return std::make_unique<MediaCodecDecoder>(codec, timeline);
             }
         }
-        if (auto sw = FfmpegAlacDecoder::make(sampleRate, channels, spf, timeline, lat, log)) {
+        if (auto sw = FfmpegAlacDecoder::make(sampleRate, channels, spf, timeline, log)) {
             log.info("ALAC: software decoder (ffmpeg)%s", forceSwAlac ? " (forced)" : "");
             return sw;
         }
@@ -440,7 +339,7 @@ static inline std::unique_ptr<Decoder> makeDecoder(int ct, int spf, int sampleRa
     }
     if (AMediaCodec *codec = startAacCodec(ct, spf, sampleRate, channels, log,
                                            realtimePriority, lowLatency)) {
-        return std::make_unique<MediaCodecDecoder>(codec, timeline, lat);
+        return std::make_unique<MediaCodecDecoder>(codec, timeline);
     }
     log.error("AAC codec init failed (ct=%d)", ct);
     return nullptr;

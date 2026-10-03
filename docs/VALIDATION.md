@@ -1,5 +1,70 @@
 # Validation
 
+## Unused-code cleanup (2026-10-03)
+
+Removed the Android TV banner generator while retaining the packaged PNG,
+unconsumed audio debug snapshots/latency counters, the unused LogSink JNI bridge,
+video benchmark statistics and unused renderer methods, unreachable Android
+HEVC selection/rendering, inactive product sanitizer flags, prototype-only media
+queue tests, the empty macOS XCTest target and write-only receiver-name state.
+Audio adaptive buffering, codec retry/software fallback, presentation scheduling,
+error logs and actual receive-core lifecycle regressions remain.
+
+Completed validation:
+
+- Android native library rebuild and arm64 Release APK packaging succeeded.
+- Compiled Kotlin `onVideoData` descriptor matches the native JNI lookup:
+  `([BJ)V`. APK inspection verified the rebuilt native library and all nine
+  license assets.
+- Six Android state tests passed with zero failures/errors/skips.
+- Native host receive-core regression passed under ASan/UBSan, including TXT,
+  `/info`, `OPTIONS`, three receiver lifecycles and partial/DNS lifetime cases.
+- macOS project plist validation, Release app build, native lifecycle and
+  synthetic frame/texture regressions passed. The empty XCTest target and all
+  associated project/scheme references were removed.
+- `flutter analyze` reported no issues; all 15 Flutter tests passed.
+- `git diff --check` passed; removed APIs and template targets have no remaining
+  application references.
+
+APK SHA-256: `0460450a3b1fba6182136ccccd55fe182e9f5b9329296bb00e39413c3d045dc2`.
+Logs are in ignored `artifacts/cleanup-*.log`. No new physical Android/iPhone
+playback, decoder fallback or audio acceptance was performed.
+
+
+## Maintained UxPlay source migration (2026-10-03)
+
+macOS and Android now compile the maintained `vendor/UxPlay/` source directly.
+The previous integration/frame-output/lifetime patches were folded into this
+source; patch application scripts and the per-file upstream hash lock were
+removed. Upstream base v1.73.7 and commit are recorded in
+`vendor/UxPlay/UPSTREAM.md`. Original license and copyright notices remain.
+
+Completed validation:
+
+- macOS native receiver build succeeded from `vendor/UxPlay/` into a fresh
+  `build/uxplay-native/` tree.
+- Android arm64 player rebuilt against the same receive-core source.
+- Native lifecycle, audio, sync, RTP and recovery suites passed with synthetic
+  inputs. Three real macOS helper ready/stop cycles passed.
+- Frame transport and Flutter texture synthetic suites passed.
+- Host receive-core regression passed under ASan/UBSan, including destruction
+  before HTTP initialization, DNS unregister/re-register, and destruction before
+  registration. Host OpenSSL was uninstrumented.
+- `flutter analyze` reported no issues; all 15 Flutter tests passed.
+- `flutter build macos` and arm64 Release APK build succeeded. Both packaged
+  receivers matched the newly built native files; the APK retained nine license
+  assets.
+- No old generated UxPlay source tree remains, and current build/test scripts
+  contain no references to the retired patch preparation or hash lock.
+
+APK SHA-256: `c5275a13a5ac981bceff4dd937867bffff96aab0576f602e41fae6cc29225c36`.
+Logs are in ignored `artifacts/uxplay-source-*.log`. No APK installation or new
+physical-device/iPhone playback acceptance was performed. Existing build-tool
+warnings about Kotlin compatibility and macOS architecture remain separate.
+
+The sections below record earlier checkpoints.
+
+
 The macOS prototype has user-confirmed iPhone image and audible playback.
 After restoring timestamp synchronization and fixing stale RTP epochs, the
 user reported the latest recovery build appeared normal. Long-duration,

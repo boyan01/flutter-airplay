@@ -279,6 +279,8 @@ dnssd_destroy(dnssd_t *dnssd)
 #elif USE_LIBDL
         dlclose(dnssd->module);
 #endif
+        free(dnssd->name);
+        free(dnssd->hw_addr);
         free(dnssd);
     }
 }
@@ -452,10 +454,6 @@ dnssd_unregister_raop(dnssd_t *dnssd)
     dnssd->DNSServiceRefDeallocate(dnssd->raop_service);
     dnssd->raop_service = NULL;
 
-    if (dnssd->airplay_service == NULL) {
-        free(dnssd->name);
-        free(dnssd->hw_addr);
-    }
 }
 
 void
@@ -473,10 +471,6 @@ dnssd_unregister_airplay(dnssd_t *dnssd)
     dnssd->DNSServiceRefDeallocate(dnssd->airplay_service);
     dnssd->airplay_service = NULL;
 
-    if (dnssd->raop_service == NULL) {
-        free(dnssd->name);
-        free(dnssd->hw_addr);
-    }
 }
 
 uint64_t dnssd_get_airplay_features(dnssd_t *dnssd) {

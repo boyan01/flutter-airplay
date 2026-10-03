@@ -5,7 +5,6 @@
  *   decoding (AAC/ALAC) -> timing/jitter buffer (spike absorption + PTS sync) -> PCM output
  */
 
-#include <jni.h>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -20,18 +19,6 @@
 #include "log_sink.h"
 #include "timeline_buffer.h"
 
-/*
- * debug metrics copied out to Java each overlay poll (see copyDebug). MUST BE PACKED,
- * including nested structs: Java reader (AudioRenderer.audioDebug) mirrors this exact
- * byte layout
- */
-struct __attribute__((packed)) AudioDebugData {
-    TimelineBuffer::Debug timeline;
-    LatencyReporter::Debug decode;
-    AudioOutput::Debug output;
-    int32_t decodeErrors;  // cumulative packets Decoder::decode() reported as failed
-};
-
 struct AudioConfig {
     const int staticCushionMs;   // 0 = adaptive tuner
     const int percentilePct;     // adaptive tuner target percentile
@@ -39,7 +26,6 @@ struct AudioConfig {
     const bool forceSwAlac;      // embedded ffmpeg software ALAC even when HW available
     const bool realtimePriority; // decoder: request realtime priority
     const bool lowLatency;       // low-latency decoder + oboe low-latency output
-    const bool benchmarkLog;     // periodically log decoder stats
 };
 
 struct CodecFormat {
@@ -103,22 +89,6 @@ struct AudioEngine {
         mQueued[i].store(CodecFormat{spf}, std::memory_order_release);
     }
 
-    bool copyDebug(void *dst, size_t dstLen) {
-        if (dstLen < sizeof(AudioDebugData)) return false;
-        {
-            // never block: return stale data if lock in use
-            std::unique_lock<std::mutex> lk(mRebuildLock, std::try_to_lock);
-            if (lk.owns_lock() && mOutput) {
-                mDebug.timeline = mTimeline->debugInfo();
-                mDebug.decode = mDecLatency.debugInfo();
-                mDebug.output = mOutput->debugInfo();
-                mDebug.decodeErrors = mDecodeErrors.load(std::memory_order_relaxed);
-            }
-        }
-        memcpy(dst, &mDebug, sizeof(mDebug));
-        return true;
-    }
-
     // touches decoder: must not run concurrently with stop()
     void decode(const uint8_t *data, size_t len, int ct, int64_t ptsNs) {
         if (!mTimeline) return;
@@ -142,14 +112,13 @@ struct AudioEngine {
             mDecoder = {}; // release old decoder first to free resources
             mDecoder = {ct, wantConfig,
                         makeDecoder(ct, wantConfig.spf, mSampleRate, mChannels, *mTimeline,
-                                    mDecLatency, *mLog, mApplied->forceSwAlac,
+                                    *mLog, mApplied->forceSwAlac,
                                     mApplied->realtimePriority, mApplied->lowLatency)};
             mRetryAtNs = mDecoder.decoder ? 0 : monoNs() + DECODER_RETRY_NS;
             // codec switch is definitely a discontinuity
             mTimeline->reanchorTracker();
         }
-        if (mDecoder.decoder && !mDecoder.decoder->decode(data, len, ptsNs))
-            mDecodeErrors.fetch_add(1, std::memory_order_relaxed);
+        if (mDecoder.decoder) mDecoder.decoder->decode(data, len, ptsNs);
     }
 
 private:
@@ -163,7 +132,6 @@ private:
     }
 
     void initInternals(const AudioConfig &cfg) {
-        mDecLatency.setEnableLogging(cfg.benchmarkLog);
         mTimeline = std::make_shared<TimelineBuffer>(mSampleRate, mChannels,
                                                      cfg.staticCushionMs, cfg.percentilePct);
         mOutput = AudioOutput::create(mSampleRate, mChannels, cfg.oboeBufferFrames,
@@ -186,7 +154,6 @@ private:
     bool mRunning = false;                     // requested output state, guarded by mRebuildLock
     bool mOutputActive = false;                // actual output state, guarded by mRebuildLock
 
-    LatencyReporter mDecLatency{"decode", *mLog};
     // decoder + codec/config it was built with
     // ct == -1: not initialized; ct != -1 && decoder == nullptr: build for ct failed
     struct CreatedDecoder {
@@ -205,16 +172,12 @@ private:
     // pending config change, applied on next decode()
     std::atomic<AudioConfig *> mPending{nullptr};
 
-    AudioDebugData mDebug{};
-    std::atomic<int32_t> mDecodeErrors{0};
 };
 
 AudioEngine *audio_engine_create(std::shared_ptr<LogSink> log, int sampleRate, int channels) {
     if (!log) return nullptr;
     return new AudioEngine(std::move(log), sampleRate, channels);
 }
-
-
 
 extern "C" {
 
@@ -226,10 +189,10 @@ void audio_engine_set_default_stream_values(int sampleRate, int framesPerBurst) 
 
 bool audio_engine_configure(AudioEngine *engine, int cushionMs, int percentilePct,
                             int oboeBufferFrames, bool forceSwAlac, bool realtimePriority,
-                            bool lowLatency, bool benchmarkLog) {
+                            bool lowLatency) {
     if (!engine) return false;
     return engine->configure({cushionMs, percentilePct, oboeBufferFrames, forceSwAlac,
-                              realtimePriority, lowLatency, benchmarkLog});
+                              realtimePriority, lowLatency});
 }
 
 void audio_engine_on_format(AudioEngine *engine, int ct, int spf) {
@@ -242,11 +205,6 @@ bool audio_engine_start(AudioEngine *engine) {
 
 void audio_engine_pause(AudioEngine *engine) {
     if (engine) engine->pause();
-}
-
-bool audio_engine_get_debug(AudioEngine *engine, void *dst, size_t dstLen) {
-    if (!engine || !dst) return false;
-    return engine->copyDebug(dst, dstLen);
 }
 
 void audio_engine_destroy(AudioEngine *engine) {

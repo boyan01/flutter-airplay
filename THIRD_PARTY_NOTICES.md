@@ -17,8 +17,11 @@ and clock/PTS/queue diagnostics,
 fix clock reference ownership and safely discard empty/invalid buffers.
 RTP restarts clear old timing anchors; mirror timestamp outliers are rejected;
 same-codec SETUP and FLUSH reset the native audio pipeline without changing gain.
-The complete modifications are in native/patches/0001-receiver-integration.patch. Receive/decode/playback
-remain in UxPlay and GStreamer. No Go code is used.
+Embedded Flutter frame transport and partial-initialization/DNS lifetime fixes
+are also maintained directly in vendor/UxPlay. Upstream provenance is recorded
+in vendor/UxPlay/UPSTREAM.md; Git tracks the local modifications. The receive
+core is shared by macOS and Android. macOS decode/playback remains in UxPlay
+and GStreamer. No Go code is used.
 
 ## Flutter and GStreamer
 
@@ -35,5 +38,7 @@ is not a ready-to-distribute universal bundle.
 
 ## Android reference
 
-https://github.com/jqssun/android-airplay-server was reviewed as context for future
-Android work. No Android implementation or source was copied into this phase.
+The Android player includes source derived from
+https://github.com/jqssun/android-airplay-server. Copied paths and the upstream
+commit are recorded in android/dependencies.lock.json. See android/NOTICE,
+android/CORE_NOTICE.md and the bundled APK license assets.

@@ -31,7 +31,6 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     private var running = false
     private var generation = 0
     @Volatile private var frames = 0L
-    private var receiverName = "Flutter AirPlay Android"
     // Accessed by the bridge only on the Android main thread. A live JNI host
     // must remain stoppable even if its decoder reports an error.
     val isActive: Boolean get() = busy || running
@@ -47,17 +46,16 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         }
         busy = true
         val epoch = ++generation
-        receiverName = name; frames = 0
+        frames = 0
         try {
             texture = textures.createSurfaceTexture().also { it.surfaceTexture().setDefaultBufferSize(1920, 1080) }
             surface = Surface(texture!!.surfaceTexture())
-            renderer = VideoRenderer(context).also {
-                it.selectDecoders(1920,1080,60,false)
+            renderer = VideoRenderer().also {
+                it.selectDecoder(60)
                 it.setResolution(1920,1080)
                 it.setSurface(surface!!)
                 it.onError = { frames=0;send(it, "error") }
                 it.onOutput = { if (frames++ == 0L) send("正在播放屏幕镜像", "playing") }
-                it.startSession()
             }
             val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             multicast = wifi.createMulticastLock("FlutterAirPlayDiscovery").also { it.setReferenceCounted(false); it.acquire() }
@@ -156,7 +154,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     }
     fun close() { stopInternal(null); worker.shutdown() }
     // JNI callbacks stay off the UI thread; only state events are marshalled to it.
-    fun onVideoData(data:ByteArray,pts:Long,h265:Boolean) { renderer?.feedFrame(data,pts,h265) }
+    fun onVideoData(data:ByteArray,pts:Long) { renderer?.feedFrame(data,pts) }
     fun onVideoSize(width:Int,height:Int) {
         renderer?.setResolution(width,height)
         main.post { texture?.surfaceTexture()?.setDefaultBufferSize(width,height);emit(mapOf("width" to width,"height" to height)) }

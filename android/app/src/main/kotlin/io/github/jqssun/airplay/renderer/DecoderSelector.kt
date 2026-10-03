@@ -2,7 +2,6 @@
 // Derived from jqssun/android-airplay-server, commit c8defdd70d7e6a04f4f1b71d353653682d594106.
 package io.github.jqssun.airplay.renderer
 
-import android.content.Context
 import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecCapabilities
 import android.media.MediaCodecInfo.CodecProfileLevel
@@ -14,9 +13,7 @@ import android.os.Build
 import android.util.Log
 
 // moonlight-android MediaCodecHelper
-class DecoderSelector(private val ctx: Context) {
-
-    var maxOperatingRate: Boolean? = null
+class DecoderSelector {
 
     private val emulator = Build.HARDWARE == "ranchu" || Build.HARDWARE == "cheets" || Build.BRAND == "Android-x86"
 
@@ -28,49 +25,17 @@ class DecoderSelector(private val ctx: Context) {
         if ("adreno" !in glRenderer) -1
         else Regex("\\d{3}").findAll(glRenderer).lastOrNull()?.value?.toInt() ?: -1
     }
-    private val fireOs by lazy {
-        ctx.packageManager.hasSystemFeature("amazon.hardware.fire_tv") ||
-            Build.MANUFACTURER.equals("Amazon", ignoreCase = true)
-    }
-
     private val blacklist by lazy {
         buildList {
             if (!emulator) {
                 add("omx.google"); add("AVCDecoder")
                 if (Build.VERSION.SDK_INT < 29) add("OMX.ffmpeg")
             }
-            // software hevc that can crash on streams
-            add("OMX.qcom.video.decoder.hevcswvdec"); add("OMX.SEC.hevc.sw.dec")
-            // adreno 3xx qti hevc broken
-            if (adreno < 400) add("OMX.qcom.video.decoder.hevc")
-        }
-    }
 
-    private val hevcWhitelist by lazy {
-        buildList {
-            if (Build.HARDWARE == "ranchu") add("omx.google")
-            add("omx.exynos")
-            // k1 tablets partially accelerate hevc
-            if (Build.VERSION.SDK_INT >= 26 && Build.DEVICE.lowercase() !in listOf("shieldtablet", "mocha")) add("omx.nvidia")
-            if (Build.VERSION.SDK_INT >= 26 && Build.DEVICE.startsWith("BRAVIA_")) add("omx.mtk")
-            if (Build.VERSION.SDK_INT >= 28 && !Build.DEVICE.equals("sabrina", ignoreCase = true)) add("omx.amlogic")
-            if (Build.VERSION.SDK_INT >= 28) add("omx.realtek")
-            add("c2.")
-            if (adreno >= 400) addAll(qti)
-            if (fireOs) { add("omx.mtk"); add("omx.amlogic") }
-            if ("powervr" in glRenderer) add("omx.mtk")
         }
     }
 
     fun avc(): MediaCodecInfo? = _probableSafe(AVC, CodecProfileLevel.AVCProfileHigh) ?: _first(AVC)
-
-    fun hevc(avc: MediaCodecInfo?, w: Int, h: Int, fps: Int): MediaCodecInfo? {
-        val info = _probableSafe(HEVC, -1) ?: return null
-        if (_hevcWhitelisted(info)) return info
-        Log.i(TAG, "hevc decoder not whitelisted: ${info.name}")
-        val avcCaps = avc?.videoCaps(AVC) ?: return null
-        return info.takeIf { !_canMeet(avcCaps, w, h, fps) && _canMeet(info.videoCaps(HEVC), w, h, fps) }
-    }
 
     fun software(mime: String, w: Int, h: Int): MediaCodecInfo? =
         MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
@@ -99,7 +64,7 @@ class DecoderSelector(private val ctx: Context) {
             set = true
         }
         if (tryNum < 3) {
-            val max = maxOperatingRate ?: (_inList(qti, info.name) && adreno != 620)
+            val max = _inList(qti, info.name) && adreno != 620
             if (max) format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
             else format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             set = true
@@ -151,30 +116,6 @@ class DecoderSelector(private val ctx: Context) {
         runCatching { info.getCapabilitiesForType(mime).isFeatureSupported(CodecCapabilities.FEATURE_LowLatency) }
             .getOrDefault(false)
 
-    private fun _hevcWhitelisted(info: MediaCodecInfo): Boolean = when {
-        "sw" in info.name -> false
-        Build.VERSION.SDK_INT >= 29 && (!info.isHardwareAccelerated || info.isSoftwareOnly) -> false
-        // class 12+ provides 1080p60
-        Build.VERSION.SDK_INT >= 31 && Build.VERSION.MEDIA_PERFORMANCE_CLASS >= 31 -> true
-        _lowLatency(info, HEVC) -> true
-        else -> _inList(hevcWhitelist, info.name)
-    }
-
-    private fun _canMeet(caps: VideoCapabilities, w: Int, h: Int, fps: Int): Boolean {
-        if (Build.VERSION.SDK_INT >= 29) {
-            val target = VideoCapabilities.PerformancePoint(w, h, fps)
-            caps.supportedPerformancePoints?.let { pts -> return pts.any { it.covers(target) } }
-        }
-        return _portraitSafe(w, h) { cw, ch -> _rateSupported(caps, cw, ch, fps) }
-    }
-
-    private fun _rateSupported(caps: VideoCapabilities, w: Int, h: Int, fps: Int) = try {
-        caps.getAchievableFrameRatesFor(w, h)?.let { fps <= it.upper }
-            ?: caps.areSizeAndRateSupported(w, h, fps.toDouble())
-    } catch (_: IllegalArgumentException) {
-        false
-    }
-
     // some decoders might only report landscape limit
     private fun _portraitSafe(w: Int, h: Int, check: (Int, Int) -> Boolean) = check(w, h) || (w < h && check(h, w))
 
@@ -185,7 +126,6 @@ class DecoderSelector(private val ctx: Context) {
     companion object {
         private const val TAG = "DecoderSelector"
         const val AVC = MediaFormat.MIMETYPE_VIDEO_AVC
-        const val HEVC = MediaFormat.MIMETYPE_VIDEO_HEVC
         private val qti = listOf("omx.qcom", "c2.qti")
         private val noAdaptive = listOf("omx.intel", "omx.mtk")
         private val vendorLowLatency = listOf(

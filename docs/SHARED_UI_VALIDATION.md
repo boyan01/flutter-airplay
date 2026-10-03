@@ -4,7 +4,9 @@ Version **0.1.2+3**. One product Flutter entry point: root `lib/main.dart`.
 macOS and Android hosts consume the same screen/model/platform contract.
 The former `android-player/` product files are retired; native implementation,
 locks and licenses are maintained under `android/`. Git retains their history.
-`android-prototype/` remains the native foundation and device test harness.
+The former `android-prototype/` foundation has since been consolidated into
+`android/`. The standalone AAR and device harness were retired; native host
+regressions remain under `android/tests/`.
 
 ## Completed builds and tests
 

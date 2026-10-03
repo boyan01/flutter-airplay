@@ -2,24 +2,11 @@
 #include "receiver.h"
 #include <cstdio>
 #include <cstring>
-#include <utility>
 namespace airplay {
-static void video(void *cls, raop_ntp_t *, video_decode_struct *d) {
-    if (d->data_len <= 0 || d->data_len > 2 * 1024 * 1024) return;
-    Packet p; p.kind = 1; p.codec = d->is_h265 ? 2 : 1; p.pts = d->ntp_time_local;
-    p.bytes.assign(d->data, d->data + d->data_len);
-    static_cast<Receiver *>(cls)->enqueue(std::move(p));
-}
-static void audio(void *cls, raop_ntp_t *, audio_decode_struct *d) {
-    if (d->data_len <= 0 || d->data_len > 65536) return;
-    Packet p; p.kind = 2; p.codec = d->ct; p.pts = d->ntp_time_local;
-    p.rtp = d->rtp_time; p.sync = d->sync_status;
-    p.bytes.assign(d->data, d->data + d->data_len);
-    static_cast<Receiver *>(cls)->enqueue(std::move(p));
-}
-static void flushCallback(void *cls) { static_cast<Receiver *>(cls)->flush(); }
-static void reset(void *cls, reset_type_t) { flushCallback(cls); }
-static void connReset(void *cls, int) { flushCallback(cls); }
+static void video(void *, raop_ntp_t *, video_decode_struct *) {}
+static void audio(void *, raop_ntp_t *, audio_decode_struct *) {}
+static void reset(void *, reset_type_t) {}
+static void connReset(void *, int) {}
 static void nothing(void *) {}
 static double volume(void *) { return 0.0; }
 static int codec(void *, video_codec_t value) {
@@ -33,7 +20,7 @@ int Receiver::start(const char *name, const uint8_t identity[6], const char *key
     cb.audio_process = audio; cb.video_process = video;
     cb.video_pause = nothing; cb.video_resume = nothing; cb.conn_feedback = nothing;
     cb.conn_reset = connReset; cb.video_reset = reset;
-    cb.conn_destroy = flushCallback; cb.audio_flush = flushCallback; cb.video_flush = flushCallback;
+    cb.conn_destroy = nothing; cb.audio_flush = nothing; cb.video_flush = nothing;
     cb.audio_set_client_volume = volume; cb.video_set_codec = codec;
     raop_ = raop_init(&cb);
     if (!raop_) return -1;
@@ -70,7 +57,6 @@ void Receiver::stop() {
         dnssd_unregister_raop(dns_); dnssd_unregister_airplay(dns_);
         dnssd_destroy(dns_); dns_ = nullptr;
     }
-    flush();
 }
 std::vector<uint8_t> Receiver::txt(bool audio) const {
     if (!dns_) return {};
@@ -79,26 +65,4 @@ std::vector<uint8_t> Receiver::txt(bool audio) const {
     if (!bytes || n <= 0) return {};
     return std::vector<uint8_t>(bytes, bytes + n);
 }
-void Receiver::enqueue(Packet p) {
-    std::lock_guard<std::mutex> guard(mutex_);
-    if (p.bytes.empty() || p.bytes.size() > 2 * 1024 * 1024) { ++dropped_; return; }
-    // Overflow invalidates the whole decode epoch: compressed video may depend
-    // on earlier frames. Consumers must flush and wait for codec config/IDR.
-    if (queue_.size() >= 128 || queuedBytes_ + p.bytes.size() > 8 * 1024 * 1024) {
-        dropped_ += queue_.size(); queue_.clear(); queuedBytes_ = 0; ++epoch_;
-    }
-    p.epoch = epoch_; queuedBytes_ += p.bytes.size(); queue_.push_back(std::move(p));
-}
-bool Receiver::poll(Packet &p) {
-    std::lock_guard<std::mutex> guard(mutex_);
-    if (queue_.empty()) return false;
-    p = std::move(queue_.front()); queue_.pop_front(); queuedBytes_ -= p.bytes.size();
-    return true;
-}
-void Receiver::flush() {
-    std::lock_guard<std::mutex> guard(mutex_);
-    queue_.clear(); queuedBytes_ = 0; ++epoch_;
-}
-uint64_t Receiver::dropped() { std::lock_guard<std::mutex> guard(mutex_); return dropped_; }
-uint64_t Receiver::epoch() { std::lock_guard<std::mutex> guard(mutex_); return epoch_; }
 }

@@ -12,7 +12,7 @@ export GST_REGISTRY_1_0="$test_root/registry.bin"
 export GST_REGISTRY_FORK=no
 read -r -a gst_cflags <<< "$(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0)"
 read -r -a gst_libs <<< "$(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0)"
-clang -I "$project_root/build/uxplay-src/renderers" "${gst_cflags[@]}" "$project_root/native/frame-tests/producer.c" "$project_root/build/uxplay-src/renderers/receiver_frames.c" "$project_root/native/sync-tests/video_fixture.c" "$project_root/build/uxplay-src/lib/logger.c" "${gst_libs[@]}" -o "$test_root/frame-producer"
+clang -I "$project_root/vendor/UxPlay/renderers" "${gst_cflags[@]}" "$project_root/native/frame-tests/producer.c" "$project_root/vendor/UxPlay/renderers/receiver_frames.c" "$project_root/native/sync-tests/video_fixture.c" "$project_root/vendor/UxPlay/lib/logger.c" "${gst_libs[@]}" -o "$test_root/frame-producer"
 swiftc "$project_root/macos/Runner/ReceiverHost.swift" "$project_root/macos/Runner/FrameSocketServer.swift" "$project_root/native/frame-tests/main.swift" -o "$test_root/frame-tests"
 "$test_root/frame-tests" "$test_root/frame-producer"
 

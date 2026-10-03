@@ -49,6 +49,7 @@ add_library( renderers
              STATIC
              audio_renderer.c
              video_renderer.c
+             receiver_frames.c
              mux_renderer.c )
 
 target_link_libraries ( renderers PUBLIC airplay )

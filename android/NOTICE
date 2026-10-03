@@ -10,10 +10,10 @@ Changes: JNI host replaced to fit pinned UxPlay 1.73.7, Flutter embedded texture
 and explicit NSD lifecycle; VideoRenderer error/output callbacks added.
 The original package namespaces on copied renderer classes preserve provenance.
 
-UxPlay is pinned by ../native/uxplay.lock.json and prepared using the
-android-prototype source/lifetime patches. GPL-3.0-or-later UxPlay,
+UxPlay is maintained directly in vendor/UxPlay; its upstream base is recorded
+in vendor/UxPlay/UPSTREAM.md. GPL-3.0-or-later UxPlay,
 LGPL-2.1-or-later libplist, Apache-2.0 OpenSSL, PlayFair and llhttp notices are
-packaged under assets/licenses. See ../android-prototype/NOTICE.md.
+packaged under assets/licenses. See android/CORE_NOTICE.md.
 
 Oboe 1.9.3, Copyright Google, Apache-2.0.
 https://github.com/google/oboe

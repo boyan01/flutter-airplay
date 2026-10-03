@@ -52,7 +52,7 @@ void video(void *cls, raop_ntp_t *, video_decode_struct *d) {
     Env env(p);if(!env.e)return;
     auto bytes=env.e->NewByteArray(d->data_len);if(!bytes)return;
     env.e->SetByteArrayRegion(bytes,0,d->data_len,(jbyte*)d->data);
-    env.e->CallVoidMethod(p->host,p->frame,bytes,(jlong)(int64_t(d->ntp_time_local)+p->wallToMono),(jboolean)d->is_h265);
+    env.e->CallVoidMethod(p->host,p->frame,bytes,(jlong)(int64_t(d->ntp_time_local)+p->wallToMono));
     env.e->DeleteLocalRef(bytes);
 }
 void audio(void *cls,raop_ntp_t*,audio_decode_struct*d) {
@@ -87,12 +87,12 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     if(env->GetArrayLength(identity)!=6){fail(env,"Invalid app identity");return 0;}
     auto p=std::make_unique<Player>(); env->GetJavaVM(&p->vm);p->host=env->NewGlobalRef(host);
     auto klass=env->GetObjectClass(host);
-    p->frame=env->GetMethodID(klass,"onVideoData","([BJZ)V");p->size=env->GetMethodID(klass,"onVideoSize","(II)V");
+    p->frame=env->GetMethodID(klass,"onVideoData","([BJ)V");p->size=env->GetMethodID(klass,"onVideoSize","(II)V");
     p->state=env->GetMethodID(klass,"onNativeState","(Ljava/lang/String;)V");p->reset=env->GetMethodID(klass,"onVideoReset","()V");env->DeleteLocalRef(klass);
     if(env->ExceptionCheck())return 0;
     p->wallToMono=now(CLOCK_MONOTONIC)-now(CLOCK_REALTIME);
     p->audio=audio_engine_create(std::make_shared<LogSink>(),44100,2);
-    audio_engine_configure(p->audio,0,95,0,true,false,true,false);
+    audio_engine_configure(p->audio,0,95,0,true,false,true);
     raop_callbacks_t cb{};cb.cls=p.get();cb.audio_process=audio;cb.video_process=video;
     cb.audio_get_format=format;cb.video_report_size=size;cb.audio_flush=audioFlush;cb.video_flush=videoFlush;
     cb.video_pause=videoFlush;cb.video_resume=nothing;cb.conn_feedback=nothing;cb.conn_reset=connReset;cb.video_reset=reset;

@@ -1,6 +1,0 @@
-<resources>
-    <string name="app_name">AirPlay Core Validation</string>
-    <string name="scope">Android AirPlay core validation\n\nThis harness checks JNI and synthetic loopback protocol responses.\nVideo decoding, audio playback and iPhone reception are not implemented here.</string>
-    <string name="run_checks">Run synthetic core checks</string>
-    <string name="running">Running isolated native core checks…</string>
-</resources>

@@ -26,6 +26,39 @@ int main(int argc, char **argv) {
     assert(!memcmp((const char *)TXTRecordGetBytesPtr(&txt) + 1, "pw=true", 7));
     assert(TXTRecordSetValue(&txt, "a=b", 1, "x") == -1);
     TXTRecordDeallocate(&txt);
+    // Destruction must also work before raop_init2 creates the HTTP server.
+    raop_callbacks_t callbacks{};
+    callbacks.audio_process = [](void *, raop_ntp_t *, audio_decode_struct *) {};
+    callbacks.video_process = [](void *, raop_ntp_t *, video_decode_struct *) {};
+    for (int i = 0; i < 3; ++i) {
+        raop_t *partial = raop_init(&callbacks);
+        assert(partial);
+        raop_destroy(partial);
+    }
+    // DNS object metadata survives unregister and is released by destroy.
+    const char name[] = "Synthetic lifetime";
+    const char address[6] = {2, 0, 0, 0, 0, 1};
+    char public_key[] = "00112233445566778899aabbccddeeff";
+    int error = 0;
+    dnssd_t *dns = dnssd_init(name, sizeof(name) - 1, address, sizeof(address), &error, 0);
+    assert(dns && error == 0);
+    dnssd_set_pk(dns, public_key);
+    for (int i = 0; i < 3; ++i) {
+        assert(dnssd_register_raop(dns, 7000) == 0);
+        assert(dnssd_register_airplay(dns, 7000) == 0);
+        dnssd_unregister_raop(dns);
+        dnssd_unregister_airplay(dns);
+        int length = 0;
+        assert(!memcmp(dnssd_get_name(dns, &length), name, sizeof(name) - 1));
+        assert(length == sizeof(name) - 1);
+        assert(!memcmp(dnssd_get_hw_addr(dns, &length), address, sizeof(address)));
+        assert(length == sizeof(address));
+    }
+    dnssd_destroy(dns);
+    dns = dnssd_init(name, sizeof(name) - 1, address, sizeof(address), &error, 0);
+    assert(dns && error == 0);
+    dnssd_destroy(dns);
+    std::cout << "PASS: partial receiver destruction and DNS unregister/re-register lifetime\n";
     airplay::Receiver receiver;
     uint8_t identity[6] = {2, 0, 0, 0, 0, 1};
     assert(receiver.start("", identity, "") == -1);
@@ -51,14 +84,5 @@ int main(int argc, char **argv) {
         assert(!receiver.txt(false).empty() && !receiver.txt(true).empty());
         receiver.stop(); receiver.stop(); assert(receiver.txt(false).empty());
     }
-    for (int i = 0; i < 129; ++i) {
-        airplay::Packet p; p.kind = 1; p.bytes = {0, 0, 1, 0x65}; receiver.enqueue(std::move(p));
-    }
-    assert(receiver.dropped() == 128);
-    airplay::Packet p; assert(receiver.poll(p)); assert(!receiver.poll(p));
-    uint64_t before = p.epoch;
-    receiver.flush(); assert(receiver.epoch() > before); assert(!receiver.poll(p));
-    receiver.flush(); p.bytes = {1}; receiver.enqueue(p); assert(receiver.poll(p));
-    assert(p.epoch > before);
-    std::cout << "PASS: TXT replacement, real core /info + OPTIONS, 3 lifecycles, bounded queue and epoch reset\n";
+    std::cout << "PASS: TXT replacement, real core /info + OPTIONS and 3 receiver lifecycles\n";
 }

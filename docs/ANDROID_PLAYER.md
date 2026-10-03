@@ -4,7 +4,9 @@ The former `android-player/` Flutter application has been retired. Its native
 player, pinned dependency lock and license assets now live under `android/`.
 The only product Flutter entry point is root `lib/main.dart`. Build commands,
 shared bridge and current acceptance are in [ANDROID_UI.md](ANDROID_UI.md).
-The JNI validation foundation remains under `android-prototype/`.
+The former `android-prototype/` foundation has also been retired. Required
+dependency builds and host regressions now live under `android/`, while
+the shared receive core is maintained directly in `vendor/UxPlay/`; the standalone AAR and device harness are no longer maintained.
 
 ## Validation record
 

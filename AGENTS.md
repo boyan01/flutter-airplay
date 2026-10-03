@@ -1,7 +1,8 @@
 # Flutter AirPlay development
 
-- Keep `vendor/UxPlay` pristine at `native/uxplay.lock.json`; edit generated
-  `build/uxplay-src` and regenerate a patch in `native/patches`.
+- Edit the maintained UxPlay source directly in `vendor/UxPlay`; keep build
+  outputs under ignored `build/`. Record upstream updates in
+  `vendor/UxPlay/UPSTREAM.md` and validate both macOS and Android.
 - Preserve GPL notices and the receive/playback boundary. No Go component.
 - Native build: `./scripts/build_receiver.sh`; Flutter: `flutter analyze`,
   `flutter test`, `flutter build macos`.

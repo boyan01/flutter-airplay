@@ -89,19 +89,6 @@ public:
         }
     }
 
-    // packed: nests into AudioDebugData with fixed layout
-    struct __attribute__((packed)) Debug {
-        int32_t xrun;  // cumulative
-    };
-    Debug debugInfo() {
-        std::unique_lock<std::mutex> lk(mLock, std::try_to_lock);
-        if (lk.owns_lock() && mStream) {
-            auto r = mStream->getXRunCount();
-            if (r) mLastXrun = r.value();
-        }
-        return Debug{mLastXrun};
-    }
-
 private:
     friend class OboeCallbacks;
 
@@ -173,7 +160,6 @@ private:
     std::shared_ptr<OboeCallbacks> mCallbacks;
     std::shared_ptr<oboe::AudioStream> mStream;
     std::mutex mLock;                    // guards open/close
-    int32_t mLastXrun = 0;               // debug-poll thread only
 };
 
 inline void OboeCallbacks::onErrorAfterClose(oboe::AudioStream *, oboe::Result error) {

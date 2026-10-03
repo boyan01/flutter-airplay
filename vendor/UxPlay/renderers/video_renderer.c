@@ -23,6 +23,8 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
+#include "receiver_diagnostics.h"
+#include "receiver_frames.h"
 
 #define SECOND_IN_NSECS 1000000000UL
 #define SECOND_IN_MICROSECS 1000000
@@ -86,6 +88,7 @@ struct video_renderer_s {
     gboolean eos;
     gint64 duration;
     gint buffering_level;
+    gint64 diagnostic_time;
 #ifdef  X_DISPLAY_FIX
     bool use_x11;
     const char * server_name;
@@ -361,7 +364,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             if (jpeg_pipeline) {
                 g_string_append(launch, "jpegdec ");
             } else {
-                g_string_append(launch, "queue ! ");
+                g_string_append(launch, "queue name=video_queue ! ");
                 g_string_append(launch, parser);
                 g_string_append(launch, " ! ");
                 if (!rtp) {
@@ -421,6 +424,11 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                 g_clear_error (&error);
             }
             g_assert (renderer_type[i]->pipeline);
+            if (!strcmp(videosink, "appsink")) {
+                gchar *sink_name = g_strdup_printf("appsink_%s", renderer_type[i]->codec);
+                receiver_frames_attach(renderer_type[i]->pipeline, sink_name);
+                g_free(sink_name);
+            }
             GstClock *clock = gst_system_clock_obtain();
             g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
             gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
@@ -645,6 +653,12 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
         }
         gst_buffer_fill(buffer, 0, data, *data_len);
         gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);
+        gint64 now = g_get_monotonic_time();
+        if (now - renderer->diagnostic_time >= 5 * G_USEC_PER_SEC) {
+            renderer->diagnostic_time = now;
+            receiver_report_timing(logger, "video", renderer->pipeline, renderer->appsrc,
+                                   "video_queue", *ntp_time, sync);
+        }
 #ifdef X_DISPLAY_FIX
         if (renderer->gst_window && !(renderer->gst_window->window) && renderer->use_x11) {
             X11_search_attempts++;
@@ -685,6 +699,7 @@ void video_renderer_stop() {
             gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
         }
         gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
+        receiver_frames_reset();
         //gst_element_set_state (renderer->playbin, GST_STATE_NULL);
      }
 }
@@ -761,6 +776,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
 }
 
 void video_renderer_destroy() {
+    receiver_frames_shutdown();
     for (int i = 0; i < n_renderers; i++) {
         if (renderer_type[i]) {
             video_renderer_destroy_instance(renderer_type[i]);

@@ -62,8 +62,7 @@ tasks.configureEach {
         doFirst {
             check(file("src/main/jniLibs/arm64-v8a/libairplay_player.so").isFile) {
                 "Missing Android receiver/player library. From repository root, run " +
-                    "ANDROID_HOME=\$HOME/Library/Android/sdk ./android-prototype/scripts/build_native.sh arm64-v8a, " +
-                    "python3 android/scripts/fetch_deps.py, then ./android/scripts/build_native.sh."
+                    "./android/scripts/build_native.sh."
             }
         }
     }

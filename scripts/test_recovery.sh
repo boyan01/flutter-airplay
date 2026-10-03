@@ -11,5 +11,5 @@ export GST_REGISTRY_FORK=no
 export GST_DEBUG=1
 read -r -a gst_cflags <<< "$(pkg-config --cflags gstreamer-app-1.0)"
 read -r -a gst_libs <<< "$(pkg-config --libs gstreamer-app-1.0)"
-clang -I "$project_root/build/uxplay-src/renderers" "${gst_cflags[@]}" "$project_root/native/recovery-tests/main.c" "$project_root/build/uxplay-src/lib/logger.c" "${gst_libs[@]}" -o "$test_root/recovery-tests"
+clang -I "$project_root/vendor/UxPlay/renderers" "${gst_cflags[@]}" "$project_root/native/recovery-tests/main.c" "$project_root/vendor/UxPlay/lib/logger.c" "${gst_libs[@]}" -o "$test_root/recovery-tests"
 "$test_root/recovery-tests"

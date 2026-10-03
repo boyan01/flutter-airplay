@@ -27,7 +27,7 @@ void audio_engine_set_default_stream_values(int sampleRate, int framesPerBurst);
 /* change engine config; any thread */
 bool audio_engine_configure(AudioEngine *engine, int cushionMs, int percentilePct,
                             int oboeBufferFrames, bool forceSwAlac, bool realtimePriority,
-                            bool lowLatency, bool benchmarkLog);
+                            bool lowLatency);
 
 /* sender is switching audio formats */
 void audio_engine_on_format(AudioEngine *engine, int ct, int spf);
@@ -37,9 +37,6 @@ bool audio_engine_start(AudioEngine *engine);
 
 /* pause playout, releases audio output devices while paused; idempotent */
 void audio_engine_pause(AudioEngine *engine);
-
-/* refresh + copy packed debug struct into dst; false if engine NULL or dstLen too small */
-bool audio_engine_get_debug(AudioEngine *engine, void *dst, size_t dstLen);
 
 /* stop + destroy engine; no concurrent or later audio_engine_decode calls allowed */
 void audio_engine_destroy(AudioEngine *engine);
