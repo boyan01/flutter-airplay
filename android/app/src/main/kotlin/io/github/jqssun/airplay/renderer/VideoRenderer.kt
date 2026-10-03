@@ -7,10 +7,12 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
 import android.view.Surface
+import java.util.Locale
 
 class VideoRenderer {
     var onError: ((String) -> Unit)? = null
     var onOutput: (() -> Unit)? = null
+    var onDiagnostic: ((String) -> Unit)? = null
 
     private val lock = Object()
     private val pipeline = VideoPipeline()
@@ -23,14 +25,26 @@ class VideoRenderer {
     private var firstFrameQueued = false
 
     private var droppedFrames = 0L
+    private var reportStartNs = System.nanoTime()
+    private var inputFrames = 0L
+    private var outputFrames = 0L
+    private var maxInputWaitNs = 0L
     // anchors that map decoder PTS (us) to System.nanoTime() for scheduled rendering
     private var _ptsBaseUs = Long.MIN_VALUE
     private var _wallBaseNs = 0L
+
+    init { pipeline.onDiagnostic = ::diagnostic }
+
+    private fun diagnostic(message: String) {
+        Log.i(TAG, message)
+        onDiagnostic?.invoke(message)
+    }
 
     fun setResolution(w: Int, h: Int) {
         videoWidth = w
         videoHeight = h
         pipeline.setVideoSize(w, h)
+        diagnostic("Decoder input size requested: ${w}x${h}")
     }
 
     // doesn't restart codec; decoder renders into pipeline's own persistent surface
@@ -41,7 +55,7 @@ class VideoRenderer {
     fun selectDecoder(fps: Int) = synchronized(lock) {
         avcDecoder = selector.avc()
         maxFps = fps
-        Log.i(TAG, "decoder: avc=${avcDecoder?.name}")
+        diagnostic("Decoder selected: ${avcDecoder?.name}, maxFPS=$maxFps")
     }
 
     fun stopSession() = synchronized(lock) { stopCodec() }
@@ -59,8 +73,11 @@ class VideoRenderer {
 
             try {
                 if (codec == null) startCodec()
+                val feedStartNs = System.nanoTime()
                 _feedToCodec(data, ntpTimeNs)
+                maxInputWaitNs = maxOf(maxInputWaitNs, System.nanoTime() - feedStartNs)
                 drainOutput()
+                reportThroughput()
             } catch (e: Exception) {
                 Log.w(TAG, "Codec error, resetting", e)
                 onError?.invoke("视频解码失败，请重新连接屏幕镜像")
@@ -81,12 +98,13 @@ class VideoRenderer {
                 buf.put(data)
                 c.queueInputBuffer(idx, 0, data.size, ntpTimeNs / 1000, 0)
                 firstFrameQueued = true
+                inputFrames++
                 return
             }
             drainOutput()
         }
         droppedFrames++
-        Log.w(TAG, "Decoder input queue full; dropping frame. drops=$droppedFrames")
+        diagnostic("Decoder input queue full; dropping encoded frame. inputDrops=$droppedFrames")
     }
 
     private fun _isKeyframe(data: ByteArray): Boolean {
@@ -120,7 +138,8 @@ class VideoRenderer {
             Log.w(TAG, "Hardware decoder failed, trying software fallback", e)
             _startWithLadder(sw, mime, s)
         }
-        Log.i(TAG, "Video codec started: $mime ${videoWidth}x${videoHeight}")
+        reportStartNs = System.nanoTime()
+        diagnostic("Video codec started: $mime ${videoWidth}x${videoHeight}")
     }
 
     private fun _startWithLadder(info: MediaCodecInfo, mime: String, s: Surface) {
@@ -163,7 +182,7 @@ class VideoRenderer {
             throw e
         }
         codec = c
-        Log.i(TAG, "Video decoder started: ${c.name}")
+        diagnostic("Video decoder started: ${c.name}, config=$format")
     }
 
     private fun stopCodec() {
@@ -176,6 +195,11 @@ class VideoRenderer {
             } catch (_: Exception) {}
         }
         codec = null
+        reportStartNs = System.nanoTime()
+        inputFrames = 0
+        outputFrames = 0
+        maxInputWaitNs = 0
+        droppedFrames = 0
     }
 
     private fun drainOutput() {
@@ -183,7 +207,12 @@ class VideoRenderer {
         val info = MediaCodec.BufferInfo()
         while (true) {
             val idx = c.dequeueOutputBuffer(info, 0)
+            if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                reportOutputFormat(c.outputFormat)
+                continue
+            }
             if (idx < 0) break
+            outputFrames++
             onOutput?.invoke()
             // Schedule output against the session's monotonic PTS anchor.
             val ptsUs = info.presentationTimeUs
@@ -193,6 +222,37 @@ class VideoRenderer {
             }
             c.releaseOutputBuffer(idx, _wallBaseNs + (ptsUs - _ptsBaseUs) * 1000L)
         }
+    }
+
+    private fun reportOutputFormat(format: MediaFormat) {
+        fun value(key: String, fallback: Int = 0) =
+            if (format.containsKey(key)) format.getInteger(key) else fallback
+        val w = value(MediaFormat.KEY_WIDTH)
+        val h = value(MediaFormat.KEY_HEIGHT)
+        val left = value("crop-left")
+        val top = value("crop-top")
+        val right = value("crop-right", w - 1)
+        val bottom = value("crop-bottom", h - 1)
+        diagnostic("Decoder output: coded=${w}x${h}, visible=${right - left + 1}x${bottom - top + 1}, " +
+            "crop=[$left,$top,$right,$bottom], " +
+            "colorStandard=${value(MediaFormat.KEY_COLOR_STANDARD)}, " +
+            "colorRange=${value(MediaFormat.KEY_COLOR_RANGE)}, " +
+            "colorTransfer=${value(MediaFormat.KEY_COLOR_TRANSFER)}")
+    }
+
+    private fun reportThroughput() {
+        val nowNs = System.nanoTime()
+        val elapsedNs = nowNs - reportStartNs
+        if (elapsedNs < 5_000_000_000L) return
+        val seconds = elapsedNs / 1_000_000_000.0
+        diagnostic(String.format(Locale.US,
+            "Video throughput: inputFPS=%.1f, outputFPS=%.1f, inputWaitMaxMs=%.1f, inputDrops=%d; " +
+                "output counts codec releases, not displayed frames",
+            inputFrames / seconds, outputFrames / seconds, maxInputWaitNs / 1_000_000.0, droppedFrames))
+        reportStartNs = nowNs
+        inputFrames = 0
+        outputFrames = 0
+        maxInputWaitNs = 0
     }
 
     fun release() = synchronized(lock) {

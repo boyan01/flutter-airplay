@@ -13,10 +13,12 @@ import android.view.Surface
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.util.Locale
 
 // decodes into an app-owned SurfaceTexture that outlives display surface
 // gl thread blits it to any surface attached, so fullscreen toggles re-point display without restarting codec
 class VideoPipeline {
+    var onDiagnostic: ((String) -> Unit)? = null
 
     private val lock = Object()
     private var thread: Thread? = null
@@ -26,6 +28,8 @@ class VideoPipeline {
     private var window: EGLSurface = EGL14.EGL_NO_SURFACE
     private var winW = 0
     private var winH = 0
+    private var reportStartNs = 0L
+    private var drawnFrames = 0L
 
     private var oesTex = 0
     private var program = 0
@@ -124,8 +128,8 @@ class VideoPipeline {
             return
         }
         egl.makeCurrent(window)
-        winW = egl.query(window, EGL14.EGL_WIDTH)
-        winH = egl.query(window, EGL14.EGL_HEIGHT)
+        winW = 0
+        winH = 0
         // an idle source sends no new frames, so repaint last one or new surface stays black
         if (hasFrame) _render()
     }
@@ -148,6 +152,17 @@ class VideoPipeline {
     }
 
     private fun _render() {
+        val egl = egl ?: return
+        // Flutter resizes the native buffer without replacing its Surface.
+        val surfaceW = egl.query(window, EGL14.EGL_WIDTH)
+        val surfaceH = egl.query(window, EGL14.EGL_HEIGHT)
+        if (surfaceW <= 0 || surfaceH <= 0) return
+        if (surfaceW != winW || surfaceH != winH) {
+            winW = surfaceW
+            winH = surfaceH
+            onDiagnostic?.invoke("EGL display: surface=${surfaceW}x${surfaceH}, " +
+                "viewport=${winW}x${winH}, inputBufferRequested=${videoW}x${videoH}")
+        }
         GLES20.glViewport(0, 0, winW, winH)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(program)
@@ -161,7 +176,18 @@ class VideoPipeline {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(aPos)
         GLES20.glDisableVertexAttribArray(aTex)
-        egl?.swap(window)
+        if (egl.swap(window)) drawnFrames++
+        val nowNs = System.nanoTime()
+        if (reportStartNs == 0L) reportStartNs = nowNs
+        if (nowNs - reportStartNs >= 5_000_000_000L) {
+            val seconds = (nowNs - reportStartNs) / 1_000_000_000.0
+            onDiagnostic?.invoke(String.format(Locale.US,
+                "EGL throughput: drawnFPS=%.1f, surface=%dx%d, viewport=%dx%d; " +
+                    "counts swaps, not physical display presentation",
+                drawnFrames / seconds, surfaceW, surfaceH, winW, winH))
+            reportStartNs = nowNs
+            drawnFrames = 0
+        }
     }
 
     private fun _initGl() {

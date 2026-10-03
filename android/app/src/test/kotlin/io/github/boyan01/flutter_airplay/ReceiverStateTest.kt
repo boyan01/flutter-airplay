@@ -69,6 +69,22 @@ class ReceiverStateTest {
             "supportsExecutablePath" to false), snapshot["capabilities"])
     }
 
+    @Test fun playbackDiagnosticsDoNotChangeReceiverStateOrVideoReadiness() {
+        val state = playingState()
+        val before = state.snapshot()
+        state.accept(mapOf("log" to "Decoder output: coded=1920x1088, visible=1920x1080"))
+        val after = state.snapshot()
+        assertEquals(before["status"], after["status"])
+        assertEquals(before["message"], after["message"])
+        assertEquals(before["videoWidth"], after["videoWidth"])
+        val logs = after["logs"] as List<*>
+        assertEquals("Decoder output: coded=1920x1088, visible=1920x1080",
+            (logs.last() as Map<*, *>)["text"])
+        state.accept(mapOf("state" to "reset"))
+        state.accept(mapOf("log" to "EGL display surface: 1080x1920"))
+        assertEquals(0, state.snapshot()["videoWidth"])
+    }
+
     @Test fun connectingWaitsForDecodedVideoAndResetPreservesSender() {
         val state = ReceiverState()
         state.startRequested()

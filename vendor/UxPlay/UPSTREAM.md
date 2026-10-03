@@ -18,6 +18,11 @@ for admitted senders. Control bytes are removed so names cannot inject event
 lines. Android receives the same client-request callback through its JNI host;
 client identity never establishes decoded video readiness.
 
+Audio no-data packets retain their sequence slots in the shared RTP reorder
+buffer. Dequeue skips their empty payloads while preserving retransmission for
+actual packet loss. FLUSH clears this buffer and applies the sender's next
+sequence before flushing platform playback.
+
 For an upstream update, compare or merge from the base commit, update this
 record, and run the platform builds and native regressions. Keep upstream
 updates separate from feature changes.

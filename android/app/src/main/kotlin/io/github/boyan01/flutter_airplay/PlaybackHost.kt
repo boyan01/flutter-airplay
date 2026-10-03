@@ -2,11 +2,16 @@
 package io.github.boyan01.flutter_airplay
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.hardware.display.DisplayManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
+import android.util.Log
+import android.view.Display
 import android.view.Surface
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
@@ -38,6 +43,22 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
     private fun send(message: String, state: String = "waiting") {
         main.post { emit(mapOf("state" to state, "message" to message)) }
     }
+    private fun diagnostic(message: String) {
+        Log.i("AirPlayPlayback", message)
+        main.post { emit(mapOf("log" to message)) }
+    }
+    fun logDisplayInfo() {
+        val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+        val metrics = context.resources.displayMetrics
+        val mode = display?.mode
+        val debug = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        diagnostic("Display: model=${Build.MODEL}, API=${Build.VERSION.SDK_INT}, " +
+            "build=${if (debug) "debug" else "release"}, " +
+            "physical=${mode?.physicalWidth}x${mode?.physicalHeight}, " +
+            "app=${metrics.widthPixels}x${metrics.heightPixels}, density=${metrics.density}, " +
+            "refreshHz=${display?.refreshRate}, rotation=${display?.rotation}")
+    }
     fun start(requestedName: String, result: MethodChannel.Result) {
         if (busy || running) { result.error("busy", "接收器已启动或正在操作", null); return }
         val name = requestedName.trim()
@@ -50,9 +71,12 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         val epoch = ++generation
         frames = 0
         try {
+            logDisplayInfo()
+            diagnostic("Receiver request: H.264, 1920x1080, maxFPS=60; sender chooses actual size/rate")
             texture = textures.createSurfaceTexture().also { it.surfaceTexture().setDefaultBufferSize(1920, 1080) }
             surface = Surface(texture!!.surfaceTexture())
             renderer = VideoRenderer().also {
+                it.onDiagnostic = ::diagnostic
                 it.selectDecoder(60)
                 it.setResolution(1920,1080)
                 it.setSurface(surface!!)
@@ -168,9 +192,14 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         main.post { emit(mapOf("clientName" to name, "state" to "connecting")) }
     }
     fun onVideoData(data:ByteArray,pts:Long) { renderer?.feedFrame(data,pts) }
-    fun onVideoSize(width:Int,height:Int) {
+    fun onVideoSize(width:Int,height:Int,streamWidth:Int,streamHeight:Int) {
+        diagnostic("Protocol video: source=${width}x${height}, stream=${streamWidth}x${streamHeight}")
         renderer?.setResolution(width,height)
-        main.post { texture?.surfaceTexture()?.setDefaultBufferSize(width,height);emit(mapOf("width" to width,"height" to height)) }
+        main.post {
+            texture?.surfaceTexture()?.setDefaultBufferSize(width,height)
+            diagnostic("Flutter texture requested: ${width}x${height}")
+            emit(mapOf("width" to width,"height" to height))
+        }
     }
     fun onVideoReset() { renderer?.stopSession(); frames=0;send("等待屏幕镜像", "reset") }
     fun onNativeState(message:String) { send(message, if(message == "mirroring") "connecting" else if(frames>0) "playing" else "waiting") }

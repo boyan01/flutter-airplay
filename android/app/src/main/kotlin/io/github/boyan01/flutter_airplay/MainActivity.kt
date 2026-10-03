@@ -33,6 +33,10 @@ class MainActivity : FlutterActivity() {
         }
     }
     override fun onStart() { super.onStart(); bridge?.onForeground() }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        bridge?.onDisplayChanged()
+    }
     override fun onStop() { bridge?.onBackground(); super.onStop() }
     override fun onDestroy() { presentation?.setMethodCallHandler(null); presentation = null; bridge?.close();bridge=null;super.onDestroy() }
 }

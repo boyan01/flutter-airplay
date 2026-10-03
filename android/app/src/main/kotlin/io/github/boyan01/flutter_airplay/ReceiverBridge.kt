@@ -65,6 +65,8 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
 
     fun onBackground() { lifecycle.onBackground(); publish() }
 
+    fun onDisplayChanged() { if (host.isActive) host.logDisplayInfo() }
+
     private fun reconcileLifecycle() { if (!closed) lifecycle.reconcile() }
 
     private fun stopForLifecycle(done: (Boolean) -> Unit) {

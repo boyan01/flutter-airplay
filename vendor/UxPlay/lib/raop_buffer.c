@@ -172,11 +172,11 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
     if (datalen < 12 || datalen > RAOP_PACKET_LEN) {
         return -1;
     }
-    /* before time is synchronized, some empty data packets are sent */
-    if (datalen == 12 || (datalen == 16 && !memcmp(&data[12], empty_packet_marker, 4))) {
-        return 0;
-    }
-    int payload_size = datalen - 12;
+    /* No-data packets still occupy a sequence number. Keep their place in the
+     * reorder buffer so the next sound does not wait for a nonexistent resend. */
+    bool no_data = datalen == 12 ||
+                   (datalen == 16 && !memcmp(&data[12], empty_packet_marker, 4));
+    int payload_size = no_data ? 0 : datalen - 12;
 
     /* Get correct seqnum for the packet */
     unsigned short seqnum = 0;
@@ -208,10 +208,14 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
     entry->rtp_timestamp = byteutils_get_int_be(data, 4);
     entry->filled = 1;
 
-    entry->payload_data = malloc(payload_size);
-    int decrypt_ret = raop_buffer_decrypt(raop_buffer, data, entry->payload_data, payload_size, &entry->payload_size);
-    assert(decrypt_ret >= 0);
-    assert((int) entry->payload_size <= payload_size);
+    entry->payload_data = NULL;
+    entry->payload_size = 0;
+    if (payload_size > 0) {
+        entry->payload_data = malloc(payload_size);
+        int decrypt_ret = raop_buffer_decrypt(raop_buffer, data, entry->payload_data, payload_size, &entry->payload_size);
+        assert(decrypt_ret >= 0);
+        assert((int) entry->payload_size <= payload_size);
+    }
 
     /* Update the raop_buffer seqnums */
     if (raop_buffer->is_empty) {
@@ -229,42 +233,48 @@ void *
 raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *rtp_timestamp, unsigned short *seqnum, int no_resend) {
     assert(raop_buffer);
 
-    /* Calculate number of entries in the current buffer */
-    short entry_count = seqnum_cmp(raop_buffer->last_seqnum, raop_buffer->first_seqnum)+1;
+    for (;;) {
+        /* Calculate number of entries in the current buffer */
+        short entry_count = seqnum_cmp(raop_buffer->last_seqnum, raop_buffer->first_seqnum)+1;
 
-    /* Cannot dequeue from empty buffer */
-    if (raop_buffer->is_empty || entry_count <= 0) {
-        return NULL;
-    }
-
-    /* Get the first buffer entry for inspection */
-    raop_buffer_entry_t *entry = &raop_buffer->entries[raop_buffer->first_seqnum % RAOP_BUFFER_LENGTH];
-    if (no_resend) {
-        /* If we do no resends, always return the first entry */
-    } else if (!entry->filled) {
-        /* Check how much we have space left in the buffer */
-        if (entry_count < RAOP_BUFFER_LENGTH) {
-            /* Return nothing and hope resend gets on time */
+        /* Cannot dequeue from empty buffer */
+        if (raop_buffer->is_empty || entry_count <= 0) {
             return NULL;
         }
-        /* Risk of buffer overrun, return empty buffer */
-    }
 
-    /* Update buffer and validate entry */
-    raop_buffer->first_seqnum += 1;
-    if (!entry->filled) {
-        return NULL;
-    }
-    entry->filled = 0;
+        /* Get the first buffer entry for inspection */
+        raop_buffer_entry_t *entry = &raop_buffer->entries[raop_buffer->first_seqnum % RAOP_BUFFER_LENGTH];
+        if (no_resend) {
+            /* If we do no resends, always return the first entry */
+        } else if (!entry->filled) {
+            /* Check how much we have space left in the buffer */
+            if (entry_count < RAOP_BUFFER_LENGTH) {
+                /* Return nothing and hope resend gets on time */
+                return NULL;
+            }
+            /* Risk of buffer overrun, return empty buffer */
+        }
 
-    /* Return entry payload buffer */
-    *rtp_timestamp = entry->rtp_timestamp;
-    *seqnum = entry->seqnum;
-    *length = entry->payload_size;
-    entry->payload_size = 0;
-    void* data = entry->payload_data;
-    entry->payload_data = NULL;
-    return data;
+        /* Update buffer and validate entry */
+        raop_buffer->first_seqnum += 1;
+        if (!entry->filled) {
+            return NULL;
+        }
+        entry->filled = 0;
+
+        /* Consume known silence without sending it to a decoder. A real missing
+         * packet above still waits for retransmission when resends are enabled. */
+        if (entry->payload_size == 0) continue;
+
+        /* Return entry payload buffer */
+        *rtp_timestamp = entry->rtp_timestamp;
+        *seqnum = entry->seqnum;
+        *length = entry->payload_size;
+        entry->payload_size = 0;
+        void* data = entry->payload_data;
+        entry->payload_data = NULL;
+        return data;
+    }
 }
 
 void raop_buffer_handle_resends(raop_buffer_t *raop_buffer, raop_resend_cb_t resend_cb, void *opaque) {

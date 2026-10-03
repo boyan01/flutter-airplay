@@ -63,9 +63,11 @@ void format(void *cls,unsigned char *ct,unsigned short *spf,bool*,bool*,uint64_t
     auto p=(Player*)cls;audio_engine_on_format(p->audio,*ct,*spf);
     if(!audio_engine_start(p->audio))state(p,"无法打开音频输出，请停止后重试");
 }
-void size(void *cls,float *sw,float *sh,float*,float*) {
+void size(void *cls,float *sw,float *sh,float *w,float *h) {
     auto p=(Player*)cls;if(p->closing)return; Env env(p);if(!env.e)return;
-    if(*sw>=1 && *sh>=1 && *sw<=4096 && *sh<=4096)env.e->CallVoidMethod(p->host,p->size,(jint)*sw,(jint)*sh);
+    if(*sw>=1 && *sh>=1 && *sw<=4096 && *sh<=4096)
+        env.e->CallVoidMethod(p->host,p->size,(jint)*sw,(jint)*sh,
+            (jint)((*w>=1 && *w<=4096)?*w:0),(jint)((*h>=1 && *h<=4096)?*h:0));
 }
 void videoFlush(void *cls) {auto p=(Player*)cls;if(p->closing)return;Env env(p);if(env.e)env.e->CallVoidMethod(p->host,p->reset);}
 void audioFlush(void *cls) { auto p=(Player*)cls;audio_engine_pause(p->audio);audio_engine_start(p->audio); }
@@ -99,7 +101,7 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     if(env->GetArrayLength(identity)!=6){fail(env,"Invalid app identity");return 0;}
     auto p=std::make_unique<Player>(); env->GetJavaVM(&p->vm);p->host=env->NewGlobalRef(host);
     auto klass=env->GetObjectClass(host);
-    p->frame=env->GetMethodID(klass,"onVideoData","([BJ)V");p->size=env->GetMethodID(klass,"onVideoSize","(II)V");
+    p->frame=env->GetMethodID(klass,"onVideoData","([BJ)V");p->size=env->GetMethodID(klass,"onVideoSize","(IIII)V");
     p->client=env->GetMethodID(klass,"onClientName","([B)V");
     p->state=env->GetMethodID(klass,"onNativeState","(Ljava/lang/String;)V");p->reset=env->GetMethodID(klass,"onVideoReset","()V");env->DeleteLocalRef(klass);
     if(env->ExceptionCheck())return 0;

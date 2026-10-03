@@ -41,6 +41,7 @@ internal class ReceiverState {
     }
 
     fun accept(event: Map<String, Any>) {
+        (event["log"] as? String)?.let(::log)
         (event["clientName"] as? String)?.let { clientName = it }
         (event["width"] as? Number)?.let { width = it.toInt() }
         (event["height"] as? Number)?.let { height = it.toInt() }
