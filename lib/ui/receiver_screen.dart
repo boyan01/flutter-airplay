@@ -126,7 +126,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   Future<void> _toggleFullscreen({bool? target}) async {
-    if (model.platform != 'macos') return;
+    if (!{'macos', 'windows', 'linux'}.contains(model.platform)) return;
     try {
       await _window.invokeMethod<void>(
         target == false ? 'exitFullscreen' : 'toggleFullscreen',

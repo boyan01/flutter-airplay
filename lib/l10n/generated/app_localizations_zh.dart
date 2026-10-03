@@ -85,7 +85,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get receive => '接收投屏';
 
   @override
-  String get macAudioHelp => '声音由此 Mac 播放 · 不支持 DRM 内容';
+  String get deviceAudioHelp => '声音由本设备播放 · 不支持 DRM 内容';
 
   @override
   String get noLogs => '暂无日志。启动接收后可在这里查看运行情况。';
@@ -341,4 +341,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String clientConnected(String name) {
     return '已连接 · $name';
   }
+
+  @override
+  String get foregroundReceive => '在 iPad 上接收镜像时，请保持应用在前台。';
 }

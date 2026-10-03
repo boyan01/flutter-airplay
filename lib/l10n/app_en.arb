@@ -25,7 +25,7 @@
   "logsShort": "Logs",
   "foregroundHelp": "Keep this app in the foreground · DRM content is not supported",
   "receive": "Receive AirPlay",
-  "macAudioHelp": "Audio plays on this Mac · DRM content is not supported",
+  "deviceAudioHelp": "Audio plays on this device · DRM content is not supported",
   "noLogs": "No logs yet. Receiver activity will appear here.",
   "logsCopied": "Logs copied",
   "copyLogs": "Copy logs",
@@ -135,5 +135,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "foregroundReceive": "Keep this app in the foreground to receive mirroring on iPad."
 }

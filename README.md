@@ -1,7 +1,8 @@
 # Flutter AirPlay
 
 一个 GPLv3 开源的 AirPlay 接收器，用于在同一局域网内接收 iPhone 屏幕镜像。
-macOS 和 Android 共用 Flutter 界面、UxPlay 接收协议与 C++ 播放核心。
+macOS 和 Android 共用 Flutter 界面、UxPlay 接收协议与 C++ 播放核心；
+Windows 和 iPad 宿主复用同一工程，当前属于待设备验证的实验性实现。
 共享核心处理时间戳、缓冲和会话重置，解码与音频输出使用平台适配层。
 
 应用默认启动接收。待命首页显示设备名和投屏指引，收到画面后自动切换到播放页。
@@ -19,6 +20,8 @@ Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一�
 | macOS | macOS 12+、Apple Silicon，应用包内置依赖，无需安装 Homebrew 或 GStreamer |
 | Android 手机 | Android 8.0（API 26）及以上，当前仅打包 arm64-v8a |
 | Android TV | 共用 Android 应用，提供 TV 布局与遥控器方向键操作，当前仅打包 arm64-v8a |
+| iPad | iPadOS 15+，前台接收实现；切到后台停止接收，真实 iPhone 播放仍需验证 |
+| Windows | Windows 10+ x64 实验性代码，尚未在 Windows 编译/运行；支持路径为 H.264、AAC-LC、ALAC，AAC-ELD 明确报错，不能保证 iPhone 镜像有声音 |
 
 ## 使用
 
@@ -36,6 +39,8 @@ Android 10+ 如需收到投屏时自动打开应用，可在设置中进入系�
 Android 8–9 会在后台收到连接时尝试自动打开应用。
 系统强行停止应用或终止服务后，需要重新打开应用恢复接收。
 手机仅在应用前台接收期间保持常亮，TV 在应用前台期间保持常亮。
+iPad 需要保持应用在前台并允许本地网络访问；返回前台恢复此前开启的接收状态，
+发送端可能需要重新连接。iPad 不提供后台空闲待命。
 
 ## 操作与设置
 
@@ -62,6 +67,7 @@ Android 位于应用外部文件目录 `Android/data/io.github.boyan01.flutter_a
 文件包含 Flutter、接收核心和播放诊断，重启后保留。日志页“清空”只清空当前显示。
 
 开发环境、构建与测试命令见 [AGENTS.md](AGENTS.md)。
+实验性宿主的构建和限制见 [iPad](ios/README.md) 与 [Windows](windows/README.md)。
 
 ## 分发与许可
 

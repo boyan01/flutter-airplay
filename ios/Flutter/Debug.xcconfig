@@ -1,0 +1,4 @@
+#include "Generated.xcconfig"
+
+// Native simulator archives currently target Apple Silicon.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-only
+get_filename_component(AIRPLAY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(AIRPLAY_WINDOWS_PLAYER_DIR "${AIRPLAY_ROOT}/build/windows-native" CACHE PATH "Prebuilt ClangCL player directory")
+if(NOT EXISTS "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" OR
+   NOT EXISTS "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.lib")
+  message(FATAL_ERROR "Windows native player is missing. Run powershell -File windows/scripts/build_native.ps1 from the repository root first.")
+endif()
+add_library(airplay_player_import SHARED IMPORTED)
+set_target_properties(airplay_player_import PROPERTIES
+  IMPORTED_LOCATION "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll"
+  IMPORTED_IMPLIB "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.lib"
+  INTERFACE_INCLUDE_DIRECTORIES "${AIRPLAY_ROOT}/native/player")
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" "$<TARGET_FILE_DIR:${BINARY_NAME}>")
+install(FILES "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+install(FILES "${AIRPLAY_ROOT}/LICENSE" "${AIRPLAY_ROOT}/THIRD_PARTY_NOTICES.md"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)
+install(DIRECTORY "${AIRPLAY_ROOT}/android/app/src/main/assets/licenses/" DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)

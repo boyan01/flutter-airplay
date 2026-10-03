@@ -30,7 +30,8 @@ Source: https://github.com/macosforge/alac
 Base commit: c38887c5c5e64a4b31108733bd79ca9b2496d987
 License: Apache-2.0
 
-Decoder sources are maintained in `vendor/alac/` and linked only on Android.
+Decoder sources are maintained in `vendor/alac/` and linked on Android, Windows
+and Linux.
 The encoder and conversion utility are excluded. Original copyright and license
 notices remain with the source. Local input-bound checks are recorded in
 [UPSTREAM.md](vendor/alac/UPSTREAM.md). The license is bundled in

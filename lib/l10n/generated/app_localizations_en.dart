@@ -87,8 +87,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get receive => 'Receive AirPlay';
 
   @override
-  String get macAudioHelp =>
-      'Audio plays on this Mac · DRM content is not supported';
+  String get deviceAudioHelp =>
+      'Audio plays on this device · DRM content is not supported';
 
   @override
   String get noLogs => 'No logs yet. Receiver activity will appear here.';
@@ -351,4 +351,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String clientConnected(String name) {
     return 'Connected · $name';
   }
+
+  @override
+  String get foregroundReceive =>
+      'Keep this app in the foreground to receive mirroring on iPad.';
 }

@@ -48,9 +48,8 @@ class ReceiverModel extends ChangeNotifier {
       status == 'streaming' && !hasVideo && (audioPlaying || videoPaused);
 
   String get platform => _platform;
-  String _platform = defaultTargetPlatform == TargetPlatform.android
-      ? 'android'
-      : 'macos';
+  String _platform = defaultTargetPlatform.name;
+  bool get isMobile => platform == 'android' || platform == 'ios';
   bool isTelevision = false;
   bool get supportsExecutablePath => _supportsExecutablePath ?? false;
   bool? _supportsExecutablePath;

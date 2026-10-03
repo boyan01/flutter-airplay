@@ -292,9 +292,11 @@ class HomePage extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            model.platform == 'android'
+            model.platform == 'ios'
+                ? l10n(context).foregroundReceive
+                : model.platform == 'android'
                 ? l10n(context).backgroundReceive
-                : l10n(context).macAudioHelp,
+                : l10n(context).deviceAudioHelp,
             style: TextStyle(
               fontSize: 12,
               height: 1.5,
@@ -309,7 +311,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (model.isTelevision) return _television(context);
-    final phone = model.platform == 'android';
+    final phone = model.isMobile;
     return Column(
       children: [
         if (phone)

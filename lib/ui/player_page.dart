@@ -30,11 +30,11 @@ class _PlayerPageState extends State<PlayerPage> {
   Timer? _timer, _backTimer;
   bool _visible = false, _confirmBack = false;
   bool get tv => widget.model.isTelevision;
-  bool get android => widget.model.platform == 'android';
+  bool get mobile => widget.model.isMobile;
   Duration get _delay => Duration(
     milliseconds: tv
         ? 5000
-        : android
+        : mobile
         ? 3000
         : 2500,
   );
@@ -64,7 +64,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _back() {
     if (widget.dialogOpen) return;
-    if (!android) {
+    if (!mobile) {
       widget.onEscape();
       return;
     }
@@ -120,7 +120,7 @@ class _PlayerPageState extends State<PlayerPage> {
   );
 
   Widget _controls() {
-    final phone = android && !tv;
+    final phone = mobile && !tv;
     return Stack(
       key: const Key('playerControls'),
       children: [
@@ -142,7 +142,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     colors: [Color(0x99000000), Colors.transparent],
                   ),
                 ),
-                child: !phone
+                child: widget.model.platform == 'macos'
                     ? MacWindowBar(title: client, dark: true)
                     : Row(
                         children: [
@@ -249,27 +249,28 @@ class _PlayerPageState extends State<PlayerPage> {
                             icon: const Icon(Icons.eject_rounded),
                             label: Text(l10n(context).disconnect),
                           ),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
+                          if (widget.model.platform == 'macos')
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () => widget.model.save(
+                                widget.model.name,
+                                widget.model.path,
+                                desktopOptions: {
+                                  ...widget.model.desktopOptions,
+                                  'alwaysOnTop': !widget
+                                      .model
+                                      .desktopOptions['alwaysOnTop']!,
+                                },
+                              ),
+                              icon: Icon(
+                                widget.model.desktopOptions['alwaysOnTop']!
+                                    ? Icons.push_pin
+                                    : Icons.push_pin_outlined,
+                              ),
+                              label: Text(l10n(context).alwaysOnTop),
                             ),
-                            onPressed: () => widget.model.save(
-                              widget.model.name,
-                              widget.model.path,
-                              desktopOptions: {
-                                ...widget.model.desktopOptions,
-                                'alwaysOnTop': !widget
-                                    .model
-                                    .desktopOptions['alwaysOnTop']!,
-                              },
-                            ),
-                            icon: Icon(
-                              widget.model.desktopOptions['alwaysOnTop']!
-                                  ? Icons.push_pin
-                                  : Icons.push_pin_outlined,
-                            ),
-                            label: Text(l10n(context).alwaysOnTop),
-                          ),
                           IconButton(
                             tooltip: l10n(context).fullscreen,
                             color: Colors.white,
@@ -327,7 +328,7 @@ class _PlayerPageState extends State<PlayerPage> {
         return KeyEventResult.ignored;
       },
       child: MouseRegion(
-        cursor: !android && !_visible
+        cursor: !mobile && !_visible
             ? SystemMouseCursors.none
             : MouseCursor.defer,
         onHover: (_) => _show(),
@@ -338,7 +339,7 @@ class _PlayerPageState extends State<PlayerPage> {
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _visible ? _hide() : _show(),
-              onDoubleTap: android ? null : widget.onFullscreen,
+              onDoubleTap: mobile ? null : widget.onFullscreen,
               child: Center(
                 child: Semantics(
                   label: l10n(context).videoLabel,

@@ -822,4 +822,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('macWindowBar')), findsNothing);
   });
+  testWidgets(
+    'iPad uses mobile controls and states its foreground constraint',
+    (tester) async {
+      final backend = await launch(
+        tester,
+        platform: 'ios',
+        size: const Size(1024, 768),
+      );
+      expect(find.byKey(const Key('homeToolbar')), findsOneWidget);
+      expect(find.text('在 iPad 上接收镜像时，请保持应用在前台。'), findsOneWidget);
+      expect(find.byKey(const Key('macWindowBar')), findsNothing);
+      frame(backend);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('playerPage')));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byKey(const Key('playerBack')), findsOneWidget);
+      expect(find.byKey(const Key('windowClose')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final platform in ['windows', 'linux']) {
+    testWidgets('$platform player uses supported desktop controls', (
+      tester,
+    ) async {
+      const channel = MethodChannel('org.flutterairplay/window');
+      final calls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final backend = await launch(tester, platform: platform);
+      expect(find.text('声音由本设备播放 · 不支持 DRM 内容'), findsOneWidget);
+      frame(backend);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('playerPage')));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byKey(const Key('macWindowBar')), findsNothing);
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+      expect(find.byIcon(Icons.push_pin_outlined), findsNothing);
+      await tester.tap(find.byIcon(Icons.fullscreen));
+      expect(calls, contains('toggleFullscreen'));
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

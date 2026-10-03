@@ -248,11 +248,11 @@ abstract class AppLocalizations {
   /// **'Receive AirPlay'**
   String get receive;
 
-  /// No description provided for @macAudioHelp.
+  /// No description provided for @deviceAudioHelp.
   ///
   /// In en, this message translates to:
-  /// **'Audio plays on this Mac · DRM content is not supported'**
-  String get macAudioHelp;
+  /// **'Audio plays on this device · DRM content is not supported'**
+  String get deviceAudioHelp;
 
   /// No description provided for @noLogs.
   ///
@@ -745,6 +745,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connected · {name}'**
   String clientConnected(String name);
+
+  /// No description provided for @foregroundReceive.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep this app in the foreground to receive mirroring on iPad.'**
+  String get foregroundReceive;
 }
 
 class _AppLocalizationsDelegate

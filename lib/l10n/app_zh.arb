@@ -25,7 +25,7 @@
   "logsShort": "日志",
   "foregroundHelp": "请保持本应用在前台 · 不支持 DRM 内容",
   "receive": "接收投屏",
-  "macAudioHelp": "声音由此 Mac 播放 · 不支持 DRM 内容",
+  "deviceAudioHelp": "声音由本设备播放 · 不支持 DRM 内容",
   "noLogs": "暂无日志。启动接收后可在这里查看运行情况。",
   "logsCopied": "日志已复制",
   "copyLogs": "复制日志",
@@ -128,5 +128,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "foregroundReceive": "在 iPad 上接收镜像时，请保持应用在前台。"
 }

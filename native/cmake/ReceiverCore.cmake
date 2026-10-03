@@ -1,15 +1,22 @@
 # SPDX-License-Identifier: GPL-3.0-only
 set(core "${UXPLAY_SOURCE}/lib")
-set(plist "${PLIST_SOURCE}/src")
-set(cnary "${PLIST_SOURCE}/libcnary")
-add_library(plist STATIC
-    ${plist}/base64.c ${plist}/bplist.c ${plist}/bytearray.c ${plist}/hashtable.c
-    ${plist}/jplist.c ${plist}/jsmn.c ${plist}/oplist.c ${plist}/out-default.c
-    ${plist}/out-limd.c ${plist}/out-plutil.c ${plist}/plist.c ${plist}/ptrarray.c
-    ${plist}/time64.c ${plist}/xplist.c
-    ${cnary}/cnary.c ${cnary}/node.c ${cnary}/node_list.c)
-target_include_directories(plist PUBLIC ${PLIST_SOURCE}/include PRIVATE ${plist} ${cnary}/include)
-target_compile_definitions(plist PRIVATE _GNU_SOURCE HAVE_STRNDUP PACKAGE_VERSION="2.6.0")
+if(PLIST_SOURCE)
+    set(plist "${PLIST_SOURCE}/src")
+    set(cnary "${PLIST_SOURCE}/libcnary")
+    add_library(plist STATIC
+        ${plist}/base64.c ${plist}/bplist.c ${plist}/bytearray.c ${plist}/hashtable.c
+        ${plist}/jplist.c ${plist}/jsmn.c ${plist}/oplist.c ${plist}/out-default.c
+        ${plist}/out-limd.c ${plist}/out-plutil.c ${plist}/plist.c ${plist}/ptrarray.c
+        ${plist}/time64.c ${plist}/xplist.c
+        ${cnary}/cnary.c ${cnary}/node.c ${cnary}/node_list.c)
+    target_include_directories(plist PUBLIC ${PLIST_SOURCE}/include PRIVATE ${plist} ${cnary}/include)
+    target_compile_definitions(plist PRIVATE _GNU_SOURCE HAVE_STRNDUP PACKAGE_VERSION="2.6.0")
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PLIST REQUIRED IMPORTED_TARGET libplist-2.0>=2.3)
+    add_library(plist INTERFACE)
+    target_link_libraries(plist INTERFACE PkgConfig::PLIST)
+endif()
 add_library(llhttp STATIC ${core}/llhttp/api.c ${core}/llhttp/http.c ${core}/llhttp/llhttp.c)
 target_include_directories(llhttp PUBLIC ${core}/llhttp)
 add_library(playfair STATIC ${core}/playfair/hand_garble.c ${core}/playfair/modified_md5.c
@@ -21,8 +28,15 @@ if(ANDROID OR AIRPLAY_DNS_STUB)
     target_sources(receiver_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../android/app/src/main/cpp/dns_sd.c)
     target_include_directories(receiver_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../android/app/src/main/cpp)
 endif()
-target_include_directories(receiver_core PUBLIC ${core}
-    PRIVATE ${CRYPTO_PREFIX}/include)
+target_include_directories(receiver_core PUBLIC ${core})
+if(CRYPTO_PREFIX)
+    target_include_directories(receiver_core PRIVATE ${CRYPTO_PREFIX}/include)
+endif()
 target_compile_definitions(receiver_core PRIVATE PLIST_210 PLIST_230 OPENSSL_API_COMPAT=0x10101000L)
-find_library(crypto_library crypto PATHS ${CRYPTO_PREFIX}/lib ${CRYPTO_PREFIX}/lib64 NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+if(CRYPTO_PREFIX)
+    find_library(crypto_library NAMES crypto libcrypto PATHS ${CRYPTO_PREFIX}/lib ${CRYPTO_PREFIX}/lib64 NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+else()
+    find_package(OpenSSL REQUIRED)
+    set(crypto_library OpenSSL::Crypto)
+endif()
 target_link_libraries(receiver_core PUBLIC plist llhttp playfair ${crypto_library})

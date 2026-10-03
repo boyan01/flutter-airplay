@@ -10,7 +10,9 @@ extern "C" {
 
 typedef struct AirplayPlayer AirplayPlayer;
 // Callbacks may run on native workers. Their context must outlive player_destroy.
-// frame is a borrowed CVPixelBuffer on macOS; Android renders directly to Surface.
+// frame is a borrowed CVPixelBuffer on Apple platforms; Android renders to Surface.
+// Windows uses a borrowed WindowsVideoFrame (windows_video.h). Linux defines its
+// own borrowed frame descriptor. Hosts must copy or retain before returning.
 // Media events: playing carries decoded video dimensions; paused hides video
 // until a fresh playing event; audio marks queued PCM; audio_stopped clears it.
 // reset clears both media states; waiting ends the sender session.
