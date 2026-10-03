@@ -32,21 +32,29 @@ class ReceiverModel extends ChangeNotifier {
   int textureId = -1, videoWidth = 0, videoHeight = 0;
   bool get hasVideo => textureId >= 0 && videoWidth > 0 && videoHeight > 0;
 
+  String get platform => _platform;
+  String _platform = defaultTargetPlatform == TargetPlatform.android
+      ? 'android'
+      : 'macos';
+  bool isTelevision = false;
+  bool get supportsExecutablePath =>
+      _supportsExecutablePath ?? platform == 'macos';
+  bool? _supportsExecutablePath;
+
   String? notice;
+  String? commandError;
   int pid = 0;
   bool loaded = false;
   bool busy = false;
   bool _disposed = false;
   UnmodifiableListView<ReceiverLog> get logs => UnmodifiableListView(_logs);
-  bool get active =>
-      {
-        'checking',
-        'starting',
-        'waiting',
-        'streaming',
-        'stopping',
-      }.contains(status) ||
-      pid > 0;
+  bool get active => {
+    'checking',
+    'starting',
+    'waiting',
+    'streaming',
+    'stopping',
+  }.contains(status);
   bool get editable => loaded && !busy && !active;
   bool get canStart => editable;
   bool get canStop => active && status != 'stopping' && !busy;
@@ -55,32 +63,38 @@ class ReceiverModel extends ChangeNotifier {
     _subscription = repository.events.listen(
       _event,
       onError: (Object error) {
-        notice = _error(error);
+        notice = commandError = _error(error);
         _notify();
       },
     );
     try {
       _snapshot(await repository.snapshot());
     } catch (error) {
-      notice = _error(error);
+      notice = commandError = _error(error);
       loaded = true;
       _notify();
     }
   }
 
   void _snapshot(Map<String, dynamic> data) {
+    final capabilities = data['capabilities'];
+    if (capabilities is Map) {
+      _platform = capabilities['platform'] as String? ?? _platform;
+      isTelevision = capabilities['isTelevision'] as bool? ?? false;
+      _supportsExecutablePath = capabilities['supportsExecutablePath'] as bool?;
+    }
     status = data['status'] as String;
     message = data['message'] as String;
-    pid = data['pid'] as int;
+    pid = data['pid'] as int? ?? 0;
     if (!loaded) {
       name = data['name'] as String;
-      path = data['path'] as String;
+      path = data['path'] as String? ?? '';
     }
     textureId = data['textureId'] as int? ?? -1;
     videoWidth = data['videoWidth'] as int? ?? 0;
     videoHeight = data['videoHeight'] as int? ?? 0;
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
-    for (final entry in data['logs'] as List) {
+    for (final entry in data['logs'] as List? ?? const []) {
       final log = ReceiverLog(entry as Map);
       byID[log.id] = log;
     }
@@ -99,7 +113,7 @@ class ReceiverModel extends ChangeNotifier {
       case 'state':
         status = event['status'] as String;
         message = event['message'] as String;
-        pid = event['pid'] as int;
+        pid = event['pid'] as int? ?? 0;
         if ({'stopped', 'stopping', 'error', 'waiting'}.contains(status)) {
           videoWidth = 0;
           videoHeight = 0;
@@ -133,12 +147,13 @@ class ReceiverModel extends ChangeNotifier {
     if (busy || _disposed) return;
     busy = true;
     notice = null;
+    commandError = null;
     _notify();
     try {
       await action();
       notice = success;
     } catch (error) {
-      notice = _error(error);
+      notice = commandError = _error(error);
     } finally {
       busy = false;
       _notify();

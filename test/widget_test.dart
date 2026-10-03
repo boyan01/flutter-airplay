@@ -4,10 +4,18 @@ import 'package:flutter_airplay/main.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter_airplay/receiver/receiver_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeReceiver implements ReceiverRepository {
+  FakeReceiver({
+    this.capabilities = const {
+      'platform': 'macos',
+      'supportsExecutablePath': true,
+    },
+  });
+  final Map<String, dynamic>? capabilities;
   final controller = StreamController<Map<String, dynamic>>.broadcast(
     sync: true,
   );
@@ -24,6 +32,7 @@ class FakeReceiver implements ReceiverRepository {
     'name': 'Flutter AirPlay',
     'path': '',
     'logs': <dynamic>[],
+    if (capabilities != null) 'capabilities': capabilities,
   };
   void state(String status, [int pid = 42]) => controller.add({
     'type': 'state',
@@ -76,7 +85,9 @@ void main() {
     final backend = FakeReceiver();
     await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
     await tester.pumpAndSettle();
-    expect(find.text('Flutter 内嵌画面'), findsOneWidget);
+    expect(find.byKey(const Key('videoPreview')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
     expect(find.byType(DropdownButtonFormField<String>), findsNothing);
     await tester.enterText(
       find.byKey(const Key('receiverName')),
@@ -89,13 +100,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(backend.startedName, 'Living Room');
     expect(find.text('等待连接'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
     expect(
       tester.widget<TextField>(find.byKey(const Key('receiverName'))).enabled,
       false,
     );
+    await tester.tap(find.text('返回'));
+    await tester.pumpAndSettle();
     backend.state('streaming');
     await tester.pumpAndSettle();
-    expect(find.text('正在接收'), findsOneWidget);
+    expect(find.text('已连接'), findsOneWidget);
     await tester.tap(find.byKey(const Key('stop')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('start')));
@@ -126,8 +141,10 @@ void main() {
     final backend = FakeReceiver();
     await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('receiverName')), '   ');
-    await tester.tap(find.byKey(const Key('start')));
+    await tester.tap(find.text('保存设置'));
     await tester.pumpAndSettle();
     expect(find.text('请输入设备名'), findsOneWidget);
     expect(backend.starts, 0);
@@ -230,7 +247,7 @@ void main() {
     backend.state('waiting');
     await tester.pumpAndSettle();
     expect(find.byType(Texture), findsNothing);
-    expect(find.text('等待 iPhone 画面'), findsOneWidget);
+    expect(find.text('等待 iPhone 连接'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -252,4 +269,181 @@ void main() {
     model.dispose();
     await backend.controller.close();
   });
+
+  testWidgets('Settings cancel and escape preserve saved values and focus', (
+    tester,
+  ) async {
+    await screen(tester);
+    final backend = FakeReceiver();
+    await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('receiverName')), '未保存');
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(backend.savedName, isNull);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '接收操作');
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('receiverName')))
+          .controller!
+          .text,
+      'Flutter AirPlay',
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(backend.savedName, isNull);
+  });
+
+  testWidgets(
+    'Phone capabilities hide executable path and use local playback wording',
+    (tester) async {
+      await screen(tester, const Size(390, 700));
+      final backend = FakeReceiver(
+        capabilities: {
+          'platform': 'android',
+          'isTelevision': false,
+          'supportsExecutablePath': false,
+        },
+      );
+      await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('声音由本设备'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      expect(find.text('高级设置'), findsNothing);
+      expect(find.textContaining('GStreamer'), findsNothing);
+      expect(find.byKey(const Key('receiverPath')), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('TV D-pad activation, layered Back and focus restoration', (
+    tester,
+  ) async {
+    await screen(tester, const Size(1280, 720));
+    final backend = FakeReceiver(
+      capabilities: {
+        'platform': 'android',
+        'isTelevision': true,
+        'supportsExecutablePath': false,
+      },
+    );
+    await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
+    await tester.pumpAndSettle();
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '接收操作');
+    expect(
+      tester.getSize(find.byKey(const Key('start'))).height,
+      greaterThanOrEqualTo(56),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(backend.starts, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('collapsePreview')), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('collapsePreview')), findsNothing);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '接收操作');
+    expect(backend.stops, 0);
+    await tester.tap(find.byKey(const Key('openLogs')));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '接收操作');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'Repeated UI starts stay disabled until ready and error offers recovery',
+    (tester) async {
+      await screen(tester);
+      final backend = FakeReceiver()..startup = Completer<void>();
+      await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('start')));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR, platform: 'macos');
+      await tester.tap(find.byKey(const Key('stop')));
+      await tester.pump();
+      expect(backend.starts, 1);
+      expect(backend.stops, 0);
+      backend.startup!.complete();
+      await tester.pumpAndSettle();
+      backend.state('error', 0);
+      await tester.pumpAndSettle();
+      expect(find.text('重新启动'), findsOneWidget);
+      expect(find.text('检查环境'), findsOneWidget);
+      expect(find.text('打开设置'), findsOneWidget);
+      expect(find.text('查看日志'), findsOneWidget);
+    },
+  );
+
+  testWidgets('Small window, large text and both themes have no overflow', (
+    tester,
+  ) async {
+    await screen(tester, const Size(480, 480));
+    tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpWidget(ReceiverApp(model: ReceiverModel(FakeReceiver())));
+    await tester.pumpAndSettle();
+    for (final label in ['深色', '浅色']) {
+      await tester.tap(find.byKey(const Key('appearance')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+      expect(
+        Theme.of(tester.element(find.byKey(const Key('openSettings'))))
+            .brightness,
+        label == '深色' ? Brightness.dark : Brightness.light,
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('高级设置'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    }
+  });
+
+  test(
+    'Capabilities are backward compatible and PID is diagnostic only',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final legacy = ReceiverModel(FakeReceiver(capabilities: null));
+      await legacy.initialize();
+      expect(legacy.supportsExecutablePath, true);
+      final backend = FakeReceiver(
+        capabilities: {
+          'platform': 'android',
+          'isTelevision': true,
+          'supportsExecutablePath': false,
+        },
+      );
+      final android = ReceiverModel(backend);
+      await android.initialize();
+      expect(android.platform, 'android');
+      expect(android.isTelevision, true);
+      expect(android.supportsExecutablePath, false);
+      backend.state('waiting', 0);
+      expect(android.canStop, true);
+      backend.state('stopped', 99);
+      expect(android.canStart, true);
+      android.dispose();
+      legacy.dispose();
+    },
+  );
 }
