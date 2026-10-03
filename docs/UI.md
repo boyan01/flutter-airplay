@@ -66,14 +66,28 @@ at the window/system-UI boundary; there is no second Android Dart screen.
 
 ## Validation for this checkpoint
 
-Completed scope is recorded when the feature is committed. Widget tests use
-fake repositories and synthetic video metadata. They check shared state,
+Checkpoint validation (2026-10-03): `flutter analyze` reports no issues;
+all 15 Flutter widget/model tests pass; `flutter build macos` produces a
+47.4 MB Release application. The native receiver rebuild and existing
+`test_native`, `test_audio`, `test_sync`, `test_rtp`, `test_recovery`, and
+`test_frames` suites all pass. These suites use synthetic inputs and test-owned
+processes/endpoints.
+
+Local `codesign --verify --deep --strict` on this new application fails with
+"nested code is modified or invalid". This remains an integration task before
+switching the running application; successful compilation is not signature
+verification or distribution signing.
+
+Widget tests use fake repositories and synthetic video metadata. They check shared state,
 settings cancellation, operation deduplication, error recovery, phone/TV
 capabilities, D-pad Enter and Back with focus restoration, aspect changes,
 stopping, dark/light themes and small/large-text layouts.
 
-Native synthetic regression and macOS visible-window acceptance exercise the
-existing embedded host. They do not establish real iPhone image, audible sound,
+The old macOS application was observed but was not stopped or switched during
+this checkpoint. Visible acceptance of the new UI, native fullscreen/Escape,
+window resizing and visible texture output remains for the integration owner.
+No new-build CUA acceptance is claimed. Synthetic validation does not establish
+real iPhone image, audible sound,
 A/V synchronization, sustained playback, or Android/TV device support. The
 Android host integration and its actual device acceptance belong to the Android
 owner. Runtime logs and screenshots must remain in ignored `artifacts/`, never
