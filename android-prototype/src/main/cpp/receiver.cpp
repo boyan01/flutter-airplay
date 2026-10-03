@@ -50,7 +50,9 @@ int Receiver::start(const char *name, const uint8_t identity[6], const char *key
     if (!dns_) { stop(); return -1; }
     raop_set_dnssd(raop_, dns_);
     // HLS remains disabled; playback integration must narrow other feature bits.
-    dnssd_set_airplay_features(dns_, 7, 0);
+    dnssd_set_airplay_features(dns_, 0, 0);
+    dnssd_set_airplay_features(dns_, 4, 0);
+    dnssd_set_airplay_features(dns_, 7, 1);
     raop_set_plist(raop_, "width", 1920); raop_set_plist(raop_, "height", 1080);
     raop_set_plist(raop_, "maxFPS", 60);
     unsigned short port = 0;

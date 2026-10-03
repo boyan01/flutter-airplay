@@ -95,4 +95,12 @@ No iPhone frame, sound or synchronization observation has been completed here.
 
 The APK contains only arm64 native libraries (receiver/player, Flutter app,
 Flutter engine), nine bundled license files, and is 26,746,428 bytes.
-SHA-256: `d99adf689fb12351c035a4a49d013322fcfb3e5d2f5fe6d0f85df16f49b2379f`.
+SHA-256: `3eaccb6173e1f3aa856e33ac56dfd6414bde6476d6c3f6b30dae7c4d7465e87a`.
+
+Discovery correction: the initial APK cleared feature bit 7 by mistake.
+UxPlay's feature table defines bit 7 as screen mirroring; HLS uses bits 0/4.
+Version 0.1.1+2 retains bit 7, disables HLS 0/4 and HEVC 42. The updated APK
+was installed and restarted on the physical device. An independent LAN DNS-SD
+lookup confirmed `features=0x5A7FFEE6,0x0` (initial incorrect value
+`0x5A7FFE66,0x0`) and a reachable advertised TCP endpoint. User confirmation
+of iPhone discovery/connection and playback is still pending.

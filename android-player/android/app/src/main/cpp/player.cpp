@@ -107,7 +107,11 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     const char *n=env->GetStringUTFChars(name,nullptr);int error=0;
     p->dns=dnssd_init(n,strlen(n),(const char*)hw,6,&error,0);env->ReleaseStringUTFChars(name,n);
     if(!p->dns){fail(env,"Cannot create discovery records");return 0;}
-    raop_set_dnssd(p->raop,p->dns);dnssd_set_airplay_features(p->dns,7,0); // HLS disabled; mirroring only
+    raop_set_dnssd(p->raop,p->dns);
+    dnssd_set_airplay_features(p->dns,0,0); // HLS video
+    dnssd_set_airplay_features(p->dns,4,0); // HTTP live streaming
+    dnssd_set_airplay_features(p->dns,7,1); // screen mirroring MUST remain advertised
+    dnssd_set_airplay_features(p->dns,42,0); // H.264-only sink
     raop_set_plist(p->raop,"width",1920);raop_set_plist(p->raop,"height",1080);raop_set_plist(p->raop,"maxFPS",60);
     unsigned short port=0;
     if(raop_start_httpd(p->raop,&port)<0 || !port){fail(env,"Cannot bind AirPlay receiver");return 0;}
