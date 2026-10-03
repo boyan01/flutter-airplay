@@ -29,6 +29,9 @@ class ReceiverModel extends ChangeNotifier {
   String message = '接收器未启动';
   String name = 'Flutter AirPlay';
   String path = '';
+  int textureId = -1, videoWidth = 0, videoHeight = 0;
+  bool get hasVideo => textureId >= 0 && videoWidth > 0 && videoHeight > 0;
+
   String? notice;
   int pid = 0;
   bool loaded = false;
@@ -73,6 +76,9 @@ class ReceiverModel extends ChangeNotifier {
       name = data['name'] as String;
       path = data['path'] as String;
     }
+    textureId = data['textureId'] as int? ?? -1;
+    videoWidth = data['videoWidth'] as int? ?? 0;
+    videoHeight = data['videoHeight'] as int? ?? 0;
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
     for (final entry in data['logs'] as List) {
       final log = ReceiverLog(entry as Map);
@@ -94,6 +100,15 @@ class ReceiverModel extends ChangeNotifier {
         status = event['status'] as String;
         message = event['message'] as String;
         pid = event['pid'] as int;
+        if ({'stopped', 'stopping', 'error', 'waiting'}.contains(status)) {
+          videoWidth = 0;
+          videoHeight = 0;
+        }
+        _notify();
+      case 'video':
+        textureId = event['textureId'] as int;
+        videoWidth = event['videoWidth'] as int;
+        videoHeight = event['videoHeight'] as int;
         _notify();
       case 'log':
         final entry = ReceiverLog(event['entry'] as Map);

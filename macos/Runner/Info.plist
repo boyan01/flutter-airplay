@@ -25,7 +25,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Airplay Receiver uses your local network to receive screen mirroring and audio from your iPhone.</string>
+	<string>Flutter AirPlay uses your local network to receive screen mirroring and audio from your iPhone.</string>
 	<key>NSBonjourServices</key>
 	<array><string>_airplay._tcp</string><string>_raop._tcp</string></array>
 	<key>NSMainNibFile</key>

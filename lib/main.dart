@@ -44,6 +44,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   final _name = TextEditingController();
   final _path = TextEditingController();
   bool _settingsLoaded = false;
+  bool _previewExpanded = false;
   ReceiverModel get model => widget.model;
 
   @override
@@ -83,99 +84,105 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: model,
-    builder: (context, _) => Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(30, 24, 30, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xffe0eee9),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.airplay_rounded,
-                      color: Color(0xff23786e),
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+    builder: (context, _) => _previewExpanded
+        ? _expandedPreview()
+        : Scaffold(
+            body: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(30, 24, 30, 22),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          'Flutter AirPlay',
-                          style: TextStyle(
-                            fontSize: 25,
-                            fontWeight: FontWeight.w700,
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xffe0eee9),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.airplay_rounded,
+                            color: Color(0xff23786e),
+                            size: 30,
                           ),
                         ),
-                        SizedBox(height: 4),
-                        Text(
-                          '把 iPhone 的屏幕与声音带到 Mac',
-                          style: TextStyle(color: Color(0xff5b6964)),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Flutter AirPlay',
+                                style: TextStyle(
+                                  fontSize: 25,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                '把 iPhone 的屏幕与声音带到 Mac',
+                                style: TextStyle(color: Color(0xff5b6964)),
+                              ),
+                            ],
+                          ),
                         ),
+                        const Chip(label: Text('Flutter 内嵌画面')),
                       ],
                     ),
-                  ),
-                  const Chip(label: Text('第一阶段 · 独立播放窗口')),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _statusCard(),
-              const SizedBox(height: 18),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final settings = _settingsCard();
-                  final guide = _guideCard();
-                  if (constraints.maxWidth < 800) {
-                    return Column(
-                      children: [settings, const SizedBox(height: 14), guide],
-                    );
-                  }
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 5, child: settings),
-                      const SizedBox(width: 18),
-                      Expanded(flex: 4, child: guide),
-                    ],
-                  );
-                },
-              ),
-              if (model.notice != null) ...[
-                const SizedBox(height: 12),
-                Semantics(
-                  liveRegion: true,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xffe7efe9),
-                      borderRadius: BorderRadius.circular(10),
+                    const SizedBox(height: 22),
+                    _statusCard(),
+                    const SizedBox(height: 18),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final settings = _settingsCard();
+                        final guide = _guideCard();
+                        if (constraints.maxWidth < 800) {
+                          return Column(
+                            children: [
+                              settings,
+                              const SizedBox(height: 14),
+                              guide,
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(flex: 5, child: settings),
+                            const SizedBox(width: 18),
+                            Expanded(flex: 4, child: guide),
+                          ],
+                        );
+                      },
                     ),
-                    child: SelectableText(model.notice!),
-                  ),
+                    if (model.notice != null) ...[
+                      const SizedBox(height: 12),
+                      Semantics(
+                        liveRegion: true,
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xffe7efe9),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: SelectableText(model.notice!),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    _logsCard(),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'UxPlay 1.73.7 + GStreamer  ·  GPLv3 开源  ·  仅同局域网，暂不支持 DRM 内容',
+                      style: TextStyle(fontSize: 12, color: Color(0xff68756e)),
+                    ),
+                  ],
                 ),
-              ],
-              const SizedBox(height: 16),
-              _logsCard(),
-              const SizedBox(height: 12),
-              const Text(
-                'UxPlay 1.73.7 + GStreamer  ·  GPLv3 开源  ·  仅同局域网，暂不支持 DRM 内容',
-                style: TextStyle(fontSize: 12, color: Color(0xff68756e)),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
-    ),
   );
 
   Widget _card(Widget child) => Material(
@@ -266,7 +273,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
           ),
           onSubmitted: (_) => model.save(_name.text, _path.text),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Row(
           children: [
             OutlinedButton(
@@ -309,30 +316,104 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   );
 
   Widget _guideCard() => _card(
-    const Column(
+    Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '在 iPhone 上连接',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                '画面预览',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+            IconButton(
+              key: const Key('expandPreview'),
+              tooltip: '全屏预览',
+              onPressed: () => setState(() => _previewExpanded = true),
+              icon: const Icon(Icons.fullscreen),
+            ),
+          ],
         ),
-        SizedBox(height: 18),
-        _Step(number: '1', text: 'Mac 和 iPhone 连接同一局域网'),
-        SizedBox(height: 14),
-        _Step(number: '2', text: '启动接收，打开 iPhone 控制中心'),
-        SizedBox(height: 14),
-        _Step(number: '3', text: '点“屏幕镜像”，选择左侧设备名'),
-        SizedBox(height: 18),
-        Text(
-          '允许系统的局域网访问提示。连接后，画面会在独立窗口显示，声音由 Mac 播放。',
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            key: const Key('videoPreview'),
+            height: 240,
+            width: double.infinity,
+            color: const Color(0xff101a17),
+            alignment: Alignment.center,
+            child: _videoSurface(),
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'Mac 和 iPhone 连接同一局域网。启动接收后，在 iPhone 控制中心 → 屏幕镜像 → 选择设备名。',
           style: TextStyle(fontSize: 13, color: Color(0xff5b6964), height: 1.5),
         ),
-        SizedBox(height: 8),
-        Text(
-          '当前尚未把画面嵌入 Flutter。',
+        const SizedBox(height: 8),
+        const Text(
+          '声音由 Mac 播放；请允许系统的局域网访问提示。',
           style: TextStyle(fontSize: 12, color: Color(0xff68756e)),
         ),
       ],
+    ),
+  );
+
+  Widget _videoSurface() => model.hasVideo
+      ? AspectRatio(
+          aspectRatio: model.videoWidth / model.videoHeight,
+          child: Texture(textureId: model.textureId),
+        )
+      : Padding(
+          padding: const EdgeInsets.all(22),
+          child: Text(
+            '等待 iPhone 画面',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xffb6c9be)),
+          ),
+        );
+
+  Widget _expandedPreview() => CallbackShortcuts(
+    bindings: {
+      const SingleActivator(LogicalKeyboardKey.escape): () =>
+          setState(() => _previewExpanded = false),
+    },
+    child: Focus(
+      autofocus: true,
+      child: Scaffold(
+        backgroundColor: const Color(0xff101a17),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    key: const Key('collapsePreview'),
+                    tooltip: '退出全屏预览（Esc）',
+                    color: Colors.white,
+                    onPressed: () => setState(() => _previewExpanded = false),
+                    icon: const Icon(Icons.fullscreen_exit),
+                  ),
+                  Expanded(
+                    child: Text(
+                      model.message,
+                      style: const TextStyle(color: Color(0xffb6c9be)),
+                    ),
+                  ),
+                  if (model.canStop)
+                    TextButton(
+                      onPressed: model.stop,
+                      child: const Text('停止接收'),
+                    ),
+                ],
+              ),
+              Expanded(child: Center(child: _videoSurface())),
+            ],
+          ),
+        ),
+      ),
     ),
   );
 
@@ -406,26 +487,5 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         ),
       ],
     ),
-  );
-}
-
-class _Step extends StatelessWidget {
-  const _Step({required this.number, required this.text});
-  final String number;
-  final String text;
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      CircleAvatar(
-        radius: 12,
-        backgroundColor: const Color(0xffe0eee9),
-        child: Text(
-          number,
-          style: const TextStyle(color: Color(0xff23786e), fontSize: 12),
-        ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
-    ],
   );
 }
