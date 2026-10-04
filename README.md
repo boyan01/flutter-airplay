@@ -17,12 +17,12 @@ Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一�
 
 | 平台 | 当前支持范围 |
 | --- | --- |
-| macOS | macOS 12+、Apple Silicon，应用包内置依赖，无需安装 Homebrew 或 GStreamer |
-| Android 手机 | Android 8.0（API 26）及以上，当前仅打包 arm64-v8a |
-| Android TV | 共用 Android 应用，提供 TV 布局与遥控器方向键操作，当前仅打包 arm64-v8a |
-| iPad | iPadOS 15+，前台接收 H.264、ALAC、AAC-LC、AAC-ELD；切到后台停止接收，返回前台恢复此前开启的接收状态 |
-| Windows | Windows 10+ x64；H.264、ALAC、AAC-LC、有限 AAC-ELD 接收实现，包内置 FFmpeg 音频解码依赖 |
-| Linux 桌面 | GTK 3、FFmpeg 6+、PulseAudio 兼容音频服务和 Avahi 等系统依赖；H.264、AAC-LC、有限 AAC-ELD、ALAC 实现，真实 iPhone 播放仍需验证 |
+| macOS | macOS 12+、Apple Silicon；支持 H.264，HEVC 硬解可用时宣告 HEVC 支持；应用包内置依赖，无需安装 Homebrew 或 GStreamer |
+| Android 手机 | Android 8.0（API 26）及以上，当前仅打包 arm64-v8a；H.264，选定尺寸的 60 FPS HEVC 硬解可用时宣告 HEVC 支持 |
+| Android TV | 共用 Android 应用和 HEVC 能力检测，提供 TV 布局与遥控器方向键操作，当前仅打包 arm64-v8a |
+| iPad | iPadOS 15+，前台接收 H.264、ALAC、AAC-LC、AAC-ELD；HEVC 硬解可用时宣告 HEVC 支持；切到后台停止接收 |
+| Windows | Windows 10+ x64；H.264、HEVC、ALAC、AAC-LC、有限 AAC-ELD；HEVC 优先系统解码，包内 FFmpeg 提供软件备用路径 |
+| Linux 桌面 | GTK 3、FFmpeg 6+、PulseAudio 兼容音频服务和 Avahi 等系统依赖；H.264、HEVC 软件解码，AAC-LC、有限 AAC-ELD、ALAC 实现 |
 
 ## 使用
 
@@ -57,10 +57,17 @@ Windows 对应使用 `Ctrl+R`、`F11`、`Ctrl+,`、`Ctrl+L`、`Ctrl+.`，`Esc` �
 TV 按 OK / 方向键 / Menu 显示控件，默认焦点为“继续观看”，5 秒后隐藏；Back 只显隐控件，不断开投屏。
 TV 设置使用全屏页面，待命首页默认聚焦“设置”，关闭或出错时聚焦“打开接收”或“重试”。
 
-Android 手机和 TV 可在设置中选择“适配本机”、720p、1080p 或 1440p。
-默认“适配本机”参考屏幕像素和解码能力，最高请求 1440p；解码器不支持的档位不可选。
+Android 手机和 TV 可在设置中选择“适配本机”、720p、1080p、1440p 或 4K。
+默认“适配本机”参考屏幕像素和解码能力，最高请求 2160p；解码器不支持的档位不可选。
 设置中显示屏幕像素与实际收到的画面尺寸。发送端决定最终尺寸，选择档位不保证逐像素匹配屏幕。
 修改清晰度后保存会重启接收器，需要在发送端重新连接屏幕镜像。
+
+macOS 提供相同清晰度档位，“适配本机”参考屏幕实际像素。
+视频编码由发送端协商选择，选择高分辨率不保证发送端采用 HEVC 或达到 60 FPS。
+各平台日志中的 `Video codec selected` 和解码器记录可以确认实际编码。
+macOS 和 iPad 使用 VideoToolbox 硬解，Android 手机和 TV 使用 MediaCodec 硬解。
+Windows 优先使用系统同步 Media Foundation HEVC decoder，无法配置时使用包内 FFmpeg；
+Linux 使用系统 FFmpeg。软件解码的流畅度取决于 CPU、视频尺寸与帧率。
 
 Android 视频统一使用原生 SurfaceView，在应用页面内播放，Flutter 负责首页、设置和播放控制。
 画面保持原始比例，系统刷新率不强制切换；离开应用后继续后台接收，返回时恢复画面。

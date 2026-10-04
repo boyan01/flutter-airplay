@@ -82,7 +82,7 @@ void log(void *context, int level, const char *message) {
 }
 extern "C" JNIEXPORT jint JNICALL Java_tech_soit_flutterairplay_PlaybackHost_startNative(
         JNIEnv *env, jobject target, jstring name, jbyteArray identity, jstring key,
-        jobject surface, jstring decoder, jstring fallback, jint epoch, jint width, jint height, jint audio_mode) {
+        jobject surface, jstring decoder, jstring fallback, jstring hevc_decoder, jint epoch, jint width, jint height, jint audio_mode) {
     std::lock_guard<std::mutex> guard(lifecycle);
     if (active || env->GetArrayLength(identity) != 6) { fail(env, "Invalid native receiver lifecycle"); return 0; }
     if (!airplay::initialize_android_audio(env)) return 0;
@@ -95,6 +95,7 @@ extern "C" JNIEXPORT jint JNICALL Java_tech_soit_flutterairplay_PlaybackHost_sta
     if (!host->event || !host->log) return 0;
     uint8_t id[6]; env->GetByteArrayRegion(identity, 0, 6, reinterpret_cast<jbyte *>(id));
     auto label = utf8(env, name), path = utf8(env, key), primary = utf8(env, decoder), backup = utf8(env, fallback);
+    const auto hevc = utf8(env, hevc_decoder);
     auto *window = ANativeWindow_fromSurface(env, surface);
     if (!window) { fail(env, "Cannot acquire playback surface"); return 0; }
     AirplayCallbacks callbacks{host.get(), event, nullptr, log};
@@ -102,6 +103,9 @@ extern "C" JNIEXPORT jint JNICALL Java_tech_soit_flutterairplay_PlaybackHost_sta
     host->player = airplay_player_create(callbacks, window, primary.c_str(), backup.c_str());
     ANativeWindow_release(window);
     if (!host->player) { fail(env, "Cannot create native player"); return 0; }
+    if (!airplay_player_set_hevc_decoder(host->player, hevc.c_str())) {
+        fail(env, "Invalid HEVC decoder selection"); return 0;
+    }
     if (!airplay_player_set_audio_output(host->player, audio_mode)) {
         fail(env, "Invalid audio output selection"); return 0;
     }

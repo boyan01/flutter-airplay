@@ -51,8 +51,8 @@ fi
 # Poll only this fixture's log tag; the timeout is bounded and output is local.
 for attempt in {1..120}; do
     "$sdk/platform-tools/adb" logcat -d -T "$started" -s PlayerRegression:I '*:S' > "$project_root/artifacts/android/player-device-tests.log"
-    if rg -q 'PASS:|FAIL:' "$project_root/artifacts/android/player-device-tests.log"; then break; fi
+    if rg -q 'COMPLETE: (PASS:|FAIL:)' "$project_root/artifacts/android/player-device-tests.log"; then break; fi
     sleep 1
 done
 cat "$project_root/artifacts/android/player-device-tests.log"
-rg -q 'PASS:' "$project_root/artifacts/android/player-device-tests.log"
+rg -q 'COMPLETE: PASS:' "$project_root/artifacts/android/player-device-tests.log"

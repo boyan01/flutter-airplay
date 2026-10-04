@@ -36,7 +36,7 @@
     "tag": "n7.1.5",
     "commit": "3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587",
     "license": "LGPL-2.1-or-later",
-    "configuration": "Windows shared avcodec/avutil/swresample, native float AAC decoder only; no GPL/nonfree/external codecs"
+    "configuration": "Windows shared avcodec/avutil/swresample/swscale, native float AAC and HEVC decoders; no GPL/nonfree/external codecs"
   },
   "alac": {
     "repository": "https://github.com/macosforge/alac.git",

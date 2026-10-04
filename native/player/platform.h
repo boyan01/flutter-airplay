@@ -13,6 +13,7 @@ struct VideoPacket {
     int64_t deadline = 0;
     uint64_t generation = 0;
     int64_t received_ns = 0; // Receiver callback arrival, not sender capture time.
+    bool hevc = false;
 };
 class VideoOutput {
 public:
@@ -20,6 +21,10 @@ public:
     virtual void size(int width, int height) = 0;
     virtual bool decode(const VideoPacket &) = 0;
     virtual void drain() = 0;
+    // Advertise ScreenMultiCodec only when the platform can decode HEVC.
+    virtual bool supports_hevc() const { return false; }
+    // Android supplies a capability-checked MediaCodec name before reception.
+    virtual bool set_hevc_decoder(const char *) { return false; }
     // Absolute monotonic deadline for held output; zero leaves polling to the host.
     // Called only by the playback worker, like decode/drain/reset.
     virtual int64_t next_deadline() const { return 0; }
@@ -43,7 +48,7 @@ std::unique_ptr<VideoOutput> make_video_output(void *surface, const char *decode
                                              const char *fallback, VideoCallbacks callbacks);
 std::unique_ptr<AudioOutput> make_audio_output(std::shared_ptr<AudioBuffer>);
 
-// H.264 Annex B input from UxPlay; also accepts three-byte start codes.
+// H.264/HEVC Annex B input from UxPlay; also accepts three-byte start codes.
 inline std::vector<std::vector<uint8_t>> split_nals(const uint8_t *data, size_t size) {
     std::vector<std::vector<uint8_t>> result;
     auto start_code = [&](size_t i) -> size_t {

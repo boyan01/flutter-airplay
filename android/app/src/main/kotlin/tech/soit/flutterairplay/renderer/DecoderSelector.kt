@@ -29,6 +29,16 @@ class DecoderSelector {
 
     fun avc(): MediaCodecInfo? = _probableSafe(AVC, CodecProfileLevel.AVCProfileHigh) ?: _first(AVC)
 
+    fun hevc(width: Int, height: Int): MediaCodecInfo? = runCatching {
+        _decoders(HEVC).sortedByDescending { _lowLatency(it, HEVC) }.firstOrNull { info ->
+            val caps = info.getCapabilitiesForType(HEVC)
+            (Build.VERSION.SDK_INT < 29 || info.isHardwareAccelerated) &&
+                caps.profileLevels.any { it.profile == CodecProfileLevel.HEVCProfileMain ||
+                    it.profile == CodecProfileLevel.HEVCProfileMain10 } &&
+                _portraitSafe(width, height) { w, h -> caps.videoCapabilities.areSizeAndRateSupported(w, h, 60.0) }
+        }
+    }.onFailure { onDiagnostic?.invoke("HEVC capability query failed: ${it.javaClass.simpleName}") }.getOrNull()
+
     fun software(mime: String, w: Int, h: Int): MediaCodecInfo? =
         MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
             !info.isEncoder && info.supportsMime(mime) &&
@@ -83,6 +93,7 @@ class DecoderSelector {
     companion object {
         private const val TAG = "DecoderSelector"
         const val AVC = MediaFormat.MIMETYPE_VIDEO_AVC
+        const val HEVC = MediaFormat.MIMETYPE_VIDEO_HEVC
         fun MediaCodecInfo.videoCaps(mime: String): VideoCapabilities = getCapabilitiesForType(mime).videoCapabilities
     }
 }

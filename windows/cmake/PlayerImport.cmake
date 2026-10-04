@@ -14,7 +14,7 @@ add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" "$<TARGET_FILE_DIR:${BINARY_NAME}>")
 install(FILES "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
-foreach(component avcodec avutil swresample)
+foreach(component avcodec avutil swresample swscale)
   file(GLOB component_dll "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/${component}-*.dll")
   list(LENGTH component_dll dll_count)
   if(NOT dll_count EQUAL 1)

@@ -1,4 +1,4 @@
-FFmpeg native AAC decoder
+FFmpeg native AAC and HEVC decoders
 
 Source: https://github.com/FFmpeg/FFmpeg
 Windows version: n7.1.5
@@ -6,15 +6,15 @@ Windows source commit: 3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587
 Corresponding source: https://github.com/FFmpeg/FFmpeg/tree/3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587
 License: LGPL-2.1-or-later; see FFmpeg-LGPL-2.1.txt
 
-Windows bundles source-built libavcodec, libavutil and libswresample DLLs.
-Only the native floating-point AAC decoder is enabled. No GPL components,
+Windows bundles source-built libavcodec, libavutil, libswresample and libswscale DLLs.
+The native floating-point AAC and HEVC decoders are enabled. No GPL components,
 nonfree components, external codecs or FFmpeg command-line programs are used.
 The upstream source is unmodified. Build options are in
 windows/scripts/build_ffmpeg.sh and the package's data/licenses/FFmpeg/ directory.
 Retain the corresponding source, exact build configuration and these notices
 when redistributing the libraries.
 
-Windows and Linux use the same AudioDecoder implementation. Linux links the
+Windows and Linux share audio decoding and the software video adapter. Linux links the
 distribution's FFmpeg libraries; their version and effective license depend on
 that distribution. Preserve their exact license notices when bundling them.
 Other platform hosts use their existing platform decoders.

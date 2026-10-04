@@ -1,7 +1,7 @@
 # Windows 宿主
 
 Windows 实现继续运行根目录 `lib/main.dart` 和共享 C++ 播放器。当前代码使用
-Windows 10+ 的 Media Foundation H.264、共享 FFmpeg AAC 解码、内置 Apple ALAC、WASAPI
+Windows 10+ 的 Media Foundation H.264 / HEVC、共享 FFmpeg AAC / HEVC 解码、内置 Apple ALAC、WASAPI
 和系统 DNS-SD；窗口内的 Flutter 纹理显示镜像，不创建额外播放器窗口。
 
 当前仍属于实验性支持。AAC-ELD 使用有限配置，持续播放、设备变化和音画同步
@@ -39,8 +39,8 @@ fvm flutter build windows --release
 ```
 
 脚本从 `android/dependencies.lock.json` 获取固定 OpenSSL / libplist / FFmpeg 源码并核对
-commit，使用 `vendor/UxPlay/` 和 `vendor/alac/`。FFmpeg 仅构建原生浮点 AAC decoder
-与 `avcodec`、`avutil`、`swresample` DLL，不启用 GPL/nonfree 组件或外部 codec。
+commit，使用 `vendor/UxPlay/` 和 `vendor/alac/`。FFmpeg 构建原生浮点 AAC 和 HEVC decoder
+与 `avcodec`、`avutil`、`swresample`、`swscale` DLL，不启用 GPL/nonfree 组件或外部 codec。
 依赖和构建产物位于 ignored `build/windows-deps/`、`build/windows-native/`。
 Flutter 打包在原生 DLL 或 FFmpeg 运行时缺失时会失败。
 包内保留许可证、固定源码来源与构建配置。
@@ -51,6 +51,10 @@ Flutter 打包在原生 DLL 或 FFmpeg 运行时缺失时会失败。
 - H.264：系统同步 MFT 输出 NV12，由 CPU 转 RGBA 后接入 Flutter
   `PixelBufferTexture`。支持码流参数变化、解码队列 generation 和 FLUSH。
   当前不声称 GPU 解码、零拷贝或 60 FPS 性能已验证。
+- HEVC：优先枚举系统同步 MFT，输出 NV12 / P010，再转 RGBA。
+  系统 MFT 不可用或无法配置当前码流时，使用包内 FFmpeg 原生 HEVC 软件解码，
+  无需单独安装系统 HEVC 扩展。软件解码帧率取决于 CPU；不保证 4K 60 FPS。
+  Main10 输出转为八位 RGBA；当前不提供 HDR tone mapping。
 - ALAC：复用现有内置 decoder 和 AirPlay 配置；共享 PCM 队列输出至 WASAPI。
 - AAC-LC / AAC-ELD：与 Linux 共用 `native/player/ffmpeg_audio_decoder.cpp`。
   产品当前输出为 44.1 kHz、双声道 S16 PCM；ELD 使用 480/512 样本帧，不支持
@@ -89,8 +93,11 @@ placement / style。播放控制条和标题按钮随现有播放浮层一起隐
 
 `build_native.ps1 -Tests` 构建并执行：
 
-- `windows_pixels`：合成 NV12 的黑/白/红色、BT.601 / BT.709、limited / full
+- `windows_pixels`：合成 NV12 / P010 的颜色、BT.601 / BT.709、limited / full
   range、行填充和畸形缓冲输入。
+- `windows_video` / `windows_hevc_software`：分别检查平台解码路径和包内 FFmpeg
+  HEVC 路径的横竖屏、4K、Main10 RGBA 像素、包时间戳、generation、重置与坏包恢复；
+  平台路径还检查 HEVC 切回 H.264。
 - `windows_compat`：Windows UDP loopback、descriptor/fd_set 映射、可加入线程
   和带锁 condition wait。
 - `windows_httpd`：HTTP 监听器初始化、TCP loopback 请求响应和两次启动/销毁，
@@ -100,12 +107,13 @@ placement / style。播放控制条和标题按钮随现有播放浮层一起隐
 
 像素转换 fixture 可在 macOS 用 C++17 与 ASan/UBSan 独立运行。该结果只证明
 颜色转换与缓冲边界逻辑，不证明 Windows MFT、WASAPI、DNS-SD 或 Flutter 纹理。
-Windows 仍需完整 codec fixture，以及真实 iPhone 的音频、持续播放、暂停恢复、
+Windows 仍需目标机上的 codec fixture，以及真实 iPhone 的音频、持续播放、暂停恢复、
 断开重连、尺寸方向变化和网络变化验证。正常接收流量所需的 Windows
 防火墙策略由用户/部署环境配置，本代码不自动更改系统网络规则。
 
 API 依据：[AAC decoder](https://learn.microsoft.com/en-us/windows/win32/medfound/aac-decoder)、
 [H.264 decoder](https://learn.microsoft.com/en-us/windows/win32/medfound/h-264-video-decoder)、
+[HEVC decoder](https://learn.microsoft.com/en-us/windows/win32/medfound/h-265---hevc-video-decoder)、
 [Windows DNS-SD](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceregister)、
 [Flutter texture registrar](https://api.flutter.dev/windows-embedder/flutter__texture__registrar_8h_source.html)、
 [DWM custom frame](https://learn.microsoft.com/en-us/windows/win32/dwm/customframe)、

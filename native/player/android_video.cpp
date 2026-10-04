@@ -21,6 +21,13 @@ public:
         ANativeWindow_acquire(window_);
     }
     ~AndroidVideo() override { reset(); ANativeWindow_release(window_); }
+    bool supports_hevc() const override { return !hevc_decoder_.empty(); }
+    bool set_hevc_decoder(const char *name) override {
+        std::lock_guard<std::recursive_mutex> guard(surface_lock_);
+        if (codec_ || !name) return false;
+        hevc_decoder_ = name;
+        return true;
+    }
     bool set_surface(void *surface) override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
         auto *next = static_cast<ANativeWindow *>(surface);
@@ -68,12 +75,20 @@ public:
     bool decode(const VideoPacket &packet) override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
         const auto entered = monotonic_ns();
+        if (packet.hevc != hevc_) { reset(); hevc_ = packet.hevc; }
+        if (hevc_ && !supports_hevc()) return false;
         if (packet.received_ns) max_queue_ns_ = std::max(max_queue_ns_, entered - packet.received_ns);
         if (!codec_) {
             bool key = false;
-            for (const auto &nal : split_nals(packet.bytes.data(), packet.bytes.size())) key |= (nal[0] & 31) == 7 || (nal[0] & 31) == 5;
+            for (const auto &nal : split_nals(packet.bytes.data(), packet.bytes.size())) {
+                if (hevc_ && (nal.size() < 2 || (nal[0] & 0x80) || !(nal[1] & 7))) return false;
+                const auto type = hevc_ ? (nal[0] >> 1) & 63 : nal[0] & 31;
+                key |= hevc_ ? type == 32 || (type >= 16 && type <= 23) : type == 7 || type == 5;
+            }
             if (!key) return true;
-            if (!open(decoder_) && !open(fallback_)) return false;
+            if (hevc_) {
+                if (!open(hevc_decoder_)) return false;
+            } else if (!open(decoder_) && !open(fallback_)) return false;
         }
         generation_ = packet.generation;
         const auto timeout = monotonic_ns() + 200000000;
@@ -203,7 +218,7 @@ private:
     bool open(const std::string &name) {
         const auto begin = monotonic_ns();
         if (name.empty()) return false;
-        const bool qualcomm = name.rfind("c2.qti.", 0) == 0 || name.rfind("OMX.qcom.", 0) == 0;
+        const bool qualcomm = !hevc_ && (name.rfind("c2.qti.", 0) == 0 || name.rfind("OMX.qcom.", 0) == 0);
         const int attempts = qualcomm ? 3 : 2;
         // Retry standard low latency, then plain configuration, if a vendor
         // rejects decode-order output. Other decoders keep their existing path.
@@ -211,7 +226,7 @@ private:
             auto *candidate = AMediaCodec_createCodecByName(name.c_str());
             if (!candidate) return false;
             auto *format = AMediaFormat_new();
-            AMediaFormat_setString(format, "mime", "video/avc");
+            AMediaFormat_setString(format, "mime", hevc_ ? "video/hevc" : "video/avc");
             AMediaFormat_setInt32(format, "width", width_); AMediaFormat_setInt32(format, "height", height_);
             AMediaFormat_setInt32(format, "max-input-size", std::max(width_ * height_, 4 * 1024 * 1024));
             AMediaFormat_setInt32(format, "frame-rate", 60);
@@ -225,8 +240,8 @@ private:
             if (status == AMEDIA_OK && AMediaCodec_start(candidate) == AMEDIA_OK) {
                 codec_ = candidate; visible_width_ = width_; visible_height_ = height_; callbacks_.log(name.c_str());
                 char message[256];
-                std::snprintf(message, sizeof(message), "Android video decoder open: decoder=%s attempt=%d elapsed_ms=%.1f size=%dx%d",
-                    name.c_str(), attempt + 1, (monotonic_ns() - begin) / 1000000.0, width_, height_);
+                std::snprintf(message, sizeof(message), "Android video decoder open: codec=%s decoder=%s attempt=%d elapsed_ms=%.1f size=%dx%d",
+                    hevc_ ? "HEVC" : "H.264", name.c_str(), attempt + 1, (monotonic_ns() - begin) / 1000000.0, width_, height_);
                 callbacks_.log(message); return true;
             }
             AMediaCodec_delete(candidate);
@@ -248,6 +263,8 @@ private:
     uint64_t submitted_ = 0, presented_ = 0, late_ = 0, reordered_ = 0;
     size_t max_pending_ = 0;
     std::string decoder_, fallback_;
+    std::string hevc_decoder_;
+    bool hevc_ = false;
     VideoCallbacks callbacks_;
     int width_ = 1920, height_ = 1080, visible_width_ = 1920, visible_height_ = 1080;
     uint64_t generation_ = 1;

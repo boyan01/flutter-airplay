@@ -3,6 +3,9 @@
 #include "../player/player.cpp"
 #include "resume_fixtures.h"
 #include "audio_fixtures.h"
+#include "audio_decoder_tests.h"
+#include "video_fixtures.h"
+#include "hevc_fixtures.h"
 #include <stdexcept>
 #ifdef __APPLE__
 #include <CoreVideo/CoreVideo.h>
@@ -29,6 +32,8 @@ void check_video_resume(void *surface, const char *decoder) {
 #endif
     auto p = std::make_unique<AirplayPlayer>(cb, surface, decoder, "");
     const auto receive = receiver_callbacks(p.get());
+    if (!p->video->supports_hevc() && receive.video_set_codec(receive.cls, VIDEO_CODEC_H265) != -1)
+        throw std::runtime_error("unsupported platform accepts HEVC input");
     float width = 640, height = 360;
     receive.video_report_size(receive.cls, &width, &height, nullptr, nullptr);
     auto feed = [&](int first, int end) {
@@ -93,8 +98,173 @@ void check_video_resume(void *surface, const char *decoder) {
 }
 
 #ifdef __APPLE__
+void check_mac_hevc() {
+    struct Progress {
+        std::atomic<int> frames{0}, width{0}, height{0}, red{0}, green{0}, blue{0};
+    } progress;
+    AirplayCallbacks cb{}; cb.context = &progress;
+    cb.frame = [](void *context, void *frame) {
+        auto *p = static_cast<Progress *>(context);
+        auto image = static_cast<CVPixelBufferRef>(frame);
+        CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+        auto *pixel = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
+        if (pixel && CVPixelBufferGetPixelFormatType(image) == kCVPixelFormatType_32BGRA) {
+            p->blue = pixel[0]; p->green = pixel[1]; p->red = pixel[2];
+        }
+        p->width = int(CVPixelBufferGetWidth(image)); p->height = int(CVPixelBufferGetHeight(image));
+        CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+        ++p->frames;
+    };
+    auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
+    const auto receive = receiver_callbacks(p.get());
+    if (!p->video->supports_hevc()) {
+        if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H265) != -1)
+            throw std::runtime_error("Mac without HEVC hardware accepts HEVC input");
+        std::puts("SKIP: Mac HEVC hardware is unavailable; receiver rejects HEVC");
+        return;
+    }
+    if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H265) != 0)
+        throw std::runtime_error("Mac receiver rejects HEVC despite hardware support");
+    auto feed = [&](const uint8_t *bytes, size_t count, int width, int height, int color) {
+        const auto before = progress.frames.load();
+        video_decode_struct data{};
+        data.data = const_cast<uint8_t *>(bytes); data.data_len = int(count); data.ntp_time_local = realtime_ns();
+        receive.video_process(receive.cls, nullptr, &data);
+        const auto until = monotonic_ns() + kSecond;
+        while (progress.frames == before && monotonic_ns() < until)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (progress.frames != before + 1 || progress.width != width || progress.height != height)
+            throw std::runtime_error("Mac HEVC receive path has no correctly sized decoded image");
+        const auto actual = color == 0 ? progress.red.load() : color == 1 ? progress.green.load() : progress.blue.load();
+        if (actual < 200) throw std::runtime_error("Mac HEVC decoded color or BGRA conversion is incorrect");
+    };
+    feed(hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 0);
+    feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
+    feed(hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 2);
+    p->reset();
+    feed(hevc_fixtures::main10, sizeof(hevc_fixtures::main10), 640, 360, 1);
+    if (receive.video_set_codec(receive.cls, VIDEO_CODEC_UNKNOWN) != -1)
+        throw std::runtime_error("Mac receiver accepts an unknown codec");
+    if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H264) != 0)
+        throw std::runtime_error("Mac receiver cannot return to H.264");
+    feed(landscape, sizeof(landscape), 640, 360, 0);
+    std::puts("PASS: Mac HEVC receive callback, BGRA pixels, rotation, 4K, Main10, reset and H.264 reconnect");
+}
+void check_audio_unsynchronized_burst() {
+    auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, nullptr, nullptr, nullptr);
+    const auto receive = receiver_callbacks(p.get());
+    const auto bytes = make_alac_packet(352);
+    constexpr int packets = 32, frames = packets * 352;
+    for (int session = 0; session < 3; ++session) {
+        if (session) receive.audio_flush(receive.cls);
+        const uint32_t first_rtp = session == 0 ? UINT32_MAX - 3 * 352 : session * 4 * kSampleRate;
+        const auto pts = realtime_ns();
+        int64_t first_due = 0;
+        for (int i = 0; i < packets; ++i) {
+            audio_decode_struct data{};
+            data.ct = 2; data.data = const_cast<uint8_t *>(bytes.data()); data.data_len = int(bytes.size());
+            data.rtp_time = first_rtp + i * 352;
+            // No NTP response: packets still carry a continuous RTP sample clock.
+            data.ntp_time_local = session == 2 ? pts + int64_t(i) * 352 * kSecond / kSampleRate : 0;
+            const auto before = monotonic_ns();
+            receive.audio_process(receive.cls, nullptr, &data);
+            if (!i) first_due = session == 2 ? p->timeline.deadline(pts) : before + p->audio_lead_ms.load() * 1000000;
+        }
+        const auto late_before = p->pcm->late_drops();
+        std::vector<int16_t> output(frames * 2);
+        p->pcm->read(output.data(), frames, first_due);
+        const auto nonzero = std::count_if(output.begin(), output.end(), [](auto sample) { return sample != 0; }) / 2;
+        const auto late = p->pcm->late_drops() - late_before;
+        std::printf("Audio RTP burst: session=%d nonzero=%zu/%d late=%llu\n", session, nonzero, frames,
+            static_cast<unsigned long long>(late));
+        if (nonzero < frames - 100 || late > 100)
+            throw std::runtime_error("unsynchronized audio burst cuts continuous PCM");
+    }
+}
+void check_mac_decode_ahead() {
+    std::atomic<int> frames{0};
+    AirplayCallbacks cb{}; cb.context = &frames;
+    cb.event = [](void *context, const char *type, const char *, int, int) {
+        if (!strcmp(type, "playing")) static_cast<std::atomic<int> *>(context)->fetch_add(1);
+    };
+    auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
+    auto receive = receiver_callbacks(p.get());
+    auto feed = [&](int64_t pts) {
+        video_decode_struct data{};
+        data.data = const_cast<uint8_t *>(landscape); data.data_len = sizeof(landscape);
+        data.ntp_time_local = pts;
+        receive.video_process(receive.cls, nullptr, &data);
+    };
+    feed(realtime_ns());
+    auto until = monotonic_ns() + 300000000;
+    while (!frames && monotonic_ns() < until) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (!frames) throw std::runtime_error("Mac warmup produces no frame");
+    const auto baseline = frames.load();
+    const auto pts = realtime_ns() + 100000000;
+    const auto first_due = p->timeline.deadline(pts);
+    for (int i = 0; i < 9; ++i) feed(pts + i * kSecond / 60);
+    until = first_due - 30000000;
+    while (monotonic_ns() < until) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    {
+        std::lock_guard<std::mutex> guard(p->lock);
+        if (!p->packets.empty()) throw std::runtime_error("Mac presentation wait blocks burst decoding");
+    }
+    if (frames != baseline) throw std::runtime_error("Mac presents a future frame early");
+    until = first_due + 9 * kSecond / 60 + 50000000;
+    while (frames < baseline + 9 && monotonic_ns() < until) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (frames != baseline + 9) throw std::runtime_error("Mac burst loses scheduled frames");
+    const auto before_reset = frames.load();
+    const auto future_pts = realtime_ns() + 200000000;
+    const auto cancelled_due = p->timeline.deadline(future_pts);
+    for (int i = 0; i < 6; ++i) feed(future_pts + i * kSecond / 60);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    p->reset(); feed(realtime_ns());
+    until = cancelled_due + 6 * kSecond / 60 + 50000000;
+    while (monotonic_ns() < until) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (frames != before_reset + 1) throw std::runtime_error("Mac reset retains cancelled frames or loses fresh output");
+    std::puts("PASS: Mac decodes nine-frame burst ahead, schedules every frame, and cancels pending output on reset");
+}
+void check_mac_arrival_jitter() {
+    struct Progress { std::mutex lock; std::vector<int64_t> times; } progress;
+    AirplayCallbacks cb{}; cb.context = &progress;
+    cb.event = [](void *context, const char *type, const char *, int, int) {
+        if (strcmp(type, "playing")) return;
+        auto *progress = static_cast<Progress *>(context);
+        std::lock_guard<std::mutex> guard(progress->lock);
+        progress->times.push_back(monotonic_ns());
+    };
+    auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
+    const auto receive = receiver_callbacks(p.get());
+    constexpr int count = 84;
+    constexpr int64_t period = kSecond / 60;
+    const auto start = monotonic_ns(), pts = realtime_ns();
+    const auto first_due = p->timeline.deadline(pts);
+    int sent = 0;
+    while (monotonic_ns() < first_due + count * period + 200000000) {
+        // Model an ordered TCP stream: frame 16 is delayed 100ms, and the
+        // following frames arrive together after that delay clears.
+        while (sent < count) {
+            const auto arrival = sent >= 16 && sent <= 22
+                ? start + 16 * period + 100000000 : start + sent * period;
+            if (monotonic_ns() < arrival) break;
+            video_decode_struct data{};
+            data.data = const_cast<uint8_t *>(landscape); data.data_len = sizeof(landscape);
+            data.ntp_time_local = pts + sent * period;
+            receive.video_process(receive.cls, nullptr, &data);
+            ++sent;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::lock_guard<std::mutex> guard(progress.lock);
+    int64_t max_gap = 0;
+    for (size_t i = 10; i < progress.times.size(); ++i)
+        max_gap = std::max(max_gap, progress.times[i] - progress.times[i - 1]);
+    std::printf("Mac arrival jitter: presented=%zu/%d maxGapMs=%.2f\n", progress.times.size(), count, max_gap / 1e6);
+    if (progress.times.size() != count || max_gap > 30000000)
+        throw std::runtime_error("Mac arrival jitter produces a presentation stall");
+}
 int main() {
-    try { check_video_resume(nullptr, nullptr); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
+    try { check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
     catch (const std::exception &error) { std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
 }
 #else

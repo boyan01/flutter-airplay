@@ -90,7 +90,18 @@ observers.append(center.addObserver(forName: NSWindow.didExitFullScreenNotificat
 window.setTestMode(cases[0].input)
 window.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
-DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { window.setFullscreen(true) }
+DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+  var longest: UInt64 = 0
+  for dimensions in [portrait, landscape] {
+    let start = DispatchTime.now().uptimeNanoseconds
+    window.setTestMode(dimensions)
+    longest = max(longest, DispatchTime.now().uptimeNanoseconds - start)
+  }
+  print(String(format: "Window mode change: max_main_thread_ms=%.1f", Double(longest) / 1e6))
+  require(longest < 50000000, "automatic playback resize must not block texture notifications")
+  window.setTestMode(cases[0].input)
+  window.setFullscreen(true)
+}
 DispatchQueue.main.asyncAfter(deadline: .now() + 45) {
   fputs("FAIL: fullscreen transition timed out\n", stderr)
   exit(2)

@@ -22,5 +22,10 @@ int main() {
     assert(!airplay::windows_nv12_to_rgba(black, 6, 2, 2, 1, false, false, rgba));
     assert(!airplay::windows_nv12_to_rgba(black, 6, 4098, 2, 4098, false, false, rgba));
     assert(!airplay::windows_nv12_to_rgba(nullptr, 6, 2, 2, 2, false, false, rgba));
-    std::puts("NV12 color, stride, range and malformed-buffer regressions passed");
+    const uint8_t p010_red[] = {0,81,0,81,0,81,0,81,0,90,0,240};
+    assert(airplay::windows_p010_to_rgba(p010_red, sizeof(p010_red), 2, 2, 4, false, false, rgba));
+    assert(rgba[0] >= 250 && rgba[1] <= 2 && rgba[2] <= 2 && rgba[3] == 255);
+    assert(!airplay::windows_p010_to_rgba(p010_red, sizeof(p010_red)-1, 2, 2, 4, false, false, rgba));
+    assert(!airplay::windows_p010_to_rgba(p010_red, sizeof(p010_red), 2, 2, 2, false, false, rgba));
+    std::puts("NV12/P010 color, stride, range and malformed-buffer regressions passed");
 }

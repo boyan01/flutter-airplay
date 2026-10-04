@@ -33,6 +33,8 @@ AirplayPlayer *airplay_player_create(AirplayCallbacks callbacks, void *surface,
 bool airplay_player_set_surface(AirplayPlayer *, void *surface);
 // Android output selection: 0=auto, 1=AAudio, 2=AudioTrack. Before receiver start.
 bool airplay_player_set_audio_output(AirplayPlayer *, int mode);
+// Enables Android HEVC with a capability-checked decoder name before start.
+bool airplay_player_set_hevc_decoder(AirplayPlayer *, const char *decoder);
 #endif
 // Sets the advertised size before start; the sender chooses actual frame dimensions.
 // Defaults to 1920x1080. Call on the same lifecycle thread as start/destroy.

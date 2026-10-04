@@ -13,9 +13,9 @@ options=(
     --toolchain=msvc --arch=x86_64 --target-os=win32 --extra-cflags=-MD
     "--prefix=$prefix" --enable-shared --disable-static '--ln_s=cp -f'
     --disable-programs --disable-doc --disable-debug --disable-autodetect
-    --disable-everything --enable-decoder=aac --disable-x86asm
+    --disable-everything --enable-decoder=aac,hevc --enable-swscale --disable-x86asm
     --disable-avdevice --disable-avfilter --disable-avformat
-    --disable-swscale --disable-postproc --disable-network
+    --disable-postproc --disable-network
 )
 "$source_dir/configure" "${options[@]}"
 "$make_bin" -r SHELL=sh.exe -j "${NUMBER_OF_PROCESSORS:-4}"

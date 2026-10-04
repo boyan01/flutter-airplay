@@ -12,6 +12,7 @@ import 'package:mixin_logger/mixin_logger.dart' as logging;
 class FakeReceiver implements ReceiverRepository {
   FakeReceiver({
     this.autoStart = true,
+    this.macVideoQuality = false,
     this.videoQualities = const ['auto', '720', '1080'],
     this.capabilities = const {
       'platform': 'macos',
@@ -19,6 +20,7 @@ class FakeReceiver implements ReceiverRepository {
     },
   });
   bool autoStart;
+  final bool macVideoQuality;
   final List<String> videoQualities;
   final Map<String, dynamic>? capabilities;
   final controller = StreamController<Map<String, dynamic>>.broadcast(
@@ -41,7 +43,7 @@ class FakeReceiver implements ReceiverRepository {
     'name': 'Flutter AirPlay',
     'path': '',
     'logs': <dynamic>[],
-    if (capabilities?['platform'] == 'android') ...{
+    if (capabilities?['platform'] == 'android' || macVideoQuality) ...{
       'videoQuality': savedVideoQuality ?? 'auto',
       'audioOutput': savedAudioOutput ?? 'auto',
       'buildTime': '2026-10-04T13:00:00Z',
@@ -726,6 +728,41 @@ void main() {
           ?.hasFocus,
       true,
     );
+  });
+
+  testWidgets('macOS quality exposes 2K and 4K and restarts on save', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      size: const Size(1000, 900),
+      backend: FakeReceiver(
+        macVideoQuality: true,
+        videoQualities: const ['auto', '720', '1080', '1440', '2160'],
+      ),
+    );
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('videoQuality')));
+    await tester.tap(find.byKey(const Key('videoQuality')));
+    await tester.pumpAndSettle();
+    for (final quality in ['1080', '1440', '2160']) {
+      expect(
+        tester
+            .widget<RadioListTile<String>>(find.byKey(Key('quality$quality')))
+            .enabled,
+        isTrue,
+      );
+    }
+    await tester.tap(find.byKey(const Key('quality2160')));
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    expect(backend.savedVideoQuality, isNull);
+    await tester.tap(find.text('保存并重启'));
+    await tester.pumpAndSettle();
+    expect(backend.savedVideoQuality, '2160');
+    expect(backend.stops, 1);
+    expect(backend.starts, 2);
   });
 
   testWidgets(

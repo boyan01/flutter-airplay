@@ -2,6 +2,7 @@
 import Foundation
 import Darwin
 import CoreVideo
+import CoreGraphics
 
 struct ReceiverFailure: LocalizedError {
     let message: String
@@ -56,6 +57,24 @@ final class ReceiverHost {
         }
     }
 
+    private let videoQualities = ["auto", "720", "1080", "1440", "2160"]
+
+    private func screenSize() -> (width: Int, height: Int) {
+        let display = CGMainDisplayID()
+        // CGDisplayPixelsWide/High return logical dimensions in Retina modes.
+        let mode = CGDisplayCopyDisplayMode(display)
+        return (mode?.pixelWidth ?? CGDisplayPixelsWide(display),
+                mode?.pixelHeight ?? CGDisplayPixelsHigh(display))
+    }
+
+    func requestedVideoSize() -> (width: Int, height: Int) {
+        let quality = defaults.string(forKey: "videoQuality") ?? "auto"
+        let height = quality == "auto"
+            ? min(2160, max(480, screenSize().height)) / 2 * 2
+            : Int(quality) ?? 1080
+        return ((height * 16 / 9 + 1) / 2 * 2, height)
+    }
+
     func snapshot() -> [String: Any] {
         var data: [String: Any] = ["status": status, "message": message, "pid": player == nil ? 0 : getpid(),
             "clientName": clientName, "name": defaults.string(forKey: "receiverName") ?? "Flutter AirPlay",
@@ -67,12 +86,17 @@ final class ReceiverHost {
                                 "fullscreenOnConnect": false, "alwaysOnTop": false] {
             data[key] = defaults.object(forKey: key) as? Bool ?? fallback
         }
+        data["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
+        data["videoQualities"] = videoQualities
+        let screen = screenSize()
+        data["screenWidth"] = screen.width
+        data["screenHeight"] = screen.height
         data["capabilities"] = ["platform": "macos", "supportsExecutablePath": false,
             "supportsLaunchAtLogin": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 13]
         return data
     }
 
-    private func log(_ text: String) {
+    func log(_ text: String) {
         logID += 1
         let item: [String: Any] = ["id": logID, "time": ISO8601DateFormatter().string(from: Date()), "text": String(text.prefix(4096))]
         logs.append(item)
@@ -86,7 +110,7 @@ final class ReceiverHost {
         }
         onEvent?(["type": "state", "status": next, "message": detail, "pid": player == nil ? 0 : getpid()])
     }
-    func save(name: String, path: String, autoStart: Bool? = nil, options: [String: Bool] = [:]) throws {
+    func save(name: String, path: String, autoStart: Bool? = nil, videoQuality: String? = nil, options: [String: Bool] = [:]) throws {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ReceiverFailure(message: "macOS 使用内置 C++ 接收核心，无需指定路径。")
@@ -97,6 +121,15 @@ final class ReceiverHost {
         guard !clean.isEmpty, clean.utf8.count <= 50,
               !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
             throw ReceiverFailure(message: "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。")
+        }
+        if let quality = videoQuality {
+            guard videoQualities.contains(quality) else {
+                throw ReceiverFailure(message: "Unknown video quality")
+            }
+            guard player == nil || quality == defaults.string(forKey: "videoQuality") ?? "auto" else {
+                throw ReceiverFailure(message: "请先停止接收器再修改投屏清晰度。")
+            }
+            defaults.set(quality, forKey: "videoQuality")
         }
         defaults.set(clean, forKey: "receiverName")
         if let value = autoStart { defaults.set(value, forKey: "receiverAutoStart") }
@@ -147,6 +180,13 @@ final class ReceiverHost {
             throw ReceiverFailure(message: message)
         }
         player = native
+        let size = requestedVideoSize()
+        let screen = screenSize()
+        log("Display mode pixels: \(screen.width)x\(screen.height)")
+        guard airplay_player_set_video_size(native, Int32(size.width), Int32(size.height)) else {
+            stop(); throw ReceiverFailure(message: "Invalid mirroring size")
+        }
+        log("Receiver request: quality=\(defaults.string(forKey: "videoQuality") ?? "auto"), \(size.width)x\(size.height), maxFPS=60; sender chooses actual codec/size/rate")
         var identity = defaults.data(forKey: "receiverIdentity")
         if identity?.count != 6 {
             var bytes = (0..<6).map { _ in UInt8.random(in: 0...255) }

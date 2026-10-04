@@ -2,9 +2,12 @@
 #include "platform.h"
 #include "audio_decoder_tests.h"
 #include "video_fixtures.h"
+#include "hevc_fixtures.h"
+#include <TargetConditionals.h>
 #import <XCTest/XCTest.h>
 #import <AVFAudio/AVFAudio.h>
 #include <CoreVideo/CoreVideo.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <functional>
@@ -81,8 +84,14 @@ DecodedFrame inspectFrame(void *frame, int width, int height, int64_t deadline, 
             }, [](const char *) {}
         });
         require(bool(video), "VideoToolbox output was not created");
-        const int64_t due = monotonic_ns();
+        int64_t due = monotonic_ns() + 120000000;
         auto verify = [&](size_t count, int width, int height, int64_t deadline, uint64_t generation) {
+            const auto until = monotonic_ns() + 2 * kSecond;
+            while (monotonic_ns() < until) {
+                video->drain();
+                { std::lock_guard<std::mutex> guard(lock); if (frames.size() >= count) break; }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
             std::lock_guard<std::mutex> guard(lock);
             require(frames.size() == count, "Unexpected number of decoded H.264 frames");
             const auto &last = frames.back();
@@ -99,15 +108,58 @@ DecodedFrame inspectFrame(void *frame, int width, int height, int64_t deadline, 
             std::lock_guard<std::mutex> guard(lock);
             require(frames.size() == 1, "Reset emitted a frame before SPS/PPS and a new keyframe");
         }
+        due = monotonic_ns() + 120000000;
         require(video->decode({{std::begin(portrait), std::end(portrait)}, due + 2, 8}), "Portrait H.264 decode after reset failed");
         verify(2, landscape_height, landscape_width, due + 2, 8);
+        due = monotonic_ns() + 120000000;
         require(video->decode({{std::begin(landscape), std::end(landscape)}, due + 3, 8}), "SPS change H.264 decode failed");
         verify(3, landscape_width, landscape_height, due + 3, 8);
         video->reset();
         video->reset();
+        due = monotonic_ns() + 120000000;
         require(video->decode({{std::begin(portrait), std::end(portrait)}, due + 4, 9}), "Repeated reset lost decoder recovery");
         verify(4, landscape_height, landscape_width, due + 4, 9);
         video->drain();
+    }];
+}
+
+- (void)testHEVCPixelsOrientationMain10AndH264Reconnect {
+    auto capability = airplay::make_video_output(nullptr, nullptr, nullptr, {
+        [](void *, int, int, int64_t, uint64_t) {}, [](const char *) {}
+    });
+#if TARGET_OS_SIMULATOR
+    if (!capability->supports_hevc()) { XCTSkip(@"HEVC hardware decoding is unavailable in this simulator"); return; }
+#endif
+    [self runNativeChecks:[&] {
+        using namespace airplay;
+        require(capability->supports_hevc(), "iPad HEVC hardware capability is not advertised");
+        int count = 0, width = 0, height = 0;
+        uint8_t color[3]{};
+        auto video = make_video_output(nullptr, nullptr, nullptr, {
+            [&](void *frame, int w, int h, int64_t, uint64_t generation) {
+                require(generation == 17, "HEVC frame generation changed");
+                auto pixel = static_cast<CVPixelBufferRef>(frame);
+                require(CVPixelBufferLockBaseAddress(pixel, kCVPixelBufferLock_ReadOnly) == kCVReturnSuccess, "HEVC pixel lock failed");
+                const auto *data = static_cast<const uint8_t *>(CVPixelBufferGetBaseAddress(pixel));
+                std::copy_n(data, 3, color);
+                CVPixelBufferUnlockBaseAddress(pixel, kCVPixelBufferLock_ReadOnly);
+                ++count; width = w; height = h;
+            }, [](const char *) {}
+        });
+        const auto feed = [&](const uint8_t *data, size_t size, int w, int h, int channel, bool hevc) {
+            const int before = count;
+            require(video->decode({{data, data + size}, monotonic_ns() + 120000000, 17, 0, hevc}), "Apple video access unit rejected");
+            const auto until = monotonic_ns() + 2 * kSecond;
+            while (count == before && monotonic_ns() < until) { video->drain(); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+            require(count == before + 1 && width == w && height == h, "HEVC dimensions or output count mismatch");
+            require(color[channel] > 200, "HEVC BGRA color mismatch");
+        };
+        feed(hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 2, true);
+        feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 0, true);
+        video->reset();
+        feed(hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 0, true);
+        feed(hevc_fixtures::main10, sizeof(hevc_fixtures::main10), 640, 360, 1, true);
+        feed(landscape, sizeof(landscape), 640, 360, 2, false);
     }];
 }
 

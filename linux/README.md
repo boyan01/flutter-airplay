@@ -6,6 +6,8 @@ The GTK host embeds decoded video in a Flutter texture; it does not launch an
 external player or subprocess.
 
 AAC decoding shares `native/player/ffmpeg_audio_decoder.cpp` with Windows.
+Software video decoding shares `native/player/ffmpeg_video.cpp` with the Windows
+HEVC fallback.
 Both hosts use the same ALAC/AAC-LC/AAC-ELD PCM and recovery regression in
 `native/player-tests/ffmpeg_audio_decoder_test.cpp`. Linux continues to link
 distribution-provided FFmpeg libraries.
@@ -81,6 +83,11 @@ window is hidden, the application shows the window again.
 - H.264 Annex B software decoding to RGBA, including SPS/PPS updates, portrait
   changes and reordered frames. Shared deadlines and generations accompany each
   decoded frame
+- HEVC Annex B software decoding to RGBA, including separate VPS/SPS/PPS,
+  landscape/portrait changes, Main10 input and H.264/HEVC switches. HEVC is
+  advertised only when FFmpeg's native HEVC decoder is available. The RGBA
+  texture is eight-bit; decoding Main10 does not provide HDR tone mapping.
+  High-resolution frame rates depend on CPU performance
 - ALAC uses the existing Apple decoder; AAC-LC and AAC-ELD use FFmpeg's native
   floating-point AAC decoder
 - Audio is 44.1 kHz stereo S16. AAC-LC configuration supports 960/1024 samples;
@@ -89,7 +96,6 @@ window is hidden, the application shows the window again.
 - FLUSH invalidates queued PCM and decoded video. PulseAudio's queued old PCM is
   flushed on the next device pull; already delivered hardware samples cannot be
   recalled
-- HEVC is not advertised by the shared receive core
 
 ## Regressions
 
@@ -101,7 +107,7 @@ flutter test
 
 The native suite needs `ffmpeg`, `ffprobe` and Python 3 to generate synthetic
 B-frame fixtures. It covers receive-core loopback RTSP/TXT, repeated lifecycle,
-video pixels/rotation/reordering/keyframe recovery, ALAC/AAC/ELD decoding,
+H.264/HEVC pixels/rotation/reordering/keyframe recovery, ALAC/AAC/ELD decoding,
 malformed-input recovery, bounded queues, timeline/FLUSH and pause/resume within
 a GOP. It does not establish real iPhone discovery, real sender playback,
 speaker output, or hardware A/V synchronization.

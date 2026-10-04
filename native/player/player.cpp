@@ -3,6 +3,9 @@
 // remains the shared C receive core, with its original license notices.
 #include "platform.h"
 #include "audio_decoder.h"
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 #ifdef __ANDROID__
 #include "android_audio.h"
 #endif
@@ -26,7 +29,12 @@ struct AirplayPlayer {
     raop_t *receiver = nullptr;
     dnssd_t *dns = nullptr;
     uint16_t port = 0;
+#if defined(__APPLE__) && TARGET_OS_OSX
+    // Cover short TCP arrival stalls without changing relative audio/video time.
+    Timeline timeline{120000000};
+#else
     Timeline timeline;
+#endif
     std::shared_ptr<AudioBuffer> pcm = std::make_shared<AudioBuffer>();
     AudioDecoder audio;
     std::unique_ptr<AudioOutput> output;
@@ -38,7 +46,11 @@ struct AirplayPlayer {
     uint64_t video_generation = 1;
     bool video_reset = false;
     bool video_paused = false;
+    bool video_hevc = false;
     bool audio_playing = false;
+    bool audio_rtp_anchored = false;
+    uint32_t audio_rtp_anchor = 0;
+    int64_t audio_rtp_local_pts = 0;
     int width = 1920, height = 1080;
     int requested_width = 1920, requested_height = 1080;
     size_t queued_bytes = 0;
@@ -46,7 +58,7 @@ struct AirplayPlayer {
     int64_t video_report_ns = 0, video_arrival_ns = 0, video_gap_ns = 0;
     uint64_t video_received = 0;
     size_t video_peak_queue = 0;
-    std::atomic<uint64_t> audio_packets{0}, audio_bytes{0}, audio_decode_errors{0}, audio_pcm_packets{0}, audio_timestamp_rejects{0};
+    std::atomic<uint64_t> audio_packets{0}, audio_bytes{0}, audio_decode_errors{0}, audio_pcm_packets{0}, audio_timestamp_rejects{0}, audio_timestamp_fallbacks{0};
     std::atomic<int64_t> audio_lead_ms{0};
 
     AirplayPlayer(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback)
@@ -82,11 +94,23 @@ struct AirplayPlayer {
     void event(const char *type, const char *detail, int w = 0, int h = 0) {
         if (!closing && callbacks.event) callbacks.event(callbacks.context, type, detail, w, h);
     }
+    int64_t audio_pts(int64_t local_pts, uint32_t rtp) {
+        std::lock_guard<std::mutex> guard(lock);
+        if (!local_pts) {
+            ++audio_timestamp_fallbacks;
+            // Packet arrival can be bursty even when the sender's sample clock is continuous.
+            local_pts = audio_rtp_anchored
+                ? audio_rtp_local_pts + int64_t(int32_t(rtp - audio_rtp_anchor)) * kSecond / kSampleRate
+                : realtime_ns();
+        }
+        audio_rtp_anchored = true; audio_rtp_anchor = rtp; audio_rtp_local_pts = local_pts;
+        return local_pts;
+    }
     void reset() {
         { std::lock_guard<std::mutex> guard(lock);
           ++video_generation; packets.clear(); queued_bytes = 0; video_reset = true;
           video_paused = false;
-          audio_playing = false;
+          audio_playing = false; audio_rtp_anchored = false;
           timeline.reset(); audio.flush();
           event("reset", "Waiting for screen mirroring"); }
         wake.notify_all();
@@ -126,12 +150,13 @@ struct AirplayPlayer {
             if (now >= next_audio_report) {
                 next_audio_report = now + 5 * kSecond;
                 if (connections.load() > 0) {
-                    char message[320];
+                    char message[512];
                     std::snprintf(message, sizeof(message),
-                        "Audio receive totals: packets=%llu bytes=%llu decode_errors=%llu pcm_packets=%llu timestamp_rejects=%llu last_lead_ms=%lld",
+                        "Audio receive totals: packets=%llu bytes=%llu decode_errors=%llu pcm_packets=%llu timestamp_rejects=%llu timestamp_fallbacks=%llu last_lead_ms=%lld",
                         static_cast<unsigned long long>(audio_packets.load()), static_cast<unsigned long long>(audio_bytes.load()),
                         static_cast<unsigned long long>(audio_decode_errors.load()), static_cast<unsigned long long>(audio_pcm_packets.load()),
-                        static_cast<unsigned long long>(audio_timestamp_rejects.load()), static_cast<long long>(audio_lead_ms.load()));
+                        static_cast<unsigned long long>(audio_timestamp_rejects.load()),
+                        static_cast<unsigned long long>(audio_timestamp_fallbacks.load()), static_cast<long long>(audio_lead_ms.load()));
                     log(message);
                     const auto output_report = output->diagnostics();
                     if (!output_report.empty()) log(output_report.c_str());
@@ -156,7 +181,7 @@ void video_process(void *cls, raop_ntp_t *, video_decode_struct *data) {
         p->packets.clear(); p->queued_bytes = 0; p->video_reset = true;
         ++p->video_generation; p->log("Video input backlog reset; waiting for a keyframe");
     }
-    p->packets.push_back({std::vector<uint8_t>(data->data, data->data + data->data_len), due, p->video_generation, now});
+    p->packets.push_back({std::vector<uint8_t>(data->data, data->data + data->data_len), due, p->video_generation, now, p->video_hevc});
     p->queued_bytes += data->data_len;
     if (!p->video_report_ns) p->video_report_ns = now;
     if (p->video_arrival_ns) p->video_gap_ns = std::max(p->video_gap_ns, now - p->video_arrival_ns);
@@ -181,7 +206,7 @@ void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
     if (p->closing || data->data_len <= 0 || data->data_len > 65536) return;
     ++p->audio_packets; p->audio_bytes.fetch_add(data->data_len);
     const auto now = monotonic_ns();
-    const auto due = p->timeline.deadline(data->ntp_time_local ? int64_t(data->ntp_time_local) : realtime_ns(), now);
+    const auto due = p->timeline.deadline(p->audio_pts(int64_t(data->ntp_time_local), data->rtp_time), now);
     p->audio_lead_ms.store((due - now) / 1000000);
     if (due < now - kSecond || due > now + 2 * kSecond) { ++p->audio_timestamp_rejects; return; }
     const auto generation = p->pcm->generation();
@@ -199,6 +224,7 @@ void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
 }
 void audio_format(void *cls, unsigned char *ct, unsigned short *spf, bool *, bool *, uint64_t *) {
     auto *p = player(cls); p->audio.format(*ct, *spf);
+    { std::lock_guard<std::mutex> guard(p->lock); p->audio_rtp_anchored = false; }
     char message[160];
     std::snprintf(message, sizeof(message), "Audio format: codec=%s ct=%u samples_per_packet=%u rate=%d channels=2",
         *ct == 2 ? "ALAC" : *ct == 4 ? "AAC" : *ct == 8 ? "AAC-ELD" : "unknown", *ct, *spf, kSampleRate);
@@ -221,6 +247,7 @@ void conn_reset(void *cls, int) { reset(cls); }
 void audio_flush(void *cls) {
     auto *p = player(cls);
     std::lock_guard<std::mutex> guard(p->lock);
+    p->audio_rtp_anchored = false;
     p->audio.flush();
     if (p->audio_playing) { p->audio_playing = false; p->event("audio_stopped", "Audio paused"); }
 }
@@ -248,7 +275,21 @@ void volume_set(void *cls, float db) {
     std::snprintf(message, sizeof(message), "Sender audio volume: db=%.1f muted=%s", db, db <= -144 ? "true" : "false");
     p->log(message);
 }
-int codec(void *, video_codec_t c) { return c == VIDEO_CODEC_H264 ? 0 : -1; }
+int codec(void *cls, video_codec_t c) {
+    auto *p = player(cls);
+    if (c != VIDEO_CODEC_H264 && (c != VIDEO_CODEC_H265 || !p->video->supports_hevc())) return -1;
+    const bool hevc = c == VIDEO_CODEC_H265;
+    {
+        std::lock_guard<std::mutex> guard(p->lock);
+        if (p->video_hevc != hevc) {
+            p->video_hevc = hevc;
+            ++p->video_generation; p->packets.clear(); p->queued_bytes = 0; p->video_reset = true;
+        }
+    }
+    p->log(hevc ? "Video codec selected: HEVC (H.265)" : "Video codec selected: H.264");
+    p->wake.notify_all();
+    return 0;
+}
 void log(void *cls, int level, const char *text) { player(cls)->log(text, level); }
 raop_callbacks_t receiver_callbacks(AirplayPlayer *p) {
     raop_callbacks_t cb{}; cb.cls = p;
@@ -285,12 +326,18 @@ extern "C" bool airplay_player_start(AirplayPlayer *p, const char *name, const u
     if (!p->dns) return fail("Cannot initialize discovery records");
     raop_set_dnssd(p->receiver, p->dns);
     dnssd_set_airplay_features(p->dns, 0, 0); dnssd_set_airplay_features(p->dns, 4, 0);
-    dnssd_set_airplay_features(p->dns, 7, 1); dnssd_set_airplay_features(p->dns, 42, 0);
+    dnssd_set_airplay_features(p->dns, 7, 1);
+    dnssd_set_airplay_features(p->dns, 42, p->video->supports_hevc() ? 1 : 0);
     raop_set_plist(p->receiver, "width", p->requested_width); raop_set_plist(p->receiver, "height", p->requested_height); raop_set_plist(p->receiver, "maxFPS", 60);
     if (raop_start_httpd(p->receiver, &p->port) < 0 || !p->port) return fail("Cannot bind AirPlay listener");
     raop_set_port(p->receiver, p->port);
     if (dnssd_register_raop(p->dns, p->port) || dnssd_register_airplay(p->dns, p->port)) return fail("Cannot register discovery services");
-    p->log("Shared C++ player: H.264 / AAC / ALAC, 60 FPS capability, common monotonic timeline");
+#if defined(__APPLE__) && TARGET_OS_OSX
+    p->log("macOS playback buffer: 120 ms; shared audio/video timeline");
+#endif
+    p->log(p->video->supports_hevc()
+        ? "Shared C++ player: H.264 / HEVC / AAC / ALAC, 60 FPS capability, common monotonic timeline"
+        : "Shared C++ player: H.264 / AAC / ALAC, 60 FPS capability, common monotonic timeline");
     return true;
 }
 extern "C" uint16_t airplay_player_port(AirplayPlayer *p) { return p ? p->port : 0; }
@@ -304,6 +351,9 @@ extern "C" size_t airplay_player_txt(AirplayPlayer *p, bool audio, uint8_t *outp
 extern "C" void airplay_player_destroy(AirplayPlayer *p) { delete p; }
 
 #ifdef __ANDROID__
+extern "C" bool airplay_player_set_hevc_decoder(AirplayPlayer *p, const char *decoder) {
+    return p && !p->receiver && decoder && p->video->set_hevc_decoder(decoder);
+}
 extern "C" bool airplay_player_set_surface(AirplayPlayer *p, void *surface) {
     return p && surface && p->video->set_surface(surface);
 }

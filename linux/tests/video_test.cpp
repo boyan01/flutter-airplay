@@ -4,6 +4,7 @@
 #include "linux_video.h"
 #include "video_fixtures.h"
 #include "resume_fixtures.h"
+#include "hevc_fixtures.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -71,23 +72,24 @@ struct SplitFrame {
     std::vector<uint8_t> picture;
 };
 
-template <size_t N> SplitFrame split_frame(const uint8_t (&input)[N]) {
+template <size_t N> SplitFrame split_frame(const uint8_t (&input)[N], bool hevc = false) {
     SplitFrame split;
     bool short_prefix = false;
     for (const auto &nal : split_nals(input, N)) {
         std::vector<uint8_t> bytes;
         append_nal(bytes, nal, short_prefix = !short_prefix);
-        if ((nal[0] & 31) == 7 || (nal[0] & 31) == 8) split.parameters.push_back(std::move(bytes));
+        const auto type = hevc ? (nal[0] >> 1) & 63 : nal[0] & 31;
+        if (hevc ? type >= 32 && type <= 34 : type == 7 || type == 8) split.parameters.push_back(std::move(bytes));
         else split.picture.insert(split.picture.end(), bytes.begin(), bytes.end());
     }
-    check(split.parameters.size() == 2 && !split.picture.empty(), "fixture has separate SPS, PPS and picture");
+    check(split.parameters.size() == (hevc ? 3 : 2) && !split.picture.empty(), "fixture has separate parameter sets and picture");
     return split;
 }
 
-void send_parameters(Probe &probe, const SplitFrame &split) {
+void send_parameters(Probe &probe, const SplitFrame &split, bool hevc = false) {
     const auto before = probe.frames.size();
     for (const auto &parameter : split.parameters) {
-        check(probe.video->decode({parameter, -123, 999}), "accept SPS/PPS-only packet");
+        check(probe.video->decode({parameter, -123, 999, 0, hevc}), "accept parameter-only packet");
         probe.video->drain();
     }
     check(probe.frames.size() == before, "configuration packets do not publish pictures");
@@ -242,13 +244,48 @@ void check_b_frame_metadata(const std::filesystem::path &directory) {
 }
 } // namespace
 
+void check_hevc() {
+    Probe probe;
+    check(probe.video->supports_hevc(), "FFmpeg HEVC decoding is advertised when available");
+    const auto feed = [&](const uint8_t *data, size_t size, int width, int height, int channel) {
+        const auto before = probe.frames.size();
+        check(probe.video->decode({{data, data + size}, 123456789, 77, 0, true}), "HEVC access unit accepted");
+        probe.video->drain();
+        check(probe.frames.size() == before + 1, "HEVC publishes one frame");
+        const auto &frame = probe.frames.back();
+        check(frame.width == width && frame.height == height, "HEVC actual dimensions match the source");
+        check(frame.deadline == 123456789 && frame.generation == 77, "HEVC retains packet timing and generation");
+        for (const auto &pixel : frame.samples)
+            check(pixel[channel] > 200 && pixel[(channel + 1) % 3] < 45 &&
+                  pixel[(channel + 2) % 3] < 45 && pixel[3] == 255, "HEVC decoded RGBA color");
+    };
+    feed(hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 0);
+    feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
+    probe.video->reset();
+    const auto wide = split_frame(hevc_fixtures::landscape, true);
+    send_parameters(probe, wide, true);
+    check(probe.video->decode({wide.picture, 100, 78, 0, true}), "HEVC split VPS/SPS/PPS and IRAP decode");
+    check_red(probe.frames.back(), 640, 360, 100, 78);
+    const auto before = probe.frames.size();
+    check(!probe.video->decode({{0, 0, 1, 0x40}, 101, 78, 0, true}), "truncated HEVC NAL is rejected");
+    probe.video->drain();
+    check(probe.frames.size() == before, "malformed HEVC publishes no stale image");
+    probe.video->reset();
+    feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
+    feed(hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 2);
+    feed(hevc_fixtures::main10, sizeof(hevc_fixtures::main10), 640, 360, 1);
+    check(probe.video->decode({{std::begin(landscape), std::end(landscape)}, 99, 78}), "HEVC switches back to H.264");
+    check_red(probe.frames.back(), 640, 360, 99, 78);
+}
+
 int main(int argc, char **argv) {
     try {
         check(argc == 2, "Usage: linux_video_tests <generated-fixture-directory>");
+        check_hevc();
         check_configuration_rotation_and_reset();
         check_malformed_and_bounds(argv[1]);
         check_b_frame_metadata(argv[1]);
-        std::puts("PASS: Linux RGBA pixels, exact timing/generation, split SPS/PPS, rotation, malformed/bounded input, reset and B-frame reordering");
+        std::puts("PASS: FFmpeg HEVC/H.264 RGBA pixels, landscape/portrait/4K/Main10, codec switch, split parameters, exact timing/generation, malformed/bounded input, reset and B-frame reordering");
     } catch (const std::exception &error) {
         std::fprintf(stderr, "FAIL: %s\n", error.what());
         return 1;

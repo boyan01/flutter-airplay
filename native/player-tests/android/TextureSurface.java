@@ -47,6 +47,9 @@ final class TextureSurface implements AutoCloseable {
     void checkBluePixels(){
         checkPixels(0,0,255);
     }
+    void checkGreenPixels(){
+        checkPixels(0,255,0);
+    }
     private void bind(){
         if(!EGL14.eglMakeCurrent(display,target,target,context))throw new IllegalStateException("Cannot bind texture consumer");
     }

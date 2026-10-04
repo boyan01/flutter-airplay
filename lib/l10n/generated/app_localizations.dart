@@ -821,7 +821,7 @@ abstract class AppLocalizations {
   /// No description provided for @qualityHelp.
   ///
   /// In en, this message translates to:
-  /// **'Fit this device uses screen pixels and decoder capabilities, requesting up to 4K (3840 × 2160). The 4K option checks 16:9 decoder support; the sender decides the actual size. Reconnect Screen Mirroring after saving.'**
+  /// **'Fit this device requests up to 4K (3840 × 2160). macOS uses screen pixels; Android also checks decoder capabilities. The sender decides the actual size. Reconnect Screen Mirroring after saving.'**
   String get qualityHelp;
 
   /// No description provided for @qualityUnsupported.

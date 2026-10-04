@@ -38,6 +38,11 @@ FFmpeg decoder supports. The upstream default remains available to other hosts.
 The current Flutter application uses the C++ library rather than the vendored
 GStreamer executable and its frame socket.
 
+The HEVC mirror configuration validates the complete VPS/SPS/PPS arrays and
+their lengths before reading or copying them. Encrypted video NAL parsing
+also rejects truncated length prefixes and empty or undersized NAL units.
+Platform playback capabilities control ScreenMultiCodec advertisement.
+
 For an upstream update, compare or merge from the base commit, update this
 record, and run the platform builds and native regressions. Keep upstream
 updates separate from feature changes.

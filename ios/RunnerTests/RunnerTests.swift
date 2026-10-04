@@ -37,7 +37,10 @@ final class RunnerTests: XCTestCase {
         let snapshot = host.queue.sync { host.snapshot() }
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
-        XCTAssertEqual(snapshot["name"] as? String, "Flutter AirPlay")
+        let name = snapshot["name"] as? String
+        XCTAssertEqual(name, defaults.string(forKey: "receiverName"))
+        XCTAssertFalse(name?.isEmpty ?? true)
+        XCTAssertLessThanOrEqual(name?.utf8.count ?? 0, 50)
         XCTAssertEqual(snapshot["path"] as? String, "")
         XCTAssertEqual((snapshot["textureId"] as? NSNumber)?.int64Value, -1)
         XCTAssertEqual(snapshot["autoStart"] as? Bool, true)
@@ -93,6 +96,7 @@ final class RunnerTests: XCTestCase {
 
     func testBackgroundStartFailsBeforeCreatingMediaOrReceiver() {
         let video = TestVideoOutput()
+        let initialName = defaults.string(forKey: "receiverName")
         host.queue.sync {
             host.videoOutput = video
             // The request's current state must override an older scene flag.
@@ -100,7 +104,7 @@ final class RunnerTests: XCTestCase {
         }
         XCTAssertThrowsError(try host.queue.sync { try host.start(name: "Test iPad", path: "", foreground: false) })
         XCTAssertEqual(video.beginCount, 0)
-        XCTAssertNil(defaults.string(forKey: "receiverName"))
+        XCTAssertEqual(defaults.string(forKey: "receiverName"), initialName)
         XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
         let snapshot = host.queue.sync { host.snapshot() }
         XCTAssertEqual(snapshot["status"] as? String, "stopped")

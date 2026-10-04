@@ -129,7 +129,7 @@ class PlaybackHost(private val context: Context,
             logDisplayInfo()
             logAudioSystemInfo()
             diagnostic("Audio output selection: ${settings["audioOutput"]}; applies for this receiver run")
-            diagnostic("Receiver request: quality=${settings["videoQuality"]}, H.264, ${requestWidth}x${requestHeight}, maxFPS=60; sender chooses actual size/rate")
+            diagnostic("Receiver request: quality=${settings["videoQuality"]}, ${requestWidth}x${requestHeight}, maxFPS=60; sender chooses actual codec/size/rate")
             diagnostic("Video output: native SurfaceView")
             backgroundSurface = BackgroundSurface()
             surface = nativeSurface ?: backgroundSurface!!.surface
@@ -146,6 +146,8 @@ class PlaybackHost(private val context: Context,
                 val selector = DecoderSelector().also { it.onDiagnostic = ::diagnostic }
                 val decoder = videoDecoder?.name ?: error("No H.264 decoder available")
                 val fallback = selector.software(DecoderSelector.AVC, VideoQuality.decoderWidth(requestHeight), (requestHeight + 15) / 16 * 16)?.name ?: ""
+                val hevc = selector.hevc(VideoQuality.decoderWidth(requestHeight), (requestHeight + 15) / 16 * 16)?.name ?: ""
+                diagnostic("HEVC receiver capability: ${if (hevc.isEmpty()) "unavailable for this size/rate" else hevc}")
                 val prefs=context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 val hex=prefs.getString("identity",null) ?: ByteArray(6).also {
                     SecureRandom().nextBytes(it); it[0]=((it[0].toInt() or 2) and 254).toByte()
@@ -154,7 +156,7 @@ class PlaybackHost(private val context: Context,
                 }
                 val identity=hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                 val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath,
-                    surface!!, decoder, fallback, epoch, requestWidth, requestHeight,
+                    surface!!, decoder, fallback, hevc, epoch, requestWidth, requestHeight,
                     when (settings["audioOutput"]) { "aaudio" -> 1; "audiotrack" -> 2; else -> 0 })
                 val videoTxt=parseTxt(txtNative(false)); val audioTxt=parseTxt(txtNative(true))
                 main.post {
@@ -281,7 +283,7 @@ class PlaybackHost(private val context: Context,
         }
     }
     private external fun startNative(name: String, identity: ByteArray, keyPath: String,
-                                     surface: Surface, decoder: String, fallback: String, epoch: Int, width: Int, height: Int, audioMode: Int): Int
+                                     surface: Surface, decoder: String, fallback: String, hevcDecoder: String, epoch: Int, width: Int, height: Int, audioMode: Int): Int
     private external fun txtNative(raop: Boolean): ByteArray
     private external fun setSurfaceNative(surface: Surface): Boolean
     private external fun stopNative()

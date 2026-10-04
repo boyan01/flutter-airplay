@@ -37,10 +37,11 @@ set_property(TARGET alac_decoder PROPERTY COMPILE_OPTIONS /clang:-fwrapv /clang:
 target_sources(airplay_player PRIVATE
   "${project_root}/native/player/windows_video.cpp"
   "${project_root}/native/player/windows_audio.cpp"
+  "${project_root}/native/player/ffmpeg_video.cpp"
   "${project_root}/native/player/ffmpeg_audio_decoder.cpp")
-set(FFMPEG_PREFIX "${project_root}/build/windows-deps/ffmpeg-aac" CACHE PATH "Pinned MSVC FFmpeg AAC libraries")
+set(FFMPEG_PREFIX "${project_root}/build/windows-deps/ffmpeg-aac" CACHE PATH "Pinned MSVC FFmpeg media libraries")
 target_include_directories(airplay_player SYSTEM PRIVATE "${FFMPEG_PREFIX}/include")
-foreach(component avcodec avutil swresample)
+foreach(component avcodec avutil swresample swscale)
   find_library(FFMPEG_${component}_LIBRARY NAMES ${component}
     PATHS "${FFMPEG_PREFIX}/lib" "${FFMPEG_PREFIX}/bin" NO_DEFAULT_PATH REQUIRED)
   file(GLOB component_dll "${FFMPEG_PREFIX}/bin/${component}-*.dll")
@@ -64,6 +65,12 @@ if(AIRPLAY_WINDOWS_BUILD_TESTS)
   add_executable(windows_pixels_test "${windows_host}/tests/pixels_test.cpp")
   target_include_directories(windows_pixels_test PRIVATE "${project_root}/native/player")
   add_test(NAME windows_pixels COMMAND windows_pixels_test)
+  add_executable(windows_video_test "${windows_host}/tests/video_test.cpp")
+  target_include_directories(windows_video_test PRIVATE "${project_root}/native/player" "${project_root}/native/player-tests")
+  target_link_libraries(windows_video_test PRIVATE airplay_player)
+  add_test(NAME windows_video COMMAND windows_video_test)
+  add_test(NAME windows_hevc_software COMMAND windows_video_test --software)
+  set_tests_properties(windows_video windows_hevc_software PROPERTIES TIMEOUT 30)
   add_executable(windows_compat_test "${windows_host}/tests/compat_test.c" "${windows_host}/compat/posix.c")
   target_include_directories(windows_compat_test PRIVATE "${windows_host}/compat")
   target_compile_definitions(windows_compat_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)

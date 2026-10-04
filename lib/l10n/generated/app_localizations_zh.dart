@@ -380,7 +380,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get qualityHelp =>
-      '适配本机会参考屏幕像素和解码能力，最高请求 4K（3840 × 2160）。4K 档位按 16:9 解码能力检查，实际尺寸由发送端决定。保存后需重新连接屏幕镜像。';
+      '适配本机最高请求 4K（3840 × 2160）。macOS 参考屏幕像素，Android 还会检查解码能力。实际尺寸由发送端决定。保存后需重新连接屏幕镜像。';
 
   @override
   String get qualityUnsupported => '此设备的解码器不支持此档位';

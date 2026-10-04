@@ -122,7 +122,8 @@ class MainFlutterWindow: NSWindow {
     target.origin = NSPoint(
       x: max(visible.minX, min(oldCenter.x - target.width / 2, visible.maxX - target.width)),
       y: max(visible.minY, min(oldCenter.y - target.height / 2, visible.maxY - target.height)))
-    setFrame(target, display: true, animate: isVisible)
+    // The platform thread also announces video textures; synchronous animation stalls playback.
+    setFrame(target, display: true, animate: false)
   }
 
   func openFlutterPanel(_ method: String) { presentation?.invokeMethod(method, arguments: nil) }

@@ -7,11 +7,69 @@
 #include "audio_fixtures.h"
 #include "audio_decoder_tests.h"
 #include "video_fixtures.h"
+#include "hevc_fixtures.h"
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
 #include <thread>
 #include <string>
+
+extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_TestActivity_hevc(
+        JNIEnv *env, jobject, jobject surface, jstring decoder, jstring avc_decoder, jint variant) {
+    using namespace airplay;
+    auto *window = ANativeWindow_fromSurface(env, surface);
+    const char *name = env->GetStringUTFChars(decoder, nullptr);
+    const char *avc_name = env->GetStringUTFChars(avc_decoder, nullptr);
+    int frames = 0, width = 0, height = 0;
+    auto video = make_video_output(window, avc_name, "", {
+        [&](void *, int w, int h, int64_t, uint64_t generation) { if (generation == 7) { ++frames; width = w; height = h; } },
+        [](const char *message) { __android_log_print(ANDROID_LOG_INFO, "PlayerRegression", "%s", message); }
+    });
+    ANativeWindow_release(window);
+    const bool enabled = video->set_hevc_decoder(name) && video->supports_hevc();
+    env->ReleaseStringUTFChars(decoder, name);
+    env->ReleaseStringUTFChars(avc_decoder, avc_name);
+    if (!enabled) return env->NewStringUTF("FAIL: HEVC decoder configuration rejected");
+    const uint8_t *data = hevc_fixtures::landscape;
+    size_t size = sizeof(hevc_fixtures::landscape);
+    int expected_width = 640, expected_height = 360;
+    if (variant == 1) { data = hevc_fixtures::portrait; size = sizeof(hevc_fixtures::portrait); expected_width = 360; expected_height = 640; }
+    if (variant == 2) { data = hevc_fixtures::uhd; size = sizeof(hevc_fixtures::uhd); expected_width = 3840; expected_height = 2160; }
+    if (variant == 3) { data = hevc_fixtures::main10; size = sizeof(hevc_fixtures::main10); }
+    video->size(expected_width, expected_height);
+    for (int session = 0; session < 2; ++session) {
+        const int before = frames;
+        const auto due = monotonic_ns() + 250000000;
+        for (int input = 0; input < 4; ++input) {
+            if (!video->decode({{data, data + size}, due + input * 16666667, 7, 0, true}))
+                return env->NewStringUTF("FAIL: HEVC NDK input decode");
+        }
+        const auto until = monotonic_ns() + 2 * kSecond;
+        while (frames == before && monotonic_ns() < until) { video->drain(); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+        if (frames == before || width != expected_width || height != expected_height)
+            return env->NewStringUTF("FAIL: HEVC decoded dimensions or presentation");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (session == 0 || variant != 0) video->reset();
+    }
+    if (variant == 0) {
+        for (bool hevc : {false, true}) {
+            const int before = frames;
+            const auto due = monotonic_ns() + 250000000;
+            const auto *bytes = hevc ? hevc_fixtures::landscape : landscape;
+            const auto length = hevc ? sizeof(hevc_fixtures::landscape) : sizeof(landscape);
+            for (int input = 0; input < 4; ++input)
+                if (!video->decode({{bytes, bytes + length}, due + input * 16666667, 7, 0, hevc}))
+                    return env->NewStringUTF("FAIL: H.264/HEVC NDK codec switch");
+            const auto until = monotonic_ns() + 2 * kSecond;
+            while (frames == before && monotonic_ns() < until) { video->drain(); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+            if (frames == before || width != 640 || height != 360)
+                return env->NewStringUTF("FAIL: H.264/HEVC codec switch has no new image");
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+    return env->NewStringUTF(variant == 0 ? "PASS: HEVC NDK dimensions, presentation, reset and H.264/HEVC switch"
+                                        : "PASS: HEVC NDK dimensions, presentation and reset");
+}
 
 extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_TestActivity_decode(
         JNIEnv *env, jobject, jobject surface, jstring decoder, jboolean portrait_mode) {

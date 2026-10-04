@@ -18,7 +18,12 @@ Future<void> initializeLogging() async {
   initLogger(path, maxFileCount: 10, maxFileLength: 5 * 1024 * 1024);
   i(
     'Flutter AirPlay started: platform=${Platform.operatingSystem}, '
-    'mode=${kReleaseMode ? 'release' : 'debug'}, logs=$path',
+    'mode=${kReleaseMode
+        ? 'release'
+        : kProfileMode
+        ? 'profile'
+        : 'debug'}, '
+    'logs=$path',
   );
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) i('[Flutter] $message');

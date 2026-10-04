@@ -6,6 +6,7 @@
 #include "audio_fixtures.h"
 #include "audio_decoder_tests.h"
 #include "video_fixtures.h"
+#include "reorder_fixtures.h"
 #include <CoreVideo/CoreVideo.h>
 #include <stdexcept>
 #include <thread>
@@ -72,14 +73,45 @@ int main() {
                 ++frames; video_width = w; video_height = h;
             }, [](const char *) {}
         });
-        check(video->decode({{std::begin(landscape), std::end(landscape)}, due, 7}), "decode landscape H.264");
+        check(video->decode({{std::begin(landscape), std::end(landscape)}, monotonic_ns(), 7}), "decode landscape H.264");
+        video->drain();
         check(frames == 1 && video_width == landscape_width && video_height == landscape_height, "real landscape dimensions");
         video->reset();
         check(video->decode({{0,0,0,1,0x41,0x01}, due, 7}) && frames == 1, "reset waits for a keyframe");
-        check(video->decode({{std::begin(portrait), std::end(portrait)}, due, 7}), "decode portrait after reset");
+        check(video->decode({{std::begin(portrait), std::end(portrait)}, monotonic_ns(), 7}), "decode portrait after reset");
+        video->drain();
         check(frames == 2 && video_width == landscape_height && video_height == landscape_width, "rotation creates new decoder dimensions");
-        check(video->decode({{std::begin(landscape), std::end(landscape)}, due, 7}), "changed SPS without explicit reset");
+        check(video->decode({{std::begin(landscape), std::end(landscape)}, monotonic_ns(), 7}), "changed SPS without explicit reset");
+        video->drain();
         check(frames == 3 && video_width == landscape_width, "SPS change replaces decoder session");
+        {
+            using namespace reorder_fixtures;
+            const auto start = monotonic_ns(), first_due = start + 80000000;
+            constexpr int64_t period = kSecond / 60;
+            int sent = 0, presented = 0, early = 0, backwards = 0;
+            int64_t previous = 0;
+            auto reordered = make_video_output(nullptr, nullptr, nullptr, {
+                [&](void *, int, int, int64_t pts, uint64_t) {
+                    if (pts < first_due + 16 * period || pts >= first_due + 76 * period) return;
+                    ++presented;
+                    early += pts > monotonic_ns() + 2000000;
+                    backwards += previous && pts <= previous;
+                    previous = pts;
+                }, [](const char *) {}
+            });
+            while (monotonic_ns() < start + 96 * period + 300000000) {
+                const auto now = monotonic_ns();
+                if (sent < 96 && now >= start + sent * period) {
+                    const auto &packet = bframes_packets[sent++];
+                    check(reordered->decode({{bframes_data + packet[0], bframes_data + packet[0] + packet[1]},
+                        first_due + packet[2] * period, 9}), "decode reordered H.264 stream");
+                }
+                reordered->drain();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            std::printf("Mac B-frame output: presented=%d/60 early=%d backwards=%d\n", presented, early, backwards);
+            check(presented >= 58 && !early && !backwards, "Mac presents B-frames by timestamp without early or backwards output");
+        }
         const auto directory = std::filesystem::temp_directory_path() / ("airplay-player-test-" + std::to_string(getpid()));
         std::filesystem::create_directories(directory);
         const auto key = (directory / "pairing.pem").string();
@@ -127,6 +159,11 @@ int main() {
             const auto info = CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
             CFRelease(data);
             check(info && CFGetTypeID(info) == CFDictionaryGetTypeID(), "decode advertised info plist");
+            int64_t features = 0;
+            const auto feature_value = static_cast<CFNumberRef>(CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), CFSTR("features")));
+            check(feature_value && CFNumberGetValue(feature_value, kCFNumberSInt64Type, &features), "numeric AirPlay features");
+            check(bool((uint64_t(features) >> 42) & 1) == video->supports_hevc(),
+                  "ScreenMultiCodec advertisement matches platform HEVC support");
             const auto displays = static_cast<CFArrayRef>(CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), CFSTR("displays")));
             check(displays && CFArrayGetCount(displays) > 0, "advertised display exists");
             const auto display = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(displays, 0));

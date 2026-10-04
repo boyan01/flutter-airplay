@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdatomic.h>
 #include "raop_rtp.c"
+#undef SECOND_IN_NSECS
+#include "raop_rtp_mirror.c"
 static void require(bool condition, const char *message) {
     if (!condition) { fprintf(stderr, "FAIL: %s\n", message); exit(1); }
     printf("PASS: %s\n", message);
@@ -10,6 +12,28 @@ static void capture(void *context, int level, const char *message) { puts(messag
 static atomic_int delivered;
 static atomic_int last_sequence;
 static atomic_int flushed;
+static void test_hevc_configuration(void) {
+    unsigned char payload[0x75 + 3 * 7] = {0};
+    const unsigned char *parameters[3]; size_t sizes[3];
+    for (int i = 0; i < 3; i++) {
+        unsigned char *array = payload + 0x75 + i * 7;
+        array[0] = 0xa0 + i; array[2] = 1; array[4] = 2;
+        array[5] = (32 + i) << 1; array[6] = 1;
+    }
+    require(read_hevc_parameters(payload, sizeof(payload), parameters, sizes), "Valid HEVC parameter arrays accepted");
+    for (int i = 0; i < 3; i++)
+        require(sizes[i] == 2 && parameters[i] == payload + 0x75 + i * 7 + 5,
+                "HEVC parameter sizes and pointers preserve the input");
+    for (size_t size = 0; size < sizeof(payload); size++)
+        if (read_hevc_parameters(payload, size, parameters, sizes)) {
+            fprintf(stderr, "FAIL: truncated HEVC configuration accepted at %zu\n", size); exit(1);
+        }
+    require(true, "Every HEVC configuration truncation rejected");
+    payload[0x75 + 3] = 0xff; payload[0x75 + 4] = 0xff;
+    require(!read_hevc_parameters(payload, sizeof(payload), parameters, sizes), "Oversized HEVC parameter length rejected");
+    payload[0x75 + 3] = 0; payload[0x75 + 4] = 0;
+    require(!read_hevc_parameters(payload, sizeof(payload), parameters, sizes), "Empty HEVC parameter rejected");
+}
 static void receive_flush(void *context) { atomic_fetch_add(&flushed, 1); }
 static void receive_audio(void *context, raop_ntp_t *ntp, audio_decode_struct *data) {
     atomic_store(&last_sequence, data->seqnum);
@@ -97,6 +121,7 @@ static void test_sound_after_silence(logger_t *log) {
 }
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
+    test_hevc_configuration();
     logger_t *log = logger_init();
     logger_set_level(log, LOGGER_INFO);
     logger_set_callback(log, capture, NULL);

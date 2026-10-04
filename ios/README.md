@@ -1,7 +1,8 @@
 # iPad 前台接收宿主
 
 使用根 `lib/main.dart` 和共享 C++ 接收、时间线与播放状态。iPad 以
-VideoToolbox 解码 H.264，AudioConverter 解码 ALAC、AAC-LC、AAC-ELD，
+VideoToolbox 解码 H.264；硬件 HEVC 解码可用时宣告并接收 HEVC。
+AudioConverter 解码 ALAC、AAC-LC、AAC-ELD，
 RemoteIO 输出 PCM，CVPixelBuffer 直接交给 Flutter texture。
 
 要求 iPadOS 15 或更新版本。应用需要本地网络访问权限；Bonjour 发布
@@ -40,6 +41,7 @@ IOS_TEST_DESTINATION='platform=iOS Simulator,name=iPad (A16),OS=latest' ./ios/sc
 ```
 
 脚本选择本机已有 iPad 模拟器，结果保存在 ignored `artifacts/ios/`。
-XCTest 使用合成 H.264 像素、AAC/ALAC/ELD packet 和全零 PCM，不调节系统音量；
+XCTest 使用合成 H.264 / HEVC 像素、AAC/ALAC/ELD packet 和全零 PCM，不调节系统音量；
+HEVC 覆盖横竖屏、4K、Main10 和 H.264 重连；模拟器没有 HEVC 硬解时明确跳过。
 测试启动参数关闭应用自动接收。合成结果和无签名构建不能证明真实 iPhone
 发现、图像、可听声音、音画同步或目标 iPad 的性能。

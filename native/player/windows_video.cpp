@@ -3,30 +3,44 @@
 #include "windows_media.h"
 #include "windows_pixels.h"
 #include "windows_video.h"
+#include "ffmpeg_video.h"
 #include <codecapi.h>
 #include <deque>
 
 namespace airplay {
 class WindowsVideo final : public VideoOutput {
 public:
-    explicit WindowsVideo(VideoCallbacks callbacks) : callbacks_(std::move(callbacks)) {}
+    explicit WindowsVideo(VideoCallbacks callbacks) : callbacks_(std::move(callbacks)),
+        ffmpeg_(make_ffmpeg_video_output(callbacks_)), hevc_mft_(bool(make_decoder(true))) {}
+    bool supports_hevc() const override { return hevc_mft_ || ffmpeg_->supports_hevc(); }
     void size(int, int) override {} // Decode dimensions and orientation come from the SPS.
     void reset() override {
         if (decoder_) decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
         decoder_.Reset(); pending_.clear(); width_ = height_ = stride_ = 0;
-        sps_.clear(); pps_.clear();
+        vps_.clear(); sps_.clear(); pps_.clear();
+        ffmpeg_->reset(); using_ffmpeg_ = false; hevc_ = false;
     }
-    void drain() override { if (decoder_ && !output()) reset(); }
+    void drain() override {
+        if (using_ffmpeg_) ffmpeg_->drain();
+        else if (decoder_ && !output()) reset();
+    }
     bool decode(const VideoPacket &packet) override {
+        if (packet.hevc != hevc_) {
+            reset(); hevc_ = packet.hevc;
+            using_ffmpeg_ = hevc_ && !hevc_mft_;
+        }
+        if (using_ffmpeg_) return ffmpeg_->decode(packet);
         bool picture = false, keyframe = false, changed = false;
         for (const auto &nal : split_nals(packet.bytes.data(), packet.bytes.size())) {
             if (nal.empty()) continue;
-            const auto type = nal[0] & 31;
-            if (type == 7 || type == 8) {
-                auto &parameter = type == 7 ? sps_ : pps_;
+            if (hevc_ && (nal.size() < 2 || (nal[0] & 0x80) || !(nal[1] & 7))) return false;
+            const auto type = hevc_ ? (nal[0] >> 1) & 63 : nal[0] & 31;
+            if (hevc_ ? type >= 32 && type <= 34 : type == 7 || type == 8) {
+                auto &parameter = hevc_ && type == 32 ? vps_ : type == (hevc_ ? 33 : 7) ? sps_ : pps_;
                 if (parameter != nal) { parameter = nal; changed = true; }
             }
-            picture |= type == 1 || type == 5; keyframe |= type == 5;
+            picture |= hevc_ ? type <= 31 : type == 1 || type == 5;
+            keyframe |= hevc_ ? type >= 16 && type <= 23 : type == 5;
         }
         if (changed && decoder_) {
             decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
@@ -35,12 +49,21 @@ public:
         if (!picture) return true;
         std::vector<uint8_t> input_bytes;
         if (!decoder_) {
-            if (!keyframe || sps_.empty() || pps_.empty()) return true;
-            if (!open()) return false;
+            if (!keyframe || sps_.empty() || pps_.empty() || (hevc_ && vps_.empty())) return true;
             // Parameter sets may have arrived separately before the first IDR.
-            for (const auto *parameter : {&sps_, &pps_}) {
+            for (const auto *parameter : {&vps_, &sps_, &pps_}) {
+                if (parameter->empty()) continue;
                 input_bytes.insert(input_bytes.end(), {0, 0, 0, 1});
                 input_bytes.insert(input_bytes.end(), parameter->begin(), parameter->end());
+            }
+            if (!open()) {
+                if (!hevc_ || !ffmpeg_->supports_hevc()) return false;
+                decoder_.Reset(); pending_.clear(); using_ffmpeg_ = true;
+                callbacks_.log("Windows HEVC MFT unavailable for this stream; using FFmpeg software decoding");
+                auto fallback = packet;
+                fallback.bytes = std::move(input_bytes);
+                fallback.bytes.insert(fallback.bytes.end(), packet.bytes.begin(), packet.bytes.end());
+                return ffmpeg_->decode(fallback);
             }
         }
         input_bytes.insert(input_bytes.end(), packet.bytes.begin(), packet.bytes.end());
@@ -54,21 +77,47 @@ public:
         return output();
     }
 private:
+    static ComPtr<IMFTransform> make_decoder(bool hevc) {
+        ComPtr<IMFTransform> result;
+        if (!windows_media_ready()) return result;
+        if (!hevc) {
+            CoCreateInstance(CLSID_CMSH264DecoderMFT, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&result));
+            return result;
+        }
+        MFT_REGISTER_TYPE_INFO input{MFMediaType_Video, MFVideoFormat_HEVC};
+        IMFActivate **activations = nullptr;
+        UINT32 count = 0;
+        if (FAILED(MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER,
+            MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER,
+            &input, nullptr, &activations, &count))) return result;
+        for (UINT32 i = 0; i < count; ++i) {
+            if (!result) activations[i]->ActivateObject(IID_PPV_ARGS(&result));
+            activations[i]->Release();
+        }
+        CoTaskMemFree(activations);
+        return result;
+    }
     bool open() {
-        if (!windows_media_ready() || FAILED(CoCreateInstance(CLSID_CMSH264DecoderMFT, nullptr,
-            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&decoder_)))) {
-            callbacks_.log("Unavailable Windows H.264 decoder; Windows N requires the Media Feature Pack"); return false;
+        decoder_ = make_decoder(hevc_);
+        if (!decoder_) {
+            callbacks_.log(hevc_ ? "Unavailable Windows HEVC MFT" : "Unavailable Windows H.264 decoder; Windows N requires the Media Feature Pack"); return false;
         }
         ComPtr<IMFAttributes> attributes;
         if (SUCCEEDED(decoder_->GetAttributes(&attributes))) attributes->SetUINT32(CODECAPI_AVLowLatencyMode, TRUE);
         ComPtr<IMFMediaType> input;
         if (FAILED(MFCreateMediaType(&input))) return false;
         input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-        input->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+        input->SetGUID(MF_MT_SUBTYPE, hevc_ ? MFVideoFormat_HEVC : MFVideoFormat_H264);
+        if (hevc_ && sps_.size() >= 4) {
+            // The general profile_idc follows the SPS sublayer header.
+            const auto profile = sps_[3] & 31;
+            if (profile == 1 || profile == 2) input->SetUINT32(MF_MT_MPEG2_PROFILE, profile);
+        }
         input->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_MixedInterlaceOrProgressive);
         if (FAILED(decoder_->SetInputType(0, input.Get(), 0)) || !select_output()) return false;
         windows_begin_stream(decoder_.Get());
-        callbacks_.log("Media Foundation H.264 decoder ready; NV12 converted to Flutter RGBA pixels");
+        callbacks_.log(hevc_ ? "Media Foundation HEVC decoder ready; NV12/P010 converted to Flutter RGBA pixels"
+                            : "Media Foundation H.264 decoder ready; NV12 converted to Flutter RGBA pixels");
         return true;
     }
     bool select_output() {
@@ -76,13 +125,15 @@ private:
             ComPtr<IMFMediaType> type;
             if (FAILED(decoder_->GetOutputAvailableType(0, index, &type))) break;
             GUID subtype{};
-            if (FAILED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) || subtype != MFVideoFormat_NV12) continue;
+            if (FAILED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) ||
+                (subtype != MFVideoFormat_NV12 && (!hevc_ || subtype != MFVideoFormat_P010))) continue;
             if (FAILED(decoder_->SetOutputType(0, type.Get(), 0))) continue;
+            p010_ = subtype == MFVideoFormat_P010;
             UINT32 width = 0, height = 0;
             if (FAILED(MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, &width, &height))) return false;
             width_ = width; height_ = height;
-            const auto stride = MFGetAttributeUINT32(type.Get(), MF_MT_DEFAULT_STRIDE, width);
-            if (stride > 16384) return false;
+            const auto stride = MFGetAttributeUINT32(type.Get(), MF_MT_DEFAULT_STRIDE, width * (p010_ ? 2 : 1));
+            if (stride > 32768) return false;
             stride_ = stride;
             display_width_ = width_; display_height_ = height_; crop_x_ = crop_y_ = 0;
             MFVideoArea aperture{}; UINT32 aperture_bytes = 0;
@@ -132,11 +183,11 @@ private:
                 if (FAILED(plane->GetContiguousLength(&length)) || length > 128 * 1024 * 1024) return false;
                 nv12_.resize(length);
                 if (FAILED(plane->ContiguousCopyTo(nv12_.data(), length))) return false;
-                converted = windows_nv12_to_rgba(nv12_.data(), length, width_, height_, width_, bt709_, full_range_, rgba_);
+                converted = windows_yuv420_to_rgba(nv12_.data(), length, width_, height_, width_ * (p010_ ? 2 : 1), bt709_, full_range_, rgba_, p010_);
             } else {
                 BYTE *bytes = nullptr; DWORD length = 0;
                 if (FAILED(buffer->Lock(&bytes, nullptr, &length))) return false;
-                converted = windows_nv12_to_rgba(bytes, length, width_, height_, stride_, bt709_, full_range_, rgba_);
+                converted = windows_yuv420_to_rgba(bytes, length, width_, height_, stride_, bt709_, full_range_, rgba_, p010_);
                 buffer->Unlock();
             }
             if (!converted) return false;
@@ -148,12 +199,15 @@ private:
     }
     struct Stamp { int64_t deadline; uint64_t generation; };
     VideoCallbacks callbacks_;
+    std::unique_ptr<VideoOutput> ffmpeg_;
+    const bool hevc_mft_;
     ComPtr<IMFTransform> decoder_;
     std::deque<Stamp> pending_;
-    std::vector<uint8_t> sps_, pps_, nv12_, rgba_;
+    std::vector<uint8_t> vps_, sps_, pps_, nv12_, rgba_;
     size_t width_ = 0, height_ = 0, stride_ = 0;
     size_t display_width_ = 0, display_height_ = 0, crop_x_ = 0, crop_y_ = 0;
     bool bt709_ = true, full_range_ = false;
+    bool hevc_ = false, using_ffmpeg_ = false, p010_ = false;
 };
 std::unique_ptr<VideoOutput> make_video_output(void *, const char *, const char *, VideoCallbacks callbacks) {
     return std::make_unique<WindowsVideo>(std::move(callbacks));

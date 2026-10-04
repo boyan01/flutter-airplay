@@ -81,6 +81,25 @@
 //    unsigned char version;
 //};
 
+/* Validate all HEVC parameter arrays before dereferencing sender lengths. */
+static bool read_hevc_parameters(const unsigned char *payload, size_t size,
+                                 const unsigned char *parameters[3], size_t sizes[3])
+{
+    size_t offset = 0x75;
+    if (size < offset) return false;
+    for (int i = 0; i < 3; i++) {
+        if (size - offset < 5 || payload[offset] != 0xa0 + i ||
+            payload[offset + 1] != 0 || payload[offset + 2] != 1) return false;
+        size_t length = ((size_t) payload[offset + 3] << 8) | payload[offset + 4];
+        offset += 5;
+        if (length < 2 || length > size - offset ||
+            ((payload[offset] >> 1) & 0x3f) != 32 + i) return false;
+        parameters[i] = payload + offset; sizes[i] = length;
+        offset += length;
+    }
+    return true;
+}
+
 struct raop_rtp_mirror_s {
     logger_t *logger;
     raop_callbacks_t callbacks;
@@ -460,10 +479,11 @@ raop_rtp_mirror_thread(void *arg)
                 int nalu_size = 0;
                 int nalus_count = 0;
                 while (nalu_size < payload_size) {
+                    if (payload_size - nalu_size < 4) { valid_data = false; break; }
                     int nc_len = byteutils_get_int_be(payload_decrypted, nalu_size);
                     /* nc_len is read from the payload, so it is only a
                      * length if the unit it claims fits in what is left. */
-                    if (nc_len < 0 || nalu_size + 4 > payload_size ||
+                    if (nc_len < (h265_video ? 2 : 1) ||
                         nc_len > payload_size - nalu_size - 4) {
                         valid_data = false;
                         break;
@@ -478,7 +498,7 @@ raop_rtp_mirror_thread(void *arg)
                     }
                     int nalu_type = 0;
                     if (h265_video) {
-                        nalu_type = payload_decrypted[nalu_size] & 0x7e >> 1;;
+                        nalu_type = (payload_decrypted[nalu_size] >> 1) & 0x3f;
                         //logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG," h265 video, NALU type %d, size %d", nalu_type, nc_len);
                     } else {
                         nalu_type = payload_decrypted[nalu_size] & 0x1f;
@@ -623,6 +643,11 @@ raop_rtp_mirror_thread(void *arg)
                     unsupported_codec = true;
                     break;
                 }
+                if (payload_size < 8) {
+                    logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "Truncated video codec configuration");
+                    conn_reset = true;
+                    break;
+                }
                 if (sps_pps) {
                     free(sps_pps);
                     sps_pps = NULL;
@@ -632,6 +657,13 @@ raop_rtp_mirror_thread(void *arg)
 
                 if (!memcmp(payload + 4, hvc1, 4)) {
                     /* hvc1 HECV detected */
+                    const unsigned char *parameters[3];
+                    size_t sizes[3];
+                    if (!read_hevc_parameters(payload, payload_size, parameters, sizes)) {
+                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "Invalid HEVC VPS/SPS/PPS configuration");
+                        conn_reset = true;
+                        break;
+                    }
                     if (codec == VIDEO_CODEC_UNKNOWN) {
                         codec = VIDEO_CODEC_H265;
                         h265_video = true;
@@ -647,69 +679,14 @@ raop_rtp_mirror_thread(void *arg)
                         conn_reset = true;
                         break;
                     }
-                    unsigned char vps_start_code[] = { 0xa0, 0x00, 0x01, 0x00 };
-                    unsigned char sps_start_code[] = { 0xa1, 0x00, 0x01, 0x00 };
-                    unsigned char pps_start_code[] = { 0xa2, 0x00, 0x01, 0x00 };
-
-                    unsigned char * ptr = payload + 0x75;
- 
-                    if (memcmp(ptr, vps_start_code, 4)) {
-                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "non-conforming HEVC VPS/SPS/PPS payload (VPS)");
-                        raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
-                        break;
-                    }
-                    short vps_size = byteutils_get_short_be(ptr, 3);
-                    ptr += 5;
-                    unsigned char *vps = ptr;
-                    if (logger_debug) {
-                        char *str = utils_data_to_string(vps, vps_size, 16);
-                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 vps size %d\n%s",vps_size, str);
-                        free(str);
-                    }
-                    ptr += vps_size;
-                    if (memcmp(ptr, sps_start_code, 4)) {
-                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "non-conforming HEVC VPS/SPS/PPS payload (SPS)");
-                        raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
-                        break;
-                    }
-                    short sps_size = byteutils_get_short_be(ptr, 3);
-                    ptr += 5;
-                    unsigned char *sps = ptr;
-                    if (logger_debug) {
-                        char *str = utils_data_to_string(sps, sps_size, 16);
-                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 sps size %d\n%s",vps_size, str);
-                        free(str);
-                    }
-                    ptr += sps_size;
-                    if (memcmp(ptr, pps_start_code, 4)) {
-                       logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "non-conforming HEVC VPS/SPS/PPS payload (PPS)");			
-                        raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
-                        break;
-                    }
-                    short pps_size = byteutils_get_short_be(ptr, 3);
-                    ptr += 5;
-                    unsigned char *pps = ptr;
-                    if (logger_debug) {
-                        char *str = utils_data_to_string(pps, pps_size, 16);
-                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 pps size %d\n%s",pps_size, str);
-                        free(str);
-                    }
-
-                    sps_pps_len = vps_size + sps_size + pps_size + 12;
+                    sps_pps_len = sizes[0] + sizes[1] + sizes[2] + 12;
                     sps_pps = (unsigned char*) malloc(sps_pps_len);
                     assert(sps_pps);
-                    ptr = sps_pps;
-                    memcpy(ptr, nal_start_code, 4);
-                    ptr += 4;
-                    memcpy(ptr, vps, vps_size);
-                    ptr += vps_size;
-                    memcpy(ptr, nal_start_code, 4);
-                    ptr += 4;
-                    memcpy(ptr, sps, sps_size);
-                    ptr += sps_size;
-                    memcpy(ptr, nal_start_code, 4);
-                    ptr += 4;
-                    memcpy(ptr, pps, pps_size);
+                    unsigned char *ptr = sps_pps;
+                    for (int i = 0; i < 3; i++) {
+                        memcpy(ptr, nal_start_code, 4); ptr += 4;
+                        memcpy(ptr, parameters[i], sizes[i]); ptr += sizes[i];
+                    }
                 } else {
                     if (codec == VIDEO_CODEC_UNKNOWN) {
                         codec = VIDEO_CODEC_H264;
