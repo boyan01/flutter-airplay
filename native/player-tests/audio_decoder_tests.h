@@ -3,6 +3,7 @@
 #include "audio_decoder.h"
 #include "audio_fixtures.h"
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 // An uncompressed ALAC stereo element with a partial-frame length. This is a

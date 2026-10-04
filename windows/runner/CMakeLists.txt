@@ -34,10 +34,10 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
-target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
+target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/PlayerImport.cmake")
-target_link_libraries(${BINARY_NAME} PRIVATE airplay_player_import shell32 bcrypt ole32)
+target_link_libraries(${BINARY_NAME} PRIVATE airplay_player_import shell32 bcrypt ole32 advapi32 gdi32 comctl32)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

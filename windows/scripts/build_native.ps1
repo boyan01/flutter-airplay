@@ -1,11 +1,31 @@
 # SPDX-License-Identifier: GPL-3.0-only
 [CmdletBinding()]
-param([switch]$Tests)
+param([switch]$Tests, [string]$Bash, [string]$Make)
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 if (-not $IsWindows -and $env:OS -ne 'Windows_NT') { throw 'The native Windows build requires a Windows host.' }
 foreach ($tool in @('git', 'cmake', 'perl', 'nmake', 'clang-cl')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing $tool. Use a Visual Studio x64 Native Tools prompt with the C++ Clang tools component installed." }
+}
+if (-not $Bash) {
+    $gitDirectory = Split-Path (Get-Command git).Source
+    $Bash = Join-Path $gitDirectory '../bin/bash.exe'
+}
+if (-not (Test-Path $Bash)) { throw 'Git Bash is required. Pass -Bash with a bash.exe path if using MSYS2.' }
+if (-not $Make) {
+    $bundledMake = Join-Path (Split-Path $Bash) '../usr/bin/make.exe'
+    if (Test-Path $bundledMake) { $Make = (Resolve-Path $bundledMake).Path }
+    foreach ($name in @('make', 'gmake')) {
+        if ($Make) { break }
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command) { $Make = $command.Source; break }
+    }
+}
+if (-not $Make) { throw 'MSYS2 GNU Make is required for FFmpeg. Add it to PATH or pass -Make with its path.' }
+$makeVersion = & $Bash --noprofile --norc -c '"$1" --version' '--' $Make
+if ($LASTEXITCODE -ne 0 -or $makeVersion[0] -notmatch 'GNU Make' -or
+    ($makeVersion -join "`n") -notmatch 'Built for .*-(msys|cygwin)') {
+    throw 'FFmpeg requires an MSYS2/Cygwin GNU Make that understands POSIX paths; native Windows make is incompatible.'
 }
 $lock = Get-Content (Join-Path $root 'android/dependencies.lock.json') -Raw | ConvertFrom-Json
 $cache = Join-Path $root 'build/windows-deps'
@@ -46,6 +66,9 @@ function Get-PinnedSource($entry, [string]$name) {
 }
 $openssl = Get-PinnedSource $lock.openssl 'openssl'
 $plist = Get-PinnedSource $lock.libplist 'libplist'
+$ffmpeg = Get-PinnedSource $lock.ffmpeg 'ffmpeg'
+Invoke-Checked { & $Bash --noprofile --norc (Join-Path $PSScriptRoot 'build_ffmpeg.sh') `
+    $ffmpeg (Join-Path $cache 'ffmpeg-build') (Join-Path $cache 'ffmpeg-aac') $Make }
 $crypto = Join-Path $cache 'crypto'
 $opensslBuild = Join-Path $cache 'openssl-build'
 New-Item -ItemType Directory -Force $opensslBuild | Out-Null
@@ -59,7 +82,13 @@ try {
 $native = Join-Path $root 'build/windows-native'
 Push-Location $root
 try {
-    Invoke-Checked { cmake -S native -B $native -G 'Visual Studio 17 2022' -A x64 -T ClangCL "-DUXPLAY_SOURCE=$root/vendor/UxPlay" "-DPLIST_SOURCE=$plist" "-DCRYPTO_PREFIX=$crypto" "-DDEPS_SOURCE=$cache" "-DAIRPLAY_WINDOWS_BUILD_TESTS=$($Tests.IsPresent)" }
+    Invoke-Checked { cmake -S native -B $native -G 'Visual Studio 17 2022' -A x64 -T ClangCL `
+        "-DUXPLAY_SOURCE=$($root.Replace('\', '/'))/vendor/UxPlay" `
+        "-DPLIST_SOURCE=$($plist.Replace('\', '/'))" `
+        "-DCRYPTO_PREFIX=$($crypto.Replace('\', '/'))" `
+        "-DDEPS_SOURCE=$($cache.Replace('\', '/'))" `
+        "-DFFMPEG_PREFIX=$($cache.Replace('\', '/'))/ffmpeg-aac" `
+        "-DAIRPLAY_WINDOWS_BUILD_TESTS=$($Tests.IsPresent)" }
     Invoke-Checked { cmake --build $native --config Release --parallel }
     if ($Tests) { Invoke-Checked { ctest --test-dir $native -C Release --output-on-failure } }
 } finally { Pop-Location }

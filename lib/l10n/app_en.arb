@@ -136,5 +136,9 @@
       }
     }
   },
-  "foregroundReceive": "Keep this app in the foreground to receive mirroring on iPad."
+  "foregroundReceive": "Keep this app in the foreground to receive mirroring on iPad.",
+  "maximize": "Maximize",
+  "restore": "Restore",
+  "keepInTray": "Keep in system tray when the window closes",
+  "fullscreenWindows": "Toggle fullscreen (F11)"
 }

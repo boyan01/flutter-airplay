@@ -58,7 +58,7 @@ bool AudioDecoder::open() {
             log_("Unsupported AAC samples per packet");
             return false;
         }
-        // The native floating-point decoder supports ELD; aac_fixed does not.
+        // Use the tested floating-point decoder and its planar float output.
         const auto *implementation = avcodec_find_decoder_by_name("aac");
         if (!implementation || implementation->id != AV_CODEC_ID_AAC
             || (implementation->capabilities & AV_CODEC_CAP_DELAY)) {

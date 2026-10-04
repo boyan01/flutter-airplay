@@ -38,6 +38,12 @@ class Win32Window {
 
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
+  void SetFullscreen(bool enabled);
+  bool IsFullscreen() const { return fullscreen_; }
+  void ToggleMaximize();
+  void SetMode(int width, int height);
+  void ResizePlayer(bool actual_size);
+
 
   // Release OS resources associated with window.
   void Destroy();
@@ -90,6 +96,15 @@ class Win32Window {
   // Update the window frame's theme to match the system theme.
   static void UpdateTheme(HWND const window);
 
+  static LRESULT CALLBACK ChildProc(HWND window, UINT message, WPARAM wparam,
+                                    LPARAM lparam, UINT_PTR id, DWORD_PTR context);
+  LRESULT HitTest(LPARAM position) const;
+  void ResizeContent(bool preserve_area);
+
+  bool fullscreen_ = false;
+  int player_width_ = 0, player_height_ = 0;
+  LONG_PTR windowed_style_ = 0;
+  WINDOWPLACEMENT windowed_placement_{sizeof(WINDOWPLACEMENT)};
   bool quit_on_close_ = false;
 
   // window handle for top level window.

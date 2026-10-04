@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import '../receiver/receiver_model.dart';
 import 'receiver_strings.dart';
 import 'tv_focus.dart';
-import 'mac_window_bar.dart';
+import 'desktop_window_bar.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
@@ -16,10 +16,12 @@ class PlayerPage extends StatefulWidget {
     required this.onFullscreen,
     required this.onEscape,
     required this.dialogOpen,
+    this.maximized = false,
   });
   final ReceiverModel model;
   final VoidCallback onFullscreen, onEscape;
   final bool dialogOpen;
+  final bool maximized;
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
@@ -142,8 +144,13 @@ class _PlayerPageState extends State<PlayerPage> {
                     colors: [Color(0x99000000), Colors.transparent],
                   ),
                 ),
-                child: widget.model.platform == 'macos'
-                    ? MacWindowBar(title: client, dark: true)
+                child: widget.model.supportsWindowPreferences
+                    ? DesktopWindowBar(
+                        title: client,
+                        platform: widget.model.platform,
+                        dark: true,
+                        maximized: widget.maximized,
+                      )
                     : Row(
                         children: [
                           if (phone)
@@ -249,7 +256,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             icon: const Icon(Icons.eject_rounded),
                             label: Text(l10n(context).disconnect),
                           ),
-                          if (widget.model.platform == 'macos')
+                          if (widget.model.supportsWindowPreferences)
                             TextButton.icon(
                               style: TextButton.styleFrom(
                                 foregroundColor: Colors.white,
@@ -272,7 +279,9 @@ class _PlayerPageState extends State<PlayerPage> {
                               label: Text(l10n(context).alwaysOnTop),
                             ),
                           IconButton(
-                            tooltip: l10n(context).fullscreen,
+                            tooltip: widget.model.platform == 'windows'
+                                ? l10n(context).fullscreenWindows
+                                : l10n(context).fullscreen,
                             color: Colors.white,
                             onPressed: widget.onFullscreen,
                             icon: const Icon(Icons.fullscreen),

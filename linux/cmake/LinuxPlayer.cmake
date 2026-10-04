@@ -10,7 +10,7 @@ function(airplay_configure_linux_player target)
   endif()
   target_sources(${target} PRIVATE
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../native/player/linux_audio.cpp
-    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../native/player/linux_audio_decoder.cpp
+    ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../native/player/ffmpeg_audio_decoder.cpp
     ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../native/player/linux_video.cpp)
   target_link_libraries(${target} PRIVATE PkgConfig::LINUX_MEDIA alac_decoder Threads::Threads)
 endfunction()

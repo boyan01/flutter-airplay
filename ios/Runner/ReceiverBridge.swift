@@ -35,6 +35,7 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         host.unpublish = { [weak self] in DispatchQueue.main.async { self?.stopServices() } }
         methods?.setMethodCallHandler { [weak self] call, result in
             guard let self = self else { return }
+            let foreground = UIApplication.shared.applicationState != .background
             self.host.queue.async {
                 do {
                     let args = call.arguments as? [String: Any] ?? [:]
@@ -47,7 +48,9 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
                         let snapshot = self.host.snapshot()
                         DispatchQueue.main.async { self.eventSink?(["type": "snapshot", "data": snapshot]) }
                     case "check": try self.host.check(path: args["path"] as? String ?? "")
-                    case "start": try self.host.start(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "")
+                    case "start":
+                        try self.host.start(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "",
+                                            foreground: foreground)
                     case "stop": self.host.userStop()
                     default: DispatchQueue.main.async { result(FlutterMethodNotImplemented) }; return
                     }
@@ -59,14 +62,7 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
-            guard let self = self, let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-            if type == .began { self.interrupted = true; self.suspend() }
-            else {
-                self.interrupted = false
-                let options = AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
-                if options.contains(.shouldResume) { self.resume() }
-            }
+            self?.handleInterruption(note)
         })
         for notification in [AVAudioSession.routeChangeNotification, AVAudioSession.mediaServicesWereResetNotification] {
             observers.append(center.addObserver(forName: notification, object: nil, queue: .main) { [weak self] note in
@@ -80,8 +76,22 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         }
     }
 
+    func handleInterruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        if type == .began { interrupted = true; suspend() }
+        else {
+            interrupted = false
+            let options = AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+            if options.contains(.shouldResume) { resume() }
+        }
+    }
+
     private func publish(_ name: String, _ identity: Data, _ port: Int, _ videoTXT: Data, _ audioTXT: Data, _ token: Int) {
-        guard !interrupted, host.queue.sync(execute: { host.isCurrent(token) }) else { return }
+        // Publication follows successful audio activation. A newer interruption
+        // synchronously invalidates this generation before services can appear.
+        guard host.queue.sync(execute: { host.isCurrent(token) }) else { return }
+        interrupted = false
         stopServices(); serviceGeneration = token
         let audioName = identity.map { String(format: "%02X", $0) }.joined() + "@" + name
         for (type, label, txt) in [("_airplay._tcp.", name, videoTXT), ("_raop._tcp.", audioName, audioTXT)] {
@@ -111,7 +121,8 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         UIApplication.shared.isIdleTimerDisabled = false
     }
     func resume() {
-        guard !interrupted, UIApplication.shared.applicationState != .background else { return }
+        guard UIApplication.shared.applicationState != .background else { return }
+        // Let the system decide whether audio can activate after suspension.
         host.queue.async { self.host.resume() }
     }
     func dispose() {

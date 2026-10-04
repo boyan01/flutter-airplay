@@ -5,6 +5,11 @@ receiver, clock, bounded PCM queue and session lifecycle as the other platforms.
 The GTK host embeds decoded video in a Flutter texture; it does not launch an
 external player or subprocess.
 
+AAC decoding shares `native/player/ffmpeg_audio_decoder.cpp` with Windows.
+Both hosts use the same ALAC/AAC-LC/AAC-ELD PCM and recovery regression in
+`native/player-tests/ffmpeg_audio_decoder_test.cpp`. Linux continues to link
+distribution-provided FFmpeg libraries.
+
 ## Dependencies and build
 
 Use the Flutter version pinned in `.fvmrc`. The software baseline requires

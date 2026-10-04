@@ -95,9 +95,12 @@ final class ReceiverHost {
         guard path.isEmpty else { throw ReceiverFailure(message: "iPad 使用内置接收核心。") }
         log("内置接收库已加载；VideoToolbox / AudioConverter / RemoteIO。请保持应用在前台。")
     }
-    func start(name: String, path: String) throws {
+    func start(name: String, path: String, foreground: Bool) throws {
+        // Engine installation can precede scene activation. Use the newer
+        // application state carried by the request from the main thread.
+        self.foreground = foreground
         guard player == nil else { return }
-        guard foreground else { throw ReceiverFailure(message: "请在应用前台启动接收器。") }
+        guard self.foreground else { throw ReceiverFailure(message: "请在应用前台启动接收器。") }
         try save(name: name, path: path)
         guard let video = videoOutput else { throw ReceiverFailure(message: "内嵌视频引擎未就绪。") }
         let session = AVAudioSession.sharedInstance()
@@ -213,7 +216,7 @@ final class ReceiverHost {
     func disconnect() {
         guard status == "streaming" else { return }
         let name = defaults.string(forKey: "receiverName") ?? "Flutter AirPlay"
-        stop(); do { try start(name: name, path: "") } catch { state("error", error.localizedDescription) }
+        stop(); do { try start(name: name, path: "", foreground: foreground) } catch { state("error", error.localizedDescription) }
     }
     func discoveryReady(_ type: String, token: Int) {
         guard token == generation, player != nil else { return }
@@ -235,8 +238,10 @@ final class ReceiverHost {
     func resume() {
         foreground = true
         guard resumeRequested else { return }
-        resumeRequested = false
-        do { try start(name: defaults.string(forKey: "receiverName") ?? "Flutter AirPlay", path: "") }
+        do {
+            try start(name: defaults.string(forKey: "receiverName") ?? "Flutter AirPlay", path: "", foreground: foreground)
+            resumeRequested = false
+        }
         catch { state("error", error.localizedDescription) }
     }
     func userStop() { resumeRequested = false; stop() }

@@ -49,6 +49,7 @@ class ReceiverModel extends ChangeNotifier {
 
   String get platform => _platform;
   String _platform = defaultTargetPlatform.name;
+  bool get supportsWindowPreferences => {'macos', 'windows'}.contains(platform);
   bool get isMobile => platform == 'android' || platform == 'ios';
   bool isTelevision = false;
   bool get supportsExecutablePath => _supportsExecutablePath ?? false;

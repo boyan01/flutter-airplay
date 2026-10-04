@@ -355,4 +355,16 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get foregroundReceive =>
       'Keep this app in the foreground to receive mirroring on iPad.';
+
+  @override
+  String get maximize => 'Maximize';
+
+  @override
+  String get restore => 'Restore';
+
+  @override
+  String get keepInTray => 'Keep in system tray when the window closes';
+
+  @override
+  String get fullscreenWindows => 'Toggle fullscreen (F11)';
 }

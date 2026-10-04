@@ -13,6 +13,12 @@ ownership and RTP recovery, embedded Flutter frame transport, and safe cleanup
 of partially initialized receivers and DNS objects. Original source-level
 copyright and license notices are retained.
 
+The Windows `snprintf` fallback applies only to pre-Visual Studio 2015 MSVC.
+Modern MSVC and ClangCL use the CRT's standard declaration without macro aliases.
+
+The embedded HTTP listener explicitly creates and destroys its lifecycle mutex.
+Zero-filled storage is not a valid initialized Windows critical section.
+
 The UI redesign adds a bounded `AIRPLAY_RECEIVER_EVENT client <name>` event
 for admitted senders. Control bytes are removed so names cannot inject event
 lines. Android receives the same client-request callback through its JNI host;

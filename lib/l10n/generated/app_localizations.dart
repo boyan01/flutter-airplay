@@ -751,6 +751,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Keep this app in the foreground to receive mirroring on iPad.'**
   String get foregroundReceive;
+
+  /// No description provided for @maximize.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize'**
+  String get maximize;
+
+  /// No description provided for @restore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get restore;
+
+  /// No description provided for @keepInTray.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep in system tray when the window closes'**
+  String get keepInTray;
+
+  /// No description provided for @fullscreenWindows.
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle fullscreen (F11)'**
+  String get fullscreenWindows;
 }
 
 class _AppLocalizationsDelegate

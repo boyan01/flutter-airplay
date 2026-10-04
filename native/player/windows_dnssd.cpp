@@ -147,7 +147,7 @@ std::string identity(dnssd_t *receiver, bool colons) {
 extern "C" int dnssd_register_raop(dnssd_t *receiver, unsigned short port) {
     if (!receiver || receiver->audio) return ERROR_INVALID_PARAMETER;
     receiver->audio = std::make_unique<Service>();
-    Properties properties{{"ch", RAOP_CH}, {"cn", "1,2"}, {"da", RAOP_DA}, {"et", RAOP_ET}, {"vv", RAOP_VV},
+    Properties properties{{"ch", RAOP_CH}, {"cn", RAOP_CN}, {"da", RAOP_DA}, {"et", RAOP_ET}, {"vv", RAOP_VV},
         {"ft", features(receiver)}, {"am", GLOBAL_MODEL}, {"md", RAOP_MD}, {"rhd", RAOP_RHD},
         {"pw", receiver->pin ? "true" : "false"}, {"sf", receiver->pin ? "0x84" : RAOP_SF},
         {"sr", RAOP_SR}, {"ss", RAOP_SS}, {"sv", RAOP_SV}, {"tp", RAOP_TP}, {"txtvers", RAOP_TXTVERS},

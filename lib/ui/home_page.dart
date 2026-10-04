@@ -93,9 +93,9 @@ class HomePage extends StatelessWidget {
             if (!tv)
               IconButton(
                 key: Key(
-                  model.platform == 'macos' ? 'openSettings' : 'editName',
+                  model.supportsWindowPreferences ? 'openSettings' : 'editName',
                 ),
-                focusNode: model.platform == 'macos' && !model.canStart
+                focusNode: model.supportsWindowPreferences && !model.canStart
                     ? actionFocus
                     : null,
                 tooltip: l10n(context).rename,

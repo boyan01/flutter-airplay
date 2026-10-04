@@ -31,7 +31,7 @@ std::string string(const Map &args, const char *key, const std::string &fallback
     return found != args.end() && std::holds_alternative<std::string>(found->second)
         ? std::get<std::string>(found->second) : fallback;
 }
-bool boolean(const Map &args, const char *key, bool fallback) {
+bool bool_argument(const Map &args, const char *key, bool fallback) {
     const auto found = args.find(Value(key));
     return found != args.end() && std::holds_alternative<bool>(found->second) ? std::get<bool>(found->second) : fallback;
 }
@@ -82,7 +82,8 @@ struct ReceiverBridge::Impl {
     std::shared_ptr<Pixels> pixels = std::make_shared<Pixels>();
     std::shared_ptr<flutter::TextureVariant> texture;
     int64_t texture_id = -1;
-    std::unique_ptr<flutter::MethodChannel<Value>> methods, windows;
+    std::unique_ptr<flutter::MethodChannel<Value>> methods;
+    std::function<void(const Map &)> on_snapshot;
     std::unique_ptr<flutter::EventChannel<Value>> events;
     std::unique_ptr<flutter::EventSink<Value>> sink;
     std::mutex command_lock, dispatch_lock;
@@ -101,19 +102,17 @@ struct ReceiverBridge::Impl {
     int width = 0, height = 0;
     int64_t log_id = 0;
     List logs;
-    bool fullscreen = false;
-    LONG_PTR original_style = 0;
-    WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+    bool keep_in_tray = true, show_on_connect = true, fullscreen_on_connect = false;
+    bool always_on_top = false, launch_at_login = false;
 
-    Impl(HWND target, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *registrar)
-        : window(target), textures(registrar) {
+    Impl(HWND target, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *registrar, std::function<void(const Map &)> callback)
+        : window(target), textures(registrar), on_snapshot(std::move(callback)) {
         pixels->clear();
         texture = std::make_shared<flutter::TextureVariant>(flutter::PixelBufferTexture(
             [state = pixels](size_t, size_t) { return state->copy(); }));
         texture_id = textures->RegisterTexture(texture.get());
         methods = std::make_unique<flutter::MethodChannel<Value>>(messenger, "org.airplayreceiver/control", &flutter::StandardMethodCodec::GetInstance());
         events = std::make_unique<flutter::EventChannel<Value>>(messenger, "org.airplayreceiver/events", &flutter::StandardMethodCodec::GetInstance());
-        windows = std::make_unique<flutter::MethodChannel<Value>>(messenger, "org.flutterairplay/window", &flutter::StandardMethodCodec::GetInstance());
         events->SetStreamHandler(std::make_unique<flutter::StreamHandlerFunctions<Value>>(
             [this](const Value *, std::unique_ptr<flutter::EventSink<Value>> next) -> std::unique_ptr<flutter::StreamHandlerError<Value>> {
                 sink = std::move(next); enqueue([this] { emit(Map{{Value("type"), Value("snapshot")}, {Value("data"), Value(snapshot())}}); }); return nullptr;
@@ -124,14 +123,9 @@ struct ReceiverBridge::Impl {
             auto reply = std::shared_ptr<Result>(std::move(result));
             enqueue([this, method, args, reply] { command(method, args, reply); });
         });
-        windows->SetMethodCallHandler([this](const flutter::MethodCall<Value> &call, std::unique_ptr<Result> result) {
-            if (call.method_name() == "toggleFullscreen") set_fullscreen(!fullscreen);
-            else if (call.method_name() == "exitFullscreen") set_fullscreen(false);
-            else if (call.method_name() != "setMode") { result->NotImplemented(); return; }
-            result->Success();
-        });
         worker = std::thread([this] {
             load();
+            auto initial = snapshot(); post([this, initial] { on_snapshot(initial); });
             for (;;) {
                 std::function<void()> task;
                 { std::unique_lock<std::mutex> guard(command_lock); wake.wait(guard, [this] { return closing || !commands.empty(); });
@@ -142,7 +136,7 @@ struct ReceiverBridge::Impl {
         });
     }
     ~Impl() {
-        methods->SetMethodCallHandler(nullptr); windows->SetMethodCallHandler(nullptr); events->SetStreamHandler(nullptr); sink.reset();
+        methods->SetMethodCallHandler(nullptr); events->SetStreamHandler(nullptr); sink.reset();
         { std::lock_guard<std::mutex> guard(command_lock); closing = true; commands.clear(); }
         wake.notify_all(); if (worker.joinable()) worker.join();
         // Keep the registrar callback alive until Flutter confirms unregistration.
@@ -161,7 +155,14 @@ struct ReceiverBridge::Impl {
         { std::lock_guard<std::mutex> guard(dispatch_lock); tasks.swap(dispatches); }
         for (auto &task : tasks) task();
     }
-    void emit(Map event) { post([this, event = std::move(event)] { if (sink) sink->Success(Value(event)); }); }
+    void emit(Map event) {
+        const bool changed = string(event, "type") != "log";
+        auto current = changed ? snapshot() : Map{};
+        post([this, event = std::move(event), current = std::move(current), changed] {
+            if (sink) sink->Success(Value(event));
+            if (changed) on_snapshot(current);
+        });
+    }
     void state(const std::string &next, const std::string &detail) {
         status = next; message = detail;
         if (next == "waiting" || next == "stopping" || next == "stopped" || next == "error") {
@@ -178,12 +179,15 @@ struct ReceiverBridge::Impl {
     }
     Map snapshot() const {
         return Map{{Value("status"), Value(status)}, {Value("message"), Value(message)}, {Value("name"), Value(name)},
-            {Value("path"), Value("")}, {Value("autoStart"), Value(auto_start)}, {Value("clientName"), Value(client)},
+            {Value("path"), Value("")}, {Value("autoStart"), Value(auto_start)},
+            {Value("keepInMenuBar"), Value(keep_in_tray)}, {Value("showOnConnect"), Value(show_on_connect)},
+            {Value("fullscreenOnConnect"), Value(fullscreen_on_connect)}, {Value("alwaysOnTop"), Value(always_on_top)},
+            {Value("launchAtLogin"), Value(launch_at_login)}, {Value("clientName"), Value(client)},
             {Value("pid"), Value(player ? static_cast<int64_t>(GetCurrentProcessId()) : 0)}, {Value("textureId"), Value(texture_id)},
             {Value("videoWidth"), Value(width)}, {Value("videoHeight"), Value(height)}, {Value("audioPlaying"), Value(audio)},
             {Value("videoPaused"), Value(paused)}, {Value("logs"), Value(logs)},
             {Value("capabilities"), Value(Map{{Value("platform"), Value("windows")}, {Value("supportsExecutablePath"), Value(false)},
-                {Value("supportsLaunchAtLogin"), Value(false)}, {Value("supportsAacEld"), Value(false)}})}};
+                {Value("supportsLaunchAtLogin"), Value(true)}, {Value("supportsAacEld"), Value(true)}})}};
     }
     void load() {
         PWSTR support = nullptr;
@@ -194,6 +198,10 @@ struct ReceiverBridge::Impl {
             std::ifstream settings(directory / L"settings.txt", std::ios::binary); std::string saved;
             if (std::getline(settings, saved) && valid_name(saved)) name = saved;
             if (std::getline(settings, saved)) auto_start = saved != "0";
+            for (auto *option : {&keep_in_tray, &show_on_connect, &fullscreen_on_connect, &always_on_top}) {
+                if (std::getline(settings, saved)) *option = saved != "0";
+            }
+            launch_at_login = login_enabled();
             std::ifstream data(directory / L"identity.dat", std::ios::binary);
             data.read(reinterpret_cast<char *>(identity.data()), identity.size());
             if (data.gcount() != static_cast<std::streamsize>(identity.size())) {
@@ -206,6 +214,39 @@ struct ReceiverBridge::Impl {
                 if (!output) directory.clear();
             }
         }
+    }
+    static std::wstring login_command() {
+        std::wstring path(32768, L'\0');
+        const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (!length || length >= path.size()) return {};
+        path.resize(length); return L"\"" + path + L"\"";
+    }
+    static bool login_enabled() {
+        DWORD size = 0;
+        constexpr auto key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        if (RegGetValueW(HKEY_CURRENT_USER, key, L"FlutterAirPlay", RRF_RT_REG_SZ, nullptr, nullptr, &size) != ERROR_SUCCESS
+            || size > 65536 || size < sizeof(wchar_t)) return false;
+        std::wstring value(size / sizeof(wchar_t), L'\0');
+        if (RegGetValueW(HKEY_CURRENT_USER, key, L"FlutterAirPlay", RRF_RT_REG_SZ, nullptr, value.data(), &size) != ERROR_SUCCESS) return false;
+        value.resize(wcslen(value.c_str())); return value == login_command();
+    }
+    static bool set_login(bool enabled) {
+        HKEY key = nullptr;
+        constexpr auto path = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        auto error = enabled
+            ? RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr)
+            : RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_SET_VALUE, &key);
+        if (!enabled && error == ERROR_FILE_NOT_FOUND) return true;
+        if (error != ERROR_SUCCESS) return false;
+        if (enabled) {
+            const auto command = login_command();
+            error = command.empty() ? ERROR_INVALID_DATA : RegSetValueExW(key, L"FlutterAirPlay", 0, REG_SZ,
+                reinterpret_cast<const BYTE *>(command.c_str()), static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
+        } else {
+            error = RegDeleteValueW(key, L"FlutterAirPlay");
+            if (error == ERROR_FILE_NOT_FOUND) error = ERROR_SUCCESS;
+        }
+        RegCloseKey(key); return error == ERROR_SUCCESS;
     }
     static bool valid_name(const std::string &value) {
         return !value.empty() && value.size() <= 50 &&
@@ -220,12 +261,25 @@ struct ReceiverBridge::Impl {
         if (!valid_name(next)) return "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。";
         if (player && next != name) return "请先停止接收器再修改设备名。";
         if (directory.empty()) return "无法创建接收器的本地配置目录。";
-        const auto automatic = boolean(args, "autoStart", auto_start);
+        const auto automatic = bool_argument(args, "autoStart", auto_start);
+        const auto keep = bool_argument(args, "keepInMenuBar", keep_in_tray);
+        const auto show = bool_argument(args, "showOnConnect", show_on_connect);
+        const auto full = bool_argument(args, "fullscreenOnConnect", fullscreen_on_connect);
+        const auto top = bool_argument(args, "alwaysOnTop", always_on_top);
+        const auto login = bool_argument(args, "launchAtLogin", launch_at_login);
+        if (login != launch_at_login && !set_login(login)) return "无法更新当前用户的登录启动设置。";
         std::ofstream output(directory / L"settings.txt", std::ios::binary | std::ios::trunc);
-        output << next << '\n' << (automatic ? '1' : '0') << '\n'; output.close();
-        if (!output) return "无法保存接收器配置。";
-        name = std::move(next); auto_start = automatic; return "";
+        output << next << '\n' << (automatic ? '1' : '0') << '\n'
+            << keep << '\n' << show << '\n' << full << '\n' << top << '\n'; output.close();
+        if (!output) {
+            if (login != launch_at_login) set_login(launch_at_login);
+            return "无法保存接收器配置。";
+        }
+        name = std::move(next); auto_start = automatic; keep_in_tray = keep;
+        show_on_connect = show; fullscreen_on_connect = full; always_on_top = top; launch_at_login = login;
+        return "";
     }
+
     void clear_video() { pixels->clear(); textures->MarkTextureFrameAvailable(texture_id); width = height = 0;
         emit(Map{{Value("type"), Value("video")}, {Value("textureId"), Value(texture_id)}, {Value("videoWidth"), Value(0)}, {Value("videoHeight"), Value(0)}}); }
     void media() { emit(Map{{Value("type"), Value("media")}, {Value("audioPlaying"), Value(audio)}, {Value("videoPaused"), Value(paused)}}); }
@@ -278,7 +332,7 @@ struct ReceiverBridge::Impl {
         if (!airplay_player_start(player, name.c_str(), identity.data(), key.c_str(), error, sizeof(error))) {
             const std::string detail = error; stop(); state("error", detail); return detail;
         }
-        log("Windows: H.264 / ALAC / 1024-sample AAC-LC; AAC-ELD is unsupported. iPhone mirroring may require ELD audio.");
+        log("Windows: H.264 / ALAC / AAC-LC / AAC-ELD; AAC uses the shared FFmpeg decoder.");
         state("waiting", "等待 iPhone · 请在控制中心选择此设备"); return "";
     }
     void stop() {
@@ -296,28 +350,13 @@ struct ReceiverBridge::Impl {
         } else if (method == "stop") stop();
         else if (method == "check") {
             if (!string(args, "path").empty()) error = "Windows 使用内置接收核心。";
-            else log("Built-in player loaded. Media Foundation and WASAPI still require a Windows playback test; AAC-ELD is unsupported.");
+            else log("Built-in player loaded: Media Foundation H.264, shared FFmpeg AAC-LC/AAC-ELD, Apple ALAC and WASAPI.");
         } else { post([reply] { reply->NotImplemented(); }); return; }
         post([reply, error] { if (error.empty()) reply->Success(); else reply->Error("receiver_error", error); });
     }
-    void set_fullscreen(bool enabled) {
-        if (fullscreen == enabled) return;
-        if (enabled) {
-            original_style = GetWindowLongPtrW(window, GWL_STYLE); GetWindowPlacement(window, &placement);
-            MONITORINFO monitor{sizeof(MONITORINFO)};
-            if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) return;
-            SetWindowLongPtrW(window, GWL_STYLE, original_style & ~WS_OVERLAPPEDWINDOW);
-            SetWindowPos(window, HWND_TOP, monitor.rcMonitor.left, monitor.rcMonitor.top,
-                monitor.rcMonitor.right - monitor.rcMonitor.left, monitor.rcMonitor.bottom - monitor.rcMonitor.top,
-                SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
-        } else {
-            SetWindowLongPtrW(window, GWL_STYLE, original_style); SetWindowPlacement(window, &placement);
-            SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
-        }
-        fullscreen = enabled;
-    }
 };
-ReceiverBridge::ReceiverBridge(HWND window, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *textures)
-    : impl_(std::make_unique<Impl>(window, messenger, textures)) {}
+ReceiverBridge::ReceiverBridge(HWND window, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *textures,
+                               std::function<void(const flutter::EncodableMap &)> on_snapshot)
+    : impl_(std::make_unique<Impl>(window, messenger, textures, std::move(on_snapshot))) {}
 ReceiverBridge::~ReceiverBridge() = default;
 void ReceiverBridge::Dispatch() { impl_->dispatch(); }

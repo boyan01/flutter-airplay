@@ -31,6 +31,13 @@
     "commit": "2117b8fdb6b4096455bd2041a63e59a028120136",
     "license": "LGPL-2.1-or-later"
   },
+  "ffmpeg": {
+    "repository": "https://github.com/FFmpeg/FFmpeg.git",
+    "tag": "n7.1.5",
+    "commit": "3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587",
+    "license": "LGPL-2.1-or-later",
+    "configuration": "Windows shared avcodec/avutil/swresample, native float AAC decoder only; no GPL/nonfree/external codecs"
+  },
   "alac": {
     "repository": "https://github.com/macosforge/alac.git",
     "commit": "c38887c5c5e64a4b31108733bd79ca9b2496d987",

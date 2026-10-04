@@ -14,6 +14,18 @@ add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" "$<TARGET_FILE_DIR:${BINARY_NAME}>")
 install(FILES "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+foreach(component avcodec avutil swresample)
+  file(GLOB component_dll "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/${component}-*.dll")
+  list(LENGTH component_dll dll_count)
+  if(NOT dll_count EQUAL 1)
+    message(FATAL_ERROR "Missing or ambiguous FFmpeg ${component} runtime. Rebuild the Windows native player first.")
+  endif()
+  add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${component_dll}" "$<TARGET_FILE_DIR:${BINARY_NAME}>")
+  install(FILES "${component_dll}" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+endforeach()
+install(DIRECTORY "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/ffmpeg-licenses/"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses/FFmpeg" COMPONENT Runtime)
 install(FILES "${AIRPLAY_ROOT}/LICENSE" "${AIRPLAY_ROOT}/THIRD_PARTY_NOTICES.md"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)
 install(DIRECTORY "${AIRPLAY_ROOT}/android/app/src/main/assets/licenses/" DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)

@@ -11,7 +11,7 @@ import 'home_page.dart';
 import 'audio_page.dart';
 import 'player_page.dart';
 import 'settings_page.dart';
-import 'mac_window_bar.dart';
+import 'desktop_window_bar.dart';
 
 class ReceiverScreen extends StatefulWidget {
   const ReceiverScreen({super.key, required this.model});
@@ -25,6 +25,8 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   static const _window = MethodChannel('org.flutterairplay/window');
   final _homeFocus = FocusNode(debugLabel: 'Home action');
   bool _dialogOpen = false;
+  bool _maximized = false;
+  String _windowLocale = '';
   bool _playing = false;
   bool _connected = false;
   String _homeAction = '';
@@ -40,13 +42,75 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         await _settings();
       } else if (call.method == 'openLogs') {
         await _logs();
+      } else if (call.method == 'toggleReceiver') {
+        if (model.canStop) {
+          await model.stop();
+        } else if (model.canStart) {
+          await model.start(model.name, model.path);
+        }
+      } else if (call.method == 'disconnectSession') {
+        await model.disconnect();
+      } else if (call.method == 'toggleOnTop') {
+        await model.save(
+          model.name,
+          model.path,
+          desktopOptions: {
+            ...model.desktopOptions,
+            'alwaysOnTop': !model.desktopOptions['alwaysOnTop']!,
+          },
+        );
+      } else if (call.method == 'windowStateChanged') {
+        final state = Map<Object?, Object?>.from(call.arguments as Map);
+        setState(
+          () => _maximized =
+              state['maximized'] == true || state['fullscreen'] == true,
+        );
       }
     });
     model.addListener(_changed);
     model.initialize();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _setWindowStrings();
+  }
+
+  Future<void> _setWindowStrings() async {
+    if (!model.loaded || model.platform != 'windows') return;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    if (_windowLocale == locale) return;
+    _windowLocale = locale;
+    final strings = l10n(context);
+    try {
+      await _window.invokeMethod<void>('setStrings', {
+        'openApp': strings.openApp,
+        'showPlayer': strings.showPlayer,
+        'receive': strings.receive,
+        'disconnect': strings.disconnect,
+        'settings': strings.settings,
+        'logs': strings.logs,
+        'quitApp': strings.quitApp,
+        'discoverable': strings.discoverable,
+        'off': strings.off,
+        'starting': strings.starting,
+        'unavailable': strings.unavailable,
+        'playing': strings.playing,
+        'audioPlaying': strings.audioPlaying,
+        'actualSize': strings.actualSize,
+        'fitScreen': strings.fitScreen,
+        'alwaysOnTop': strings.alwaysOnTop,
+        'enterFullscreen': strings.enterFullscreen,
+        'exitFullscreen': strings.exitFullscreen,
+      });
+    } on MissingPluginException {
+      // A widget-test host has no native presentation adapter.
+    }
+  }
+
   void _changed() {
+    _setWindowStrings();
     final playing = model.hasVideo;
     final mode = playing
         ? 'player:${model.videoWidth}:${model.videoHeight}'
@@ -158,6 +222,24 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     listenable: model,
     builder: (context, _) => CallbackShortcuts(
       bindings: {
+        if (model.platform == 'windows') ...{
+          const SingleActivator(LogicalKeyboardKey.keyR, control: true):
+              _toggleReceiver,
+          const SingleActivator(LogicalKeyboardKey.comma, control: true):
+              _settings,
+          const SingleActivator(LogicalKeyboardKey.keyL, control: true): _logs,
+          const SingleActivator(LogicalKeyboardKey.period, control: true): () {
+            if (!_dialogOpen && model.status == 'streaming') model.disconnect();
+          },
+          const SingleActivator(LogicalKeyboardKey.f11): _toggleFullscreen,
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (!_dialogOpen) _toggleFullscreen(target: false);
+          },
+          const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
+              _window.invokeMethod<void>('closeWindow'),
+          const SingleActivator(LogicalKeyboardKey.keyQ, control: true): () =>
+              _window.invokeMethod<void>('quitApp'),
+        },
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true):
             _toggleReceiver,
         const SingleActivator(LogicalKeyboardKey.comma, meta: true): _settings,
@@ -174,12 +256,17 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                 onFullscreen: _toggleFullscreen,
                 onEscape: () => _toggleFullscreen(target: false),
                 dialogOpen: _dialogOpen,
+                maximized: _maximized,
               )
             : SafeArea(
                 child: Column(
                   children: [
-                    if (model.platform == 'macos')
-                      const MacWindowBar(title: 'Flutter AirPlay'),
+                    if (model.supportsWindowPreferences)
+                      DesktopWindowBar(
+                        title: 'Flutter AirPlay',
+                        platform: model.platform,
+                        maximized: _maximized,
+                      ),
                     Expanded(
                       child: model.showAudioPage
                           ? AudioPage(
@@ -206,7 +293,8 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     if (_dialogOpen || !model.loaded) return;
     setState(() => _dialogOpen = true);
     final page = SettingsPage(model: model, editName: editName, onLogs: _logs);
-    if (model.platform == 'macos') {
+    if (model.supportsWindowPreferences) {
+      final top = model.platform == 'windows' ? 44.0 : 12.0;
       await showGeneralDialog<void>(
         context: context,
         barrierDismissible: true,
@@ -215,11 +303,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         pageBuilder: (context, animation, secondary) => Align(
           alignment: Alignment.topCenter,
           child: Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: EdgeInsets.only(top: top),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: 480,
-                maxHeight: MediaQuery.sizeOf(context).height - 24,
+                maxHeight: MediaQuery.sizeOf(context).height - top - 12,
               ),
               child: page,
             ),

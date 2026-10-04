@@ -344,4 +344,16 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get foregroundReceive => '在 iPad 上接收镜像时，请保持应用在前台。';
+
+  @override
+  String get maximize => '最大化';
+
+  @override
+  String get restore => '还原';
+
+  @override
+  String get keepInTray => '关闭窗口后保留在托盘';
+
+  @override
+  String get fullscreenWindows => '切换全屏（F11）';
 }

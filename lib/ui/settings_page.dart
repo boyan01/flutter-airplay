@@ -88,7 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: model,
     builder: (context, _) {
-      final desktop = model.platform == 'macos';
+      final desktop = model.supportsWindowPreferences;
       final tv = model.isTelevision;
       final entries = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,7 +163,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 l10n(context).loginUnavailable,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            _option('keepInMenuBar', l10n(context).keepInMenuBar),
+            _option(
+              'keepInMenuBar',
+              model.platform == 'windows'
+                  ? l10n(context).keepInTray
+                  : l10n(context).keepInMenuBar,
+            ),
             const SizedBox(height: 20),
             Text(
               l10n(context).playback,

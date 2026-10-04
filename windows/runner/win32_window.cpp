@@ -1,6 +1,10 @@
 #include "win32_window.h"
 
 #include <dwmapi.h>
+#include <commctrl.h>
+#include <windowsx.h>
+#include <algorithm>
+#include <cmath>
 #include <flutter_windows.h>
 
 #include "resource.h"
@@ -134,10 +138,14 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  MONITORINFO display{sizeof(MONITORINFO)};
+  GetMonitorInfoW(monitor, &display);
+  const int width = Scale(size.width, scale_factor), height = Scale(size.height, scale_factor);
+  const int x = display.rcWork.left + (display.rcWork.right - display.rcWork.left - width) / 2;
+  const int y = display.rcWork.top + (display.rcWork.bottom - display.rcWork.top - height) / 2;
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      x, y, width, height,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -145,12 +153,110 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+  const MARGINS shadow{1, 1, 1, 1};
+  DwmExtendFrameIntoClientArea(window, &shadow);
+  SetWindowPos(window, nullptr, 0, 0, 0, 0,
+               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 
   return OnCreate();
 }
 
 bool Win32Window::Show() {
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
+}
+
+void Win32Window::SetFullscreen(bool enabled) {
+  if (fullscreen_ == enabled) return;
+  if (enabled) {
+    MONITORINFO monitor{sizeof(MONITORINFO)};
+    if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
+    windowed_style_ = GetWindowLongPtrW(window_handle_, GWL_STYLE);
+    GetWindowPlacement(window_handle_, &windowed_placement_);
+    fullscreen_ = true;
+    SetWindowLongPtrW(window_handle_, GWL_STYLE, windowed_style_ & ~WS_OVERLAPPEDWINDOW);
+    SetWindowPos(window_handle_, nullptr, monitor.rcMonitor.left, monitor.rcMonitor.top,
+        monitor.rcMonitor.right - monitor.rcMonitor.left, monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+        SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOOWNERZORDER);
+  } else {
+    fullscreen_ = false;
+    SetWindowLongPtrW(window_handle_, GWL_STYLE, windowed_style_);
+    SetWindowPlacement(window_handle_, &windowed_placement_);
+    SetWindowPos(window_handle_, nullptr, 0, 0, 0, 0,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+    ResizeContent(true);
+  }
+}
+
+void Win32Window::ToggleMaximize() {
+  if (fullscreen_) { SetFullscreen(false); return; }
+  ShowWindow(window_handle_, IsZoomed(window_handle_) ? SW_RESTORE : SW_MAXIMIZE);
+}
+
+void Win32Window::SetMode(int width, int height) {
+  const bool preserve = player_width_ > 0;
+  if (player_width_ == width && player_height_ == height) return;
+  player_width_ = width; player_height_ = height;
+  ResizeContent(preserve);
+}
+
+void Win32Window::ResizeContent(bool preserve_area) {
+  if (fullscreen_ || IsZoomed(window_handle_)) return;
+  MONITORINFO monitor{sizeof(MONITORINFO)};
+  if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
+  RECT previous{}; GetWindowRect(window_handle_, &previous);
+  const auto &work = monitor.rcWork;
+  const double dpi = GetDpiForWindow(window_handle_) / 96.0;
+  double width = 440 * dpi, height = 560 * dpi;
+  if (player_width_ > 0 && player_height_ > 0) {
+    const double ratio = double(player_width_) / player_height_;
+    const double max_width = (work.right - work.left) * 0.8;
+    const double max_height = (work.bottom - work.top) * 0.8;
+    width = preserve_area ? std::sqrt(double(previous.right - previous.left) * (previous.bottom - previous.top) * ratio) : max_width;
+    width = std::min(width, std::min(max_width, max_height * ratio));
+    height = width / ratio;
+  }
+  const int w = std::min(static_cast<int>(std::round(width)), int(work.right - work.left));
+  const int h = std::min(static_cast<int>(std::round(height)), int(work.bottom - work.top));
+  const int x = std::clamp(int((previous.left + previous.right - w) / 2), int(work.left), int(work.right) - w);
+  const int y = std::clamp(int((previous.top + previous.bottom - h) / 2), int(work.top), int(work.bottom) - h);
+  SetWindowPos(window_handle_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+void Win32Window::ResizePlayer(bool actual_size) {
+  if (!actual_size) { ResizeContent(false); return; }
+  if (fullscreen_ || player_width_ <= 0 || player_height_ <= 0) return;
+  if (IsZoomed(window_handle_)) ShowWindow(window_handle_, SW_RESTORE);
+  MONITORINFO monitor{sizeof(MONITORINFO)};
+  if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
+  RECT previous{}; GetWindowRect(window_handle_, &previous);
+  const auto &work = monitor.rcWork;
+  const double scale = std::min(1.0, std::min((work.right - work.left) * 0.8 / player_width_, (work.bottom - work.top) * 0.8 / player_height_));
+  const int w = static_cast<int>(std::round(player_width_ * scale));
+  const int h = static_cast<int>(std::round(player_height_ * scale));
+  const int x = std::clamp(int((previous.left + previous.right - w) / 2), int(work.left), int(work.right) - w);
+  const int y = std::clamp(int((previous.top + previous.bottom - h) / 2), int(work.top), int(work.bottom) - h);
+  SetWindowPos(window_handle_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+LRESULT Win32Window::HitTest(LPARAM position) const {
+  if (fullscreen_ || IsZoomed(window_handle_)) return HTCLIENT;
+  RECT bounds{}; GetWindowRect(window_handle_, &bounds);
+  const int border = GetSystemMetricsForDpi(SM_CXSIZEFRAME, GetDpiForWindow(window_handle_))
+      + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, GetDpiForWindow(window_handle_));
+  const int x = GET_X_LPARAM(position), y = GET_Y_LPARAM(position);
+  const bool left = x < bounds.left + border, right = x >= bounds.right - border;
+  const bool top = y < bounds.top + border, bottom = y >= bounds.bottom - border;
+  if (top) return left ? HTTOPLEFT : right ? HTTOPRIGHT : HTTOP;
+  if (bottom) return left ? HTBOTTOMLEFT : right ? HTBOTTOMRIGHT : HTBOTTOM;
+  return left ? HTLEFT : right ? HTRIGHT : HTCLIENT;
+}
+
+LRESULT CALLBACK Win32Window::ChildProc(HWND window, UINT message, WPARAM wparam,
+                                      LPARAM lparam, UINT_PTR id, DWORD_PTR context) {
+  auto *host = reinterpret_cast<Win32Window *>(context);
+  if (message == WM_NCHITTEST && host->HitTest(lparam) != HTCLIENT) return HTTRANSPARENT;
+  if (message == WM_NCDESTROY) RemoveWindowSubclass(window, ChildProc, id);
+  return DefSubclassProc(window, message, wparam, lparam);
 }
 
 // static
@@ -179,6 +285,47 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_NCCALCSIZE:
+      if (wparam) {
+        if (!fullscreen_ && IsZoomed(hwnd)) {
+          MONITORINFO monitor{sizeof(MONITORINFO)};
+          if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
+            reinterpret_cast<NCCALCSIZE_PARAMS *>(lparam)->rgrc[0] = monitor.rcWork;
+        }
+        return 0;
+      }
+      break;
+    case WM_NCACTIVATE:
+      return DefWindowProc(hwnd, message, wparam, -1);
+    case WM_NCHITTEST:
+      return HitTest(lparam);
+    case WM_GETMINMAXINFO: {
+      auto *size = reinterpret_cast<MINMAXINFO *>(lparam);
+      const double scale = GetDpiForWindow(hwnd) / 96.0;
+      int width = Scale(player_width_ > 0 ? 160 : 360, scale);
+      int height = Scale(player_width_ > 0 ? 160 : 480, scale);
+      if (player_width_ > 0 && player_height_ > 0) {
+        const double ratio = double(player_width_) / player_height_;
+        width = std::max(width, static_cast<int>(std::ceil(height * ratio)));
+        height = std::max(height, static_cast<int>(std::ceil(width / ratio)));
+      }
+      size->ptMinTrackSize = {width, height};
+      return 0;
+    }
+    case WM_SIZING:
+      if (player_width_ > 0 && player_height_ > 0 && !fullscreen_) {
+        auto *bounds = reinterpret_cast<RECT *>(lparam);
+        const double ratio = double(player_width_) / player_height_;
+        if (wparam == WMSZ_TOP || wparam == WMSZ_BOTTOM) {
+          bounds->right = bounds->left + static_cast<LONG>(std::round((bounds->bottom - bounds->top) * ratio));
+        } else {
+          const LONG height = static_cast<LONG>(std::round((bounds->right - bounds->left) / ratio));
+          if (wparam == WMSZ_TOPLEFT || wparam == WMSZ_TOPRIGHT) bounds->top = bounds->bottom - height;
+          else bounds->bottom = bounds->top + height;
+        }
+        return TRUE;
+      }
+      break;
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -241,6 +388,7 @@ Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
 void Win32Window::SetChildContent(HWND content) {
   child_content_ = content;
   SetParent(content, window_handle_);
+  SetWindowSubclass(content, ChildProc, 1, reinterpret_cast<DWORD_PTR>(this));
   RECT frame = GetClientArea();
 
   MoveWindow(content, frame.left, frame.top, frame.right - frame.left,

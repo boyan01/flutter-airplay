@@ -130,9 +130,6 @@ void video_process(void *cls, raop_ntp_t *, video_decode_struct *data) {
 }
 void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
     auto *p = player(cls);
-#ifdef _WIN32
-    if (data->ct == 8) return; // Rejected with a user-visible error at format negotiation.
-#endif
     if (p->closing || data->data_len <= 0 || data->data_len > 65536) return;
     const auto now = monotonic_ns();
     const auto due = p->timeline.deadline(data->ntp_time_local ? int64_t(data->ntp_time_local) : realtime_ns(), now);
@@ -151,12 +148,6 @@ void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
 }
 void audio_format(void *cls, unsigned char *ct, unsigned short *spf, bool *, bool *, uint64_t *) {
     auto *p = player(cls); p->audio.format(*ct, *spf);
-#ifdef _WIN32
-    if (*ct == 8) {
-        p->event("error", "AAC-ELD is unavailable on this Windows backend. This sender audio format cannot be played.");
-        return;
-    }
-#endif
     if (!p->output->start()) p->event("error", "Cannot open audio output");
 }
 void video_size(void *cls, float *sw, float *sh, float *, float *) {

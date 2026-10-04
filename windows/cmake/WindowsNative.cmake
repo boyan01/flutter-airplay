@@ -17,10 +17,14 @@ target_sources(receiver_core PRIVATE
 set_source_files_properties("${windows_host}/compat/posix.c" PROPERTIES COMPILE_DEFINITIONS AIRPLAY_POSIX_IMPLEMENTATION=1)
 foreach(target receiver_core plist)
   target_include_directories(${target} PRIVATE "${windows_host}/compat")
-  target_compile_options(${target} PRIVATE
-    "$<$<COMPILE_LANGUAGE:C>:/FI${windows_host}/compat/posix.h>"
-    "$<$<COMPILE_LANGUAGE:C>:/clang:-std=gnu11>")
 endforeach()
+target_compile_definitions(plist PUBLIC LIBPLIST_STATIC)
+# Visual Studio evaluates target language options as C++ for mixed targets.
+# Apply the POSIX adapter to C files without changing the DNS-SD C++ source.
+get_target_property(plist_sources plist SOURCES)
+set_property(SOURCE ${receive_sources} "${windows_host}/compat/posix.c" ${plist_sources}
+  APPEND PROPERTY COMPILE_OPTIONS
+    "/FI${windows_host}/compat/posix.h" "/clang:-std=gnu11")
 foreach(target receiver_core plist llhttp playfair airplay_player)
   target_compile_definitions(${target} PRIVATE WIN32 NOMINMAX WIN32_LEAN_AND_MEAN
     _WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000 _CRT_SECURE_NO_WARNINGS)
@@ -33,7 +37,24 @@ set_property(TARGET alac_decoder PROPERTY COMPILE_OPTIONS /clang:-fwrapv /clang:
 target_sources(airplay_player PRIVATE
   "${project_root}/native/player/windows_video.cpp"
   "${project_root}/native/player/windows_audio.cpp"
-  "${project_root}/native/player/windows_audio_decoder.cpp")
+  "${project_root}/native/player/ffmpeg_audio_decoder.cpp")
+set(FFMPEG_PREFIX "${project_root}/build/windows-deps/ffmpeg-aac" CACHE PATH "Pinned MSVC FFmpeg AAC libraries")
+target_include_directories(airplay_player SYSTEM PRIVATE "${FFMPEG_PREFIX}/include")
+foreach(component avcodec avutil swresample)
+  find_library(FFMPEG_${component}_LIBRARY NAMES ${component}
+    PATHS "${FFMPEG_PREFIX}/lib" "${FFMPEG_PREFIX}/bin" NO_DEFAULT_PATH REQUIRED)
+  file(GLOB component_dll "${FFMPEG_PREFIX}/bin/${component}-*.dll")
+  list(LENGTH component_dll dll_count)
+  if(NOT dll_count EQUAL 1)
+    message(FATAL_ERROR "Expected one ${component} DLL under ${FFMPEG_PREFIX}/bin. Rebuild the pinned Windows dependencies.")
+  endif()
+  target_link_libraries(airplay_player PRIVATE "${FFMPEG_${component}_LIBRARY}")
+  add_custom_command(TARGET airplay_player POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${component_dll}" "$<TARGET_FILE_DIR:airplay_player>")
+endforeach()
+add_custom_command(TARGET airplay_player POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory "${FFMPEG_PREFIX}/licenses"
+    "$<TARGET_FILE_DIR:airplay_player>/ffmpeg-licenses")
 target_link_libraries(receiver_core PUBLIC ws2_32 dnsapi advapi32 crypt32)
 target_link_libraries(airplay_player PRIVATE alac_decoder mfplat mf mfuuid wmcodecdspuuid ole32 avrt)
 set_target_properties(airplay_player PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -48,4 +69,14 @@ if(AIRPLAY_WINDOWS_BUILD_TESTS)
   target_compile_definitions(windows_compat_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
   target_link_libraries(windows_compat_test PRIVATE ws2_32)
   add_test(NAME windows_compat COMMAND windows_compat_test)
+  add_executable(windows_httpd_test "${windows_host}/tests/httpd_test.c")
+  target_include_directories(windows_httpd_test PRIVATE "${windows_host}/compat")
+  target_link_libraries(windows_httpd_test PRIVATE receiver_core)
+  add_test(NAME windows_httpd COMMAND windows_httpd_test)
+  set_tests_properties(windows_httpd PROPERTIES TIMEOUT 15)
+  add_executable(windows_audio_decoder_test "${project_root}/native/player-tests/ffmpeg_audio_decoder_test.cpp")
+  target_include_directories(windows_audio_decoder_test PRIVATE "${project_root}/native/player" "${project_root}/native/player-tests")
+  target_link_libraries(windows_audio_decoder_test PRIVATE airplay_player)
+  add_test(NAME windows_audio_decode_recovery COMMAND windows_audio_decoder_test)
+  set_tests_properties(windows_audio_decode_recovery PROPERTIES TIMEOUT 15)
 endif()

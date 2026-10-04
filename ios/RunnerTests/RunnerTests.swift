@@ -2,6 +2,8 @@
 import CoreVideo
 import Foundation
 import XCTest
+import AVFAudio
+import UIKit
 @testable import Runner
 
 final class RunnerTests: XCTestCase {
@@ -10,6 +12,10 @@ final class RunnerTests: XCTestCase {
     private var host: ReceiverHost!
 
     override func setUpWithError() throws {
+        let active = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            UIApplication.shared.applicationState == .active
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [active], timeout: 5), .completed)
         suiteName = "org.flutterairplay.tests.\(UUID().uuidString)"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         // Launch arguments disable reception in the real test application;
@@ -89,15 +95,105 @@ final class RunnerTests: XCTestCase {
         let video = TestVideoOutput()
         host.queue.sync {
             host.videoOutput = video
-            host.foreground = false
+            // The request's current state must override an older scene flag.
+            host.foreground = true
         }
-        XCTAssertThrowsError(try host.queue.sync { try host.start(name: "Test iPad", path: "") })
+        XCTAssertThrowsError(try host.queue.sync { try host.start(name: "Test iPad", path: "", foreground: false) })
         XCTAssertEqual(video.beginCount, 0)
         XCTAssertNil(defaults.string(forKey: "receiverName"))
         XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
         let snapshot = host.queue.sync { host.snapshot() }
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
+    }
+
+    func testStartUsesForegroundRequestBeforeSceneActivationCallback() {
+        let video = TestVideoOutput()
+        video.beginError = ReceiverFailure(message: "Foreground request reached video output")
+        host.queue.sync {
+            host.videoOutput = video
+            // Engine installation can precede activation; the method request
+            // carries the newer application state observed on the main thread.
+            host.foreground = false
+        }
+        XCTAssertThrowsError(try host.queue.sync {
+            try host.start(name: "Test iPad", path: "", foreground: true)
+        }) { error in
+            XCTAssertEqual(error.localizedDescription, "Foreground request reached video output")
+        }
+        XCTAssertEqual(video.beginCount, 1)
+        XCTAssertTrue(host.queue.sync { host.foreground })
+        XCTAssertEqual(host.queue.sync { host.snapshot()["status"] as? String }, "stopped")
+        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+    }
+
+    func testForegroundResumeRetriesActivationAfterBackgroundAudioInterruption() throws {
+        let bridge = ReceiverBridge()
+        let receiver = bridge.host
+        let video = TestVideoOutput()
+        func onMain(_ action: () -> Void) {
+            if Thread.isMainThread { action() }
+            else { DispatchQueue.main.sync(execute: action) }
+        }
+        defer {
+            onMain {
+                bridge.handleInterruption(Notification(name: AVAudioSession.interruptionNotification,
+                    object: AVAudioSession.sharedInstance(), userInfo: [
+                        AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                        AVAudioSessionInterruptionOptionKey: UInt(0)
+                    ]))
+            }
+            receiver.queue.sync { receiver.userStop() }
+        }
+        try receiver.queue.sync {
+            XCTAssertEqual(receiver.snapshot()["status"] as? String, "stopped")
+            receiver.videoOutput = video
+            // Keep this synthetic receiver private while exercising the real
+            // interruption handler, audio activation and native lifecycle.
+            receiver.publish = { _, _, _, _, _, _ in }
+            try receiver.start(name: receiver.snapshot()["name"] as? String ?? "Flutter AirPlay",
+                               path: "", foreground: true)
+        }
+        onMain {
+            bridge.handleInterruption(Notification(name: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(), userInfo: [
+                    AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue
+                ]))
+        }
+        XCTAssertEqual(receiver.queue.sync { receiver.snapshot()["status"] as? String }, "stopped")
+        onMain { bridge.resume() }
+        let resumed = receiver.queue.sync { receiver.snapshot() }
+        XCTAssertEqual(resumed["status"] as? String, "starting")
+        XCTAssertGreaterThan((resumed["pid"] as? NSNumber)?.intValue ?? 0, 0)
+        XCTAssertEqual(video.beginCount, 2)
+    }
+
+    func testFailedResumeKeepsReceiveIntentUntilSuccessOrUserStop() throws {
+        let video = TestVideoOutput()
+        try host.queue.sync {
+            host.videoOutput = video
+            host.publish = { _, _, _, _, _, _ in }
+            try host.start(name: "Test iPad", path: "", foreground: true)
+            host.suspend()
+            video.beginError = ReceiverFailure(message: "Temporary activation failure")
+            host.resume()
+            XCTAssertEqual(host.snapshot()["status"] as? String, "error")
+            XCTAssertEqual(video.beginCount, 2)
+            video.beginError = nil
+            host.resume()
+            XCTAssertEqual(host.snapshot()["status"] as? String, "starting")
+            XCTAssertGreaterThan((host.snapshot()["pid"] as? NSNumber)?.intValue ?? 0, 0)
+            XCTAssertEqual(video.beginCount, 3)
+            host.suspend()
+            video.beginError = ReceiverFailure(message: "Temporary activation failure")
+            host.resume()
+            XCTAssertEqual(video.beginCount, 4)
+            host.userStop()
+            video.beginError = nil
+            host.resume()
+            XCTAssertEqual((host.snapshot()["pid"] as? NSNumber)?.intValue, 0)
+            XCTAssertEqual(video.beginCount, 4)
+        }
     }
 
     func testIdleSuspendResumeDoesNotStartReceiver() {
@@ -119,7 +215,11 @@ final class RunnerTests: XCTestCase {
 private final class TestVideoOutput: ReceiverVideoOutput {
     let textureIdentifier: Int64 = 99
     private(set) var beginCount = 0
-    func begin() throws { beginCount += 1 }
+    var beginError: Error?
+    func begin() throws {
+        beginCount += 1
+        if let error = beginError { throw error }
+    }
     func receive(_ frame: CVPixelBuffer) {}
     func clear() {}
     func end() {}

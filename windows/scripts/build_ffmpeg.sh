@@ -1,0 +1,25 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+set -euo pipefail
+source_dir="$(cygpath -u "$1")"
+build_dir="$(cygpath -u "$2")"
+prefix="$(cygpath -u "$3")"
+make_bin="$(cygpath -u "$4")"
+# Git Bash must find the MSVC linker before its Unix link utility.
+export PATH="$(dirname "$(command -v cl.exe)"):$PATH"
+mkdir -p "$build_dir"
+cd "$build_dir"
+options=(
+    --toolchain=msvc --arch=x86_64 --target-os=win32 --extra-cflags=-MD
+    "--prefix=$prefix" --enable-shared --disable-static '--ln_s=cp -f'
+    --disable-programs --disable-doc --disable-debug --disable-autodetect
+    --disable-everything --enable-decoder=aac --disable-x86asm
+    --disable-avdevice --disable-avfilter --disable-avformat
+    --disable-swscale --disable-postproc --disable-network
+)
+"$source_dir/configure" "${options[@]}"
+"$make_bin" -r SHELL=sh.exe -j "${NUMBER_OF_PROCESSORS:-4}"
+"$make_bin" -r SHELL=sh.exe install
+mkdir -p "$prefix/licenses"
+cp "$source_dir/COPYING.LGPLv2.1" "$source_dir/LICENSE.md" "$prefix/licenses/"
+printf '%s\n' "${options[@]}" > "$prefix/licenses/FFmpeg-build-config.txt"
