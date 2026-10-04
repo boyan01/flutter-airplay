@@ -38,6 +38,7 @@
   "fullscreen": "Toggle fullscreen (⌃⌘F)",
   "videoLabel": "iPhone mirror display",
   "name": "Device name",
+  "randomName": "Generate a random name",
   "nameHelp": "Shown in iPhone Screen Mirroring",
   "confirm": "Confirm",
   "autoStart": "Receive automatically on launch",

@@ -3,6 +3,7 @@ import Foundation
 import Darwin
 import CoreVideo
 import AVFAudio
+import UIKit
 
 struct ReceiverFailure: LocalizedError {
     let message: String
@@ -47,7 +48,20 @@ final class ReceiverHost {
     private var logs = [[String: Any]]()
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if defaults.string(forKey: "receiverName") == nil {
+            let deviceName = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            var clean = ""
+            for scalar in deviceName.unicodeScalars where !CharacterSet.controlCharacters.contains(scalar) {
+                let character = String(scalar)
+                if clean.utf8.count + character.utf8.count > 50 { break }
+                clean += character
+            }
+            clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
+            defaults.set(clean.isEmpty ? "Flutter AirPlay" : clean, forKey: "receiverName")
+        }
+    }
 
     func snapshot() -> [String: Any] {
         var data: [String: Any] = ["status": status, "message": message, "pid": player == nil ? 0 : getpid(),

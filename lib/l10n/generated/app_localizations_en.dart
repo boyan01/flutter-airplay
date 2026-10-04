@@ -127,6 +127,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get name => 'Device name';
 
   @override
+  String get randomName => 'Generate a random name';
+
+  @override
   String get nameHelp => 'Shown in iPhone Screen Mirroring';
 
   @override

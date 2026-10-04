@@ -190,13 +190,20 @@ struct ReceiverBridge::Impl {
                 {Value("supportsLaunchAtLogin"), Value(true)}, {Value("supportsAacEld"), Value(true)}})}};
     }
     void load() {
+        wchar_t computer[MAX_COMPUTERNAME_LENGTH + 1]{};
+        DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
+        if (GetComputerNameW(computer, &size)) {
+            const auto device_name = utf8(std::wstring(computer, size));
+            if (valid_name(device_name)) name = device_name;
+        }
         PWSTR support = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &support))) {
             directory = std::filesystem::path(support) / L"FlutterAirPlay"; CoTaskMemFree(support);
             std::error_code error; std::filesystem::create_directories(directory, error);
             if (error) { directory.clear(); return; }
             std::ifstream settings(directory / L"settings.txt", std::ios::binary); std::string saved;
-            if (std::getline(settings, saved) && valid_name(saved)) name = saved;
+            const bool has_saved_name = std::getline(settings, saved) && valid_name(saved);
+            if (has_saved_name) name = saved;
             if (std::getline(settings, saved)) auto_start = saved != "0";
             for (auto *option : {&keep_in_tray, &show_on_connect, &fullscreen_on_connect, &always_on_top}) {
                 if (std::getline(settings, saved)) *option = saved != "0";
@@ -213,6 +220,8 @@ struct ReceiverBridge::Impl {
                 output.write(reinterpret_cast<const char *>(identity.data()), identity.size());
                 if (!output) directory.clear();
             }
+            settings.close();
+            if (!has_saved_name && !directory.empty()) save(Map{{Value("name"), Value(name)}});
         }
     }
     static std::wstring login_command() {

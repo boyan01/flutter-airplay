@@ -38,6 +38,7 @@
   "fullscreen": "切换全屏（⌃⌘F）",
   "videoLabel": "iPhone 投屏画面",
   "name": "设备名",
+  "randomName": "生成随机名称",
   "nameHelp": "显示在 iPhone「屏幕镜像」列表中",
   "confirm": "确认",
   "autoStart": "打开应用时自动接收",

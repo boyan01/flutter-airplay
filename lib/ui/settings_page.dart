@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../receiver/receiver_model.dart';
 import 'receiver_strings.dart';
+import 'receiver_name_field.dart';
 import 'tv_focus.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -116,20 +117,13 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             )
           else
-            TextField(
-              key: const Key('receiverName'),
+            ReceiverNameField(
               controller: _name,
               autofocus: widget.editName,
               enabled: model.editable,
-              decoration: InputDecoration(
-                labelText: l10n(context).name,
-                helperText: l10n(context).nameHelp,
-                helperMaxLines: 2,
-                errorText: _error == null
-                    ? null
-                    : localizedMessage(context, _error!),
-              ),
-              onSubmitted: (_) => _save(),
+              error: _error,
+              onGenerated: () => setState(() => _error = null),
+              onSubmitted: _save,
             ),
           const SizedBox(height: 12),
           if (tv)
@@ -405,19 +399,13 @@ class _TvNamePageState extends State<_TvNamePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              key: const Key('receiverName'),
+            ReceiverNameField(
               controller: _name,
-              autofocus: true,
-              enabled: !widget.model.busy,
-              onSubmitted: (_) => _confirm(),
-              decoration: InputDecoration(
-                labelText: l10n(context).name,
-                helperText: l10n(context).nameHelp,
-                errorText: _error == null
-                    ? null
-                    : localizedMessage(context, _error!),
-              ),
+              television: true,
+              enabled: widget.model.editable,
+              error: _error,
+              onGenerated: () => setState(() => _error = null),
+              onSubmitted: _confirm,
             ),
             const SizedBox(height: 24),
             TvFocus(

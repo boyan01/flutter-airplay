@@ -10,6 +10,7 @@ import android.os.Process
 import android.app.Activity
 import android.Manifest
 import android.os.Build
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
@@ -40,11 +41,36 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     private val events = EventChannel(engine.dartExecutor.binaryMessenger, "org.airplayreceiver/events")
 
     init {
+        if (preferences.getString("name", null) == null) saveName(defaultName())
         control.setMethodCallHandler(::command)
         events.setStreamHandler(this)
     }
 
-    private fun name(): String = preferences.getString("name", "Flutter AirPlay Android")!!
+    private fun defaultName(): String {
+        val deviceName = try {
+            Settings.Global.getString(context.contentResolver, "device_name")
+        } catch (_: SecurityException) { null }
+        for (candidate in listOf(deviceName, Build.MODEL, "Flutter AirPlay")) {
+            val clean = StringBuilder()
+            var bytes = 0
+            val source = candidate?.trim().orEmpty()
+            var index = 0
+            while (index < source.length) {
+                val codePoint = source.codePointAt(index)
+                index += Character.charCount(codePoint)
+                if (Character.isISOControl(codePoint)) continue
+                val character = String(Character.toChars(codePoint))
+                val size = character.toByteArray(Charsets.UTF_8).size
+                if (bytes + size > 50) break
+                clean.append(character)
+                bytes += size
+            }
+            if (clean.isNotBlank()) return clean.toString().trim()
+        }
+        return "Flutter AirPlay"
+    }
+
+    private fun name(): String = preferences.getString("name", "Flutter AirPlay")!!
 
     fun snapshot(): Map<String, Any> {
         val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)

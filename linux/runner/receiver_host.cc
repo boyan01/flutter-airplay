@@ -198,6 +198,17 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     if (saved_name) {
       if (!ValidName(saved_name)) throw std::runtime_error("The saved receiver name is invalid.");
       name = saved_name;
+    } else {
+      const auto hostname = SafeText(g_get_host_name());
+      std::string clean;
+      for (const char* p = hostname.c_str(); *p; p = g_utf8_next_char(p)) {
+        if (g_unichar_iscntrl(g_utf8_get_char(p))) continue;
+        const size_t bytes = g_utf8_next_char(p) - p;
+        if (clean.size() + bytes > 50) break;
+        clean.append(p, bytes);
+      }
+      clean = Trim(clean);
+      if (ValidName(clean)) name = clean;
     }
     if (g_key_file_has_key(preferences, "Receiver", "autoStart", nullptr))
       auto_start = g_key_file_get_boolean(preferences, "Receiver", "autoStart", nullptr);

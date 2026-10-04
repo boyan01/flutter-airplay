@@ -326,6 +326,12 @@ abstract class AppLocalizations {
   /// **'Device name'**
   String get name;
 
+  /// No description provided for @randomName.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate a random name'**
+  String get randomName;
+
   /// No description provided for @nameHelp.
   ///
   /// In en, this message translates to:

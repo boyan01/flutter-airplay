@@ -364,6 +364,65 @@ void main() {
     expect(backend.stops, 1);
   });
 
+  for (final locale in ['en', 'zh']) {
+    testWidgets('$locale random name stays a draft until saved', (
+      tester,
+    ) async {
+      final backend = await launch(tester, locale: locale);
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const Key('receiverName'));
+      await tester.enterText(field, '');
+      await tester.tap(find.byKey(const Key('randomReceiverName')));
+      await tester.pump();
+      final generated = tester.widget<TextField>(field).controller!.text;
+      expect(ReceiverModel(backend).validateName(generated), isNull);
+      expect(generated, matches(RegExp(r' \d{4}$')));
+      expect(backend.savedName, isNull);
+      expect(backend.stops, 0);
+      await tester.tap(find.byKey(const Key('randomReceiverName')));
+      await tester.pump();
+      final next = tester.widget<TextField>(field).controller!.text;
+      expect(next, isNot(generated));
+      await tester.tap(find.text(locale == 'zh' ? '完成' : 'Done'));
+      await tester.pumpAndSettle();
+      expect(backend.savedName, next);
+      expect(backend.startedName, next);
+      expect(backend.stops, 1);
+      expect(backend.starts, 2);
+    });
+  }
+
+  testWidgets('TV remote generates and confirms a name without typing', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('tvName')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    final generated = tester
+        .widget<TextField>(find.byKey(const Key('receiverName')))
+        .controller!
+        .text;
+    expect(generated, isNot('Flutter AirPlay'));
+    expect(backend.savedName, isNull);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.savedName, generated);
+    expect(backend.startedName, generated);
+    expect(find.byKey(const Key('tvName')), findsOneWidget);
+  });
+
   testWidgets('Android system permission entries preserve reception', (
     tester,
   ) async {

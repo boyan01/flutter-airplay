@@ -124,6 +124,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get name => '设备名';
 
   @override
+  String get randomName => '生成随机名称';
+
+  @override
   String get nameHelp => '显示在 iPhone「屏幕镜像」列表中';
 
   @override

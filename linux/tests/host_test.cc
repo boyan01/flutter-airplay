@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "host_test_support.h"
+#include <cstring>
 
 static void TextureTest() {
   auto* registrar = reinterpret_cast<TestRegistrar*>(g_object_new(test_registrar_get_type(), nullptr));
@@ -64,6 +65,20 @@ static void HostTest() {
     auto* data = fl_method_response_get_result(snapshot, nullptr);
     g_assert_cmpstr(GetString(data, "status"), ==, "stopped");
     g_assert_cmpstr(GetString(data, "path"), ==, "");
+    const char* device_name = GetString(data, "name");
+    g_assert_nonnull(device_name);
+    g_assert_cmpuint(std::strlen(device_name), >, 0);
+    g_assert_cmpuint(std::strlen(device_name), <=, 50);
+    g_assert_true(g_utf8_validate(device_name, -1, nullptr));
+    if (std::strlen(g_get_host_name()) <= 50)
+      g_assert_cmpstr(device_name, ==, g_get_host_name());
+    // The initial generated name is persisted even with auto-start disabled.
+    g_autoptr(GKeyFile) initial = g_key_file_new();
+    g_autofree gchar* settings_path = g_build_filename(g_get_user_config_dir(),
+        "flutter-airplay", "receiver.ini", nullptr);
+    g_assert_true(g_key_file_load_from_file(initial, settings_path, G_KEY_FILE_NONE, nullptr));
+    g_autofree gchar* persisted_name = g_key_file_get_string(initial, "Receiver", "name", nullptr);
+    g_assert_cmpstr(persisted_name, ==, device_name);
     auto* capabilities = fl_value_lookup_string(data, "capabilities");
     g_assert_cmpstr(GetString(capabilities, "platform"), ==, "linux");
     g_assert_false(fl_value_get_bool(fl_value_lookup_string(capabilities, "supportsExecutablePath")));
