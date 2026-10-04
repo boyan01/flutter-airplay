@@ -387,8 +387,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quality1440 => 'High · 1440p';
 
   @override
+  String get quality2160 => 'Ultra HD · 4K';
+
+  @override
   String get qualityHelp =>
-      'Fit this device uses screen pixels and decoder capabilities, requesting up to 1440p. The sender decides the actual size. Reconnect Screen Mirroring after saving.';
+      'Fit this device uses screen pixels and decoder capabilities, requesting up to 4K (3840 × 2160). The 4K option checks 16:9 decoder support; the sender decides the actual size. Reconnect Screen Mirroring after saving.';
 
   @override
   String get qualityUnsupported => 'This decoder does not support this quality';
@@ -408,4 +411,51 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get qualityRestartHelp =>
       'Changing the name or quality restarts the receiver and ends the current session.';
+
+  @override
+  String get shareLogs => 'Share log file';
+
+  @override
+  String get exportingLogs => 'Preparing logs…';
+
+  @override
+  String get shareLogsFailed =>
+      'Could not export or share logs. Please try again.';
+
+  @override
+  String get shareLogsUnavailable =>
+      'No file sharing app is available on this device.';
+
+  @override
+  String get clearLogView => 'Clear current list';
+
+  @override
+  String get shareLogsHelp =>
+      'Shares saved logs, app version and playback information as a ZIP file. Clearing this list keeps saved logs. Logs may contain device and network information.';
+
+  @override
+  String get audioOutput => 'Audio output';
+
+  @override
+  String get audioOutputAuto => 'Automatic (recommended)';
+
+  @override
+  String get audioOutputAutoHelp =>
+      'Prefer low latency; switch to compatible output on failure';
+
+  @override
+  String get audioOutputAAudio => 'Low latency (AAudio)';
+
+  @override
+  String get audioOutputTrack => 'Compatible (AudioTrack)';
+
+  @override
+  String get audioOutputRestartHelp =>
+      'Changes apply the next time the receiver starts. Stop and start the receiver to use the new selection.';
+
+  @override
+  String get buildVersion => 'Version';
+
+  @override
+  String get buildTime => 'Built at (UTC)';
 }

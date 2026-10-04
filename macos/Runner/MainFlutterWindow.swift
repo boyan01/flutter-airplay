@@ -28,7 +28,7 @@ class MainFlutterWindow: NSWindow {
     center()
     RegisterGeneratedPlugins(registry: controller)
     (NSApp.delegate as? AppDelegate)?.receiver.install(on: controller.engine.binaryMessenger, textures: controller.engine)
-    presentation = FlutterMethodChannel(name: "org.flutterairplay/window", binaryMessenger: controller.engine.binaryMessenger)
+    presentation = FlutterMethodChannel(name: "tech.soit.flutterairplay/window", binaryMessenger: controller.engine.binaryMessenger)
     presentation?.setMethodCallHandler { [weak self] call, result in
       if call.method == "toggleFullscreen", let self = self {
         self.setFullscreen(!self.styleMask.contains(.fullScreen)); result(nil); return

@@ -18,8 +18,8 @@ fvm flutter pub get
 fvm flutter build apk --debug --target-platform android-arm64 \
   --target integration_test/android_receiver_restart_test.dart
 adb install -r -t build/app/outputs/flutter-apk/app-debug.apk
-adb shell am force-stop io.github.boyan01.flutter_airplay
-adb shell am start -n io.github.boyan01.flutter_airplay/.MainActivity
+adb shell am force-stop tech.soit.flutterairplay
+adb shell am start -n tech.soit.flutterairplay/.MainActivity
 ```
 
 Connect the host driver to the running app's Dart VM service. Forward the device

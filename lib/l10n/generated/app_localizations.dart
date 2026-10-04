@@ -812,10 +812,16 @@ abstract class AppLocalizations {
   /// **'High · 1440p'**
   String get quality1440;
 
+  /// No description provided for @quality2160.
+  ///
+  /// In en, this message translates to:
+  /// **'Ultra HD · 4K'**
+  String get quality2160;
+
   /// No description provided for @qualityHelp.
   ///
   /// In en, this message translates to:
-  /// **'Fit this device uses screen pixels and decoder capabilities, requesting up to 1440p. The sender decides the actual size. Reconnect Screen Mirroring after saving.'**
+  /// **'Fit this device uses screen pixels and decoder capabilities, requesting up to 4K (3840 × 2160). The 4K option checks 16:9 decoder support; the sender decides the actual size. Reconnect Screen Mirroring after saving.'**
   String get qualityHelp;
 
   /// No description provided for @qualityUnsupported.
@@ -853,6 +859,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Changing the name or quality restarts the receiver and ends the current session.'**
   String get qualityRestartHelp;
+
+  /// No description provided for @shareLogs.
+  ///
+  /// In en, this message translates to:
+  /// **'Share log file'**
+  String get shareLogs;
+
+  /// No description provided for @exportingLogs.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing logs…'**
+  String get exportingLogs;
+
+  /// No description provided for @shareLogsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not export or share logs. Please try again.'**
+  String get shareLogsFailed;
+
+  /// No description provided for @shareLogsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'No file sharing app is available on this device.'**
+  String get shareLogsUnavailable;
+
+  /// No description provided for @clearLogView.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear current list'**
+  String get clearLogView;
+
+  /// No description provided for @shareLogsHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Shares saved logs, app version and playback information as a ZIP file. Clearing this list keeps saved logs. Logs may contain device and network information.'**
+  String get shareLogsHelp;
+
+  /// No description provided for @audioOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output'**
+  String get audioOutput;
+
+  /// No description provided for @audioOutputAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (recommended)'**
+  String get audioOutputAuto;
+
+  /// No description provided for @audioOutputAutoHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Prefer low latency; switch to compatible output on failure'**
+  String get audioOutputAutoHelp;
+
+  /// No description provided for @audioOutputAAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Low latency (AAudio)'**
+  String get audioOutputAAudio;
+
+  /// No description provided for @audioOutputTrack.
+  ///
+  /// In en, this message translates to:
+  /// **'Compatible (AudioTrack)'**
+  String get audioOutputTrack;
+
+  /// No description provided for @audioOutputRestartHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes apply the next time the receiver starts. Stop and start the receiver to use the new selection.'**
+  String get audioOutputRestartHelp;
+
+  /// No description provided for @buildVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get buildVersion;
+
+  /// No description provided for @buildTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Built at (UTC)'**
+  String get buildTime;
 }
 
 class _AppLocalizationsDelegate

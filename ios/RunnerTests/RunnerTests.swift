@@ -16,7 +16,7 @@ final class RunnerTests: XCTestCase {
             UIApplication.shared.applicationState == .active
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [active], timeout: 5), .completed)
-        suiteName = "org.flutterairplay.tests.\(UUID().uuidString)"
+        suiteName = "tech.soit.flutterairplay.tests.\(UUID().uuidString)"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         // Launch arguments disable reception in the real test application;
         // the isolated suite should exercise persisted settings independently.

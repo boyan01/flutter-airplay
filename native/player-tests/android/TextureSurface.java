@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.player_regression;
+package tech.soit.flutterairplay.player_regression;
 import android.graphics.SurfaceTexture;
 import android.view.Surface;
 import android.opengl.*;
@@ -47,11 +47,16 @@ final class TextureSurface implements AutoCloseable {
     void checkBluePixels(){
         checkPixels(0,0,255);
     }
+    private void bind(){
+        if(!EGL14.eglMakeCurrent(display,target,target,context))throw new IllegalStateException("Cannot bind texture consumer");
+    }
     long sampleTimestamp(){
+        bind();
         texture.updateTexImage();
         return texture.getTimestamp();
     }
     private void checkPixels(int red, int green, int blue){
+        bind();
         texture.updateTexImage();
         if(texture.getTimestamp()==0)throw new IllegalStateException("GPU Surface has no decoded image");
         FloatBuffer vertices=ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -66,6 +71,7 @@ final class TextureSurface implements AutoCloseable {
             throw new IllegalStateException("GPU pixels do not match fixture color");
     }
     @Override public void close(){
+        bind();
         surface.release();texture.release();GLES20.glDeleteTextures(1,new int[]{textureName},0);GLES20.glDeleteProgram(program);
         EGL14.eglMakeCurrent(display,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);
         EGL14.eglDestroySurface(display,target);EGL14.eglDestroyContext(display,context);EGL14.eglTerminate(display);

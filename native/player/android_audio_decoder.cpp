@@ -5,11 +5,13 @@
 #include "alac_decoder.h"
 #include <media/NdkMediaCodec.h>
 #include <cstring>
+#include <cstdio>
 
 namespace airplay {
 struct AudioDecoder::Codec {
     std::unique_ptr<AlacDecoder> alac;
     AMediaCodec *aac = nullptr;
+    bool pcm_logged = false;
     ~Codec() { if (aac) { AMediaCodec_stop(aac); AMediaCodec_delete(aac); } }
 };
 AudioDecoder::AudioDecoder(std::shared_ptr<AudioBuffer> buffer, std::function<void(const char *)> log)
@@ -18,14 +20,22 @@ AudioDecoder::~AudioDecoder() = default;
 void AudioDecoder::clear() { codec_.reset(); }
 
 bool AudioDecoder::open() {
+    auto failed = [&](const char *stage, int status) {
+        if (!open_error_logged_) {
+            char message[160];
+            std::snprintf(message, sizeof(message), "Android audio decoder open failed: stage=%s status=%d ct=%d samples_per_packet=%d", stage, status, ct_, spf_);
+            log_(message); open_error_logged_ = true;
+        }
+        return false;
+    };
     auto candidate = std::make_unique<Codec>();
     if (ct_ == 2) {
         candidate->alac = std::make_unique<AlacDecoder>();
-        if (!candidate->alac->open(spf_)) return false;
+        if (!candidate->alac->open(spf_)) return failed("ALAC configuration", -1);
     } else {
-        if ((ct_ == 4 && spf_ != 960 && spf_ != 1024) || (ct_ == 8 && spf_ != 480 && spf_ != 512)) return false;
+        if ((ct_ == 4 && spf_ != 960 && spf_ != 1024) || (ct_ == 8 && spf_ != 480 && spf_ != 512)) return failed("samples per packet", -1);
         candidate->aac = AMediaCodec_createDecoderByType("audio/mp4a-latm");
-        if (!candidate->aac) return false;
+        if (!candidate->aac) return failed("create AAC decoder", -1);
         auto *format = AMediaFormat_new();
         AMediaFormat_setString(format, "mime", "audio/mp4a-latm");
         AMediaFormat_setInt32(format, "sample-rate", kSampleRate);
@@ -37,17 +47,31 @@ bool AudioDecoder::open() {
         AMediaFormat_setBuffer(format, "csd-0", ct_ == 8 ? eld : aac, ct_ == 8 ? sizeof(eld) : sizeof(aac));
         const auto status = AMediaCodec_configure(candidate->aac, format, nullptr, nullptr, 0);
         AMediaFormat_delete(format);
-        if (status != AMEDIA_OK || AMediaCodec_start(candidate->aac) != AMEDIA_OK) return false;
+        if (status != AMEDIA_OK) return failed("configure AAC decoder", status);
+        const auto started = AMediaCodec_start(candidate->aac);
+        if (started != AMEDIA_OK) return failed("start AAC decoder", started);
     }
+    open_error_logged_ = false;
     codec_ = std::move(candidate);
     log_(ct_ == 2 ? "Apple ALAC decoder ready" : ct_ == 8 ? "MediaCodec AAC-ELD decoder ready" : "MediaCodec AAC decoder ready");
     return true;
 }
 
 bool AudioDecoder::decode_packet(const uint8_t *data, size_t size, int64_t deadline, uint64_t generation, bool *produced) {
+    auto report_pcm = [&](const std::vector<int16_t> &pcm) {
+        if (codec_->pcm_logged || pcm.empty()) return;
+        codec_->pcm_logged = true;
+        int peak = 0;
+        for (const auto sample : pcm) peak = std::max(peak, std::abs(int(sample)));
+        char message[160];
+        std::snprintf(message, sizeof(message), "Android audio first PCM: ct=%d frames=%zu peak_before_volume=%d lead_ms=%lld",
+            ct_, pcm.size() / 2, peak, static_cast<long long>((deadline - monotonic_ns()) / 1000000));
+        log_(message);
+    };
     if (codec_->alac) {
         std::vector<int16_t> pcm;
         if (!codec_->alac->decode(data, size, pcm)) return false;
+        report_pcm(pcm);
         write_pcm(pcm.data(), pcm.size() / 2, deadline, generation, produced);
         return true;
     }
@@ -63,7 +87,10 @@ bool AudioDecoder::decode_packet(const uint8_t *data, size_t size, int64_t deadl
                 int32_t rate = 0, channels = 0, encoding = 2;
                 const auto valid = format && AMediaFormat_getInt32(format, "sample-rate", &rate)
                     && AMediaFormat_getInt32(format, "channel-count", &channels);
-                if (format) { AMediaFormat_getInt32(format, "pcm-encoding", &encoding); AMediaFormat_delete(format); }
+                if (format) {
+                    log_(AMediaFormat_toString(format));
+                    AMediaFormat_getInt32(format, "pcm-encoding", &encoding); AMediaFormat_delete(format);
+                }
                 if (!valid || rate != kSampleRate || channels != 2 || encoding != 2) {
                     log_("Unsupported MediaCodec PCM format"); return false;
                 }
@@ -77,6 +104,7 @@ bool AudioDecoder::decode_packet(const uint8_t *data, size_t size, int64_t deadl
             if (valid && info.size && bytes && !(info.flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG)) {
                 std::vector<int16_t> pcm(size_t(info.size) / sizeof(int16_t));
                 std::memcpy(pcm.data(), bytes + info.offset, info.size);
+                report_pcm(pcm);
                 write_pcm(pcm.data(), pcm.size() / 2, info.presentationTimeUs * 1000, generation, produced);
             }
             AMediaCodec_releaseOutputBuffer(codec_->aac, index, false);

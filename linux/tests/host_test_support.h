@@ -19,7 +19,7 @@
 namespace {
 constexpr char kControl[] = "org.airplayreceiver/control";
 constexpr char kEvents[] = "org.airplayreceiver/events";
-constexpr char kWindow[] = "org.flutterairplay/window";
+constexpr char kWindow[] = "tech.soit.flutterairplay/window";
 std::thread::id main_thread;
 void OnMain() { g_assert_true(std::this_thread::get_id() == main_thread); }
 void SpinUntil(const std::function<bool()>& done) {

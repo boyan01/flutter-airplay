@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Derived from jqssun/android-airplay-server, commit c8defdd70d7e6a04f4f1b71d353653682d594106.
-package io.github.jqssun.airplay.renderer
+package tech.soit.flutterairplay.renderer
 
 import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecCapabilities

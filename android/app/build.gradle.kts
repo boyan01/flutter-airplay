@@ -1,3 +1,5 @@
+import java.time.Instant
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -5,9 +7,12 @@ plugins {
 }
 
 android {
-    namespace = "io.github.boyan01.flutter_airplay"
+    buildFeatures { buildConfig = true }
+    namespace = "tech.soit.flutterairplay"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    sourceSets.getByName("main").java.srcDir("../../native/player/android")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -15,8 +20,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "io.github.boyan01.flutter_airplay"
+        buildConfigField("String", "BUILD_TIME", "\"${Instant.now()}\"")
+        applicationId = "tech.soit.flutterairplay"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         ndk { abiFilters.clear(); abiFilters.add("arm64-v8a") }

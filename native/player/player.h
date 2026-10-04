@@ -27,6 +27,13 @@ typedef struct {
 // It is unused on macOS.
 AirplayPlayer *airplay_player_create(AirplayCallbacks callbacks, void *surface,
                                     const char *decoder, const char *fallback);
+#ifdef __ANDROID__
+// Synchronously moves Android video output without resetting codec references.
+// surface is borrowed; call on the same lifecycle thread as start/destroy.
+bool airplay_player_set_surface(AirplayPlayer *, void *surface);
+// Android output selection: 0=auto, 1=AAudio, 2=AudioTrack. Before receiver start.
+bool airplay_player_set_audio_output(AirplayPlayer *, int mode);
+#endif
 // Sets the advertised size before start; the sender chooses actual frame dimensions.
 // Defaults to 1920x1080. Call on the same lifecycle thread as start/destroy.
 bool airplay_player_set_video_size(AirplayPlayer *, int width, int height);

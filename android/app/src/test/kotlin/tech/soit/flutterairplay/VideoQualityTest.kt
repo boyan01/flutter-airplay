@@ -1,14 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.flutter_airplay
+package tech.soit.flutterairplay
 
 import org.junit.Assert.*
 import org.junit.Test
 
 class VideoQualityTest {
     @Test fun phoneAutoIsCappedAndTelevisionUsesItsDisplayHeight() {
-        assertEquals(1440, VideoQuality.height("auto", 2670) { _, _ -> true })
+        assertEquals(2160, VideoQuality.height("auto", 2670) { _, _ -> true })
         assertEquals(1080, VideoQuality.height("auto", 1080) { _, _ -> true })
         assertEquals(2560, VideoQuality.width(1440))
+    }
+
+    @Test fun fourKUsesUhdDimensionsAndFallsBackOnLimitedDecoders() {
+        val uhd: (Int, Int) -> Boolean = { w, h -> w <= 3840 && h <= 2160 }
+        assertEquals(2160, VideoQuality.height("2160", 1080, uhd))
+        assertEquals(3840, VideoQuality.width(2160))
+        assertEquals(2160, VideoQuality.height("auto", 2160, uhd))
+        assertEquals(1440, VideoQuality.height("auto", 2160) { w, h -> w <= 4096 && h <= 1440 })
+        assertThrows(IllegalArgumentException::class.java) {
+            VideoQuality.height("2160", 2160) { _, h -> h <= 1440 }
+        }
     }
 
     @Test fun autoFallsBackWhenWidePhoneLandscapeExceedsDecoderLimits() {

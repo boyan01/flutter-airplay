@@ -94,7 +94,7 @@ bool FlutterWindow::OnCreate() {
       ->GetRegistrar<flutter::PluginRegistrarWindows>(
           flutter_controller_->engine()->GetRegistrarForPlugin("AirplayReceiver"));
   presentation_ = std::make_unique<flutter::MethodChannel<Value>>(registrar->messenger(),
-      "org.flutterairplay/window", &flutter::StandardMethodCodec::GetInstance());
+      "tech.soit.flutterairplay/window", &flutter::StandardMethodCodec::GetInstance());
   presentation_->SetMethodCallHandler([this](const flutter::MethodCall<Value>& call, std::unique_ptr<flutter::MethodResult<Value>> result) {
     Map args;
     if (call.arguments() && std::holds_alternative<Map>(*call.arguments())) args = std::get<Map>(*call.arguments());

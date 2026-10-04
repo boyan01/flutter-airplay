@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.flutter_airplay
+package tech.soit.flutterairplay
 
 import java.time.Instant
 

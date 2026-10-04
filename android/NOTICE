@@ -8,7 +8,8 @@ Copyright holders are retained in upstream LICENSE and source notices.
 Copied paths and pinned sources appear in dependencies.lock.json.
 Changes: JNI host replaced to fit pinned UxPlay 1.73.7, Flutter embedded texture
 and explicit NSD lifecycle; VideoRenderer error/output callbacks added.
-The original package namespaces on copied renderer classes preserve provenance.
+Copied renderer classes use the tech.soit.flutterairplay.renderer namespace;
+source notices and pinned upstream paths preserve provenance.
 
 UxPlay is maintained directly in vendor/UxPlay; its upstream base is recorded
 in vendor/UxPlay/UPSTREAM.md. GPL-3.0-or-later UxPlay,

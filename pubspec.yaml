@@ -7,6 +7,7 @@ environment:
   sdk: ^3.13.2
 
 dependencies:
+  archive: ^4.3.0
   flutter:
     sdk: flutter
 
@@ -15,8 +16,10 @@ dependencies:
   intl: ^0.20.2
   mixin_logger: ^0.2.0
   nativeapi: 0.4.0
+  package_info_plus: ^10.2.2
   path: ^1.9.1
   path_provider: ^2.1.6
+  share_plus: ^13.3.1
   window_manager: ^0.5.2
 
 dev_dependencies:

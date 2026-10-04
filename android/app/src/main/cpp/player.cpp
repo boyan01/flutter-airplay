@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "player.h"
+#include "android_audio.h"
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
@@ -79,11 +80,12 @@ void log(void *context, int level, const char *message) {
     scope.env->DeleteLocalRef(text);
 }
 }
-extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_PlaybackHost_startNative(
+extern "C" JNIEXPORT jint JNICALL Java_tech_soit_flutterairplay_PlaybackHost_startNative(
         JNIEnv *env, jobject target, jstring name, jbyteArray identity, jstring key,
-        jobject surface, jstring decoder, jstring fallback, jint epoch, jint width, jint height) {
+        jobject surface, jstring decoder, jstring fallback, jint epoch, jint width, jint height, jint audio_mode) {
     std::lock_guard<std::mutex> guard(lifecycle);
     if (active || env->GetArrayLength(identity) != 6) { fail(env, "Invalid native receiver lifecycle"); return 0; }
+    if (!airplay::initialize_android_audio(env)) return 0;
     auto host = std::make_unique<Host>();
     env->GetJavaVM(&host->vm); host->target = env->NewGlobalRef(target); host->epoch = epoch;
     auto cls = env->GetObjectClass(target);
@@ -100,6 +102,9 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     host->player = airplay_player_create(callbacks, window, primary.c_str(), backup.c_str());
     ANativeWindow_release(window);
     if (!host->player) { fail(env, "Cannot create native player"); return 0; }
+    if (!airplay_player_set_audio_output(host->player, audio_mode)) {
+        fail(env, "Invalid audio output selection"); return 0;
+    }
     if (!airplay_player_set_video_size(host->player, width, height)) {
         fail(env, "Invalid video request size"); return 0;
     }
@@ -109,7 +114,7 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     active = std::move(host);
     return port;
 }
-extern "C" JNIEXPORT jbyteArray JNICALL Java_io_github_boyan01_flutter_1airplay_PlaybackHost_txtNative(JNIEnv *env, jobject, jboolean audio) {
+extern "C" JNIEXPORT jbyteArray JNICALL Java_tech_soit_flutterairplay_PlaybackHost_txtNative(JNIEnv *env, jobject, jboolean audio) {
     std::lock_guard<std::mutex> guard(lifecycle);
     const auto size = active ? airplay_player_txt(active->player, audio, nullptr, 0) : 0;
     std::vector<uint8_t> txt(size);
@@ -118,6 +123,17 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_io_github_boyan01_flutter_1airplay_
     if (result && size) env->SetByteArrayRegion(result, 0, size, reinterpret_cast<const jbyte *>(txt.data()));
     return result;
 }
-extern "C" JNIEXPORT void JNICALL Java_io_github_boyan01_flutter_1airplay_PlaybackHost_stopNative(JNIEnv *, jobject) {
+extern "C" JNIEXPORT void JNICALL Java_tech_soit_flutterairplay_PlaybackHost_stopNative(JNIEnv *, jobject) {
     std::lock_guard<std::mutex> guard(lifecycle); active.reset();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_tech_soit_flutterairplay_PlaybackHost_setSurfaceNative(
+        JNIEnv *env, jobject, jobject surface) {
+    std::lock_guard<std::mutex> guard(lifecycle);
+    if (!active) return JNI_TRUE;
+    auto *window = ANativeWindow_fromSurface(env, surface);
+    if (!window) return JNI_FALSE;
+    const auto changed = airplay_player_set_surface(active->player, window);
+    ANativeWindow_release(window);
+    return changed ? JNI_TRUE : JNI_FALSE;
 }

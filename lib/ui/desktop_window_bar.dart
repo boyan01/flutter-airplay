@@ -18,7 +18,7 @@ class DesktopWindowBar extends StatelessWidget {
   final String title;
   final bool dark, maximized;
   final String platform;
-  static const channel = MethodChannel('org.flutterairplay/window');
+  static const channel = MethodChannel('tech.soit.flutterairplay/window');
 
   Future<void> _command(String method, [Object? arguments]) async {
     await channel.invokeMethod<void>(method, arguments);

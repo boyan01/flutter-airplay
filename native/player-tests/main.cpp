@@ -37,8 +37,10 @@ int main() {
         buffer.write(input, 3, due, buffer.generation()); buffer.flush();
         buffer.write(input, 3, due, buffer.generation()); buffer.read(output, 3, due);
         check(output[0] == 1000 && output[4] == 3000, "flush rejects prior session and keeps new audio");
+        check(buffer.stale_drops() == 3 && buffer.late_drops() == 0, "diagnostics distinguish flushed PCM from late PCM");
         buffer.write(input, 3, due, buffer.generation()); buffer.read(output, 3, due+10000000);
         check(output[0] == 0 && output[4] == 0, "late packets are discarded");
+        check(buffer.late_drops() == 3 && buffer.stale_drops() == 3, "diagnostics count discarded PCM frames");
         AudioBuffer concurrent(64);
         std::thread producer([&] {
             int16_t sample[] = {1234, -1234};

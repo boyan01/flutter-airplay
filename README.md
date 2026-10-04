@@ -62,6 +62,10 @@ Android 手机和 TV 可在设置中选择“适配本机”、720p、1080p 或 
 设置中显示屏幕像素与实际收到的画面尺寸。发送端决定最终尺寸，选择档位不保证逐像素匹配屏幕。
 修改清晰度后保存会重启接收器，需要在发送端重新连接屏幕镜像。
 
+Android 视频统一使用原生 SurfaceView，在应用页面内播放，Flutter 负责首页、设置和播放控制。
+画面保持原始比例，系统刷新率不强制切换；离开应用后继续后台接收，返回时恢复画面。
+Android 设置页显示版本及构建时间（UTC），导出的诊断信息也包含构建时间与显示方式。
+
 macOS 支持菜单栏驻留，Windows 支持托盘驻留。两个平台均支持播放置顶、防止显示器休眠、
 连接时显示窗口及可选全屏。默认关闭窗口后继续驻留接收；关闭播放窗口会先断开投屏。
 登录启动默认关闭，macOS 使用 macOS 13+ 的系统服务，Windows 使用当前用户的 Run 项。
@@ -72,8 +76,8 @@ macOS 支持菜单栏驻留，Windows 支持托盘驻留。两个平台均支持
 连接提示表示发送端已连接，收到视频画面后才进入播放页。
 
 应用日志通过 `mixin_logger` 自动写入文件，最多保留 10 个文件，每个 5 MiB。
-macOS 位于 `~/Library/Application Support/org.flutterairplay.receiver/logs/`；
-Android 位于应用外部文件目录 `Android/data/io.github.boyan01.flutter_airplay/files/logs/`。
+macOS 位于 `~/Library/Application Support/tech.soit.flutterairplay/logs/`；
+Android 位于应用外部文件目录 `Android/data/tech.soit.flutterairplay/files/logs/`。
 文件包含 Flutter、接收核心和播放诊断，重启后保留。日志页“清空”只清空当前显示。
 
 开发环境、构建与测试命令见 [AGENTS.md](AGENTS.md)。

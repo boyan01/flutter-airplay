@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_airplay/main.dart';
+import 'package:flutter_airplay/ui/logs_page.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter_airplay/receiver/receiver_repository.dart';
 import 'package:flutter/material.dart';
@@ -11,19 +12,21 @@ import 'package:mixin_logger/mixin_logger.dart' as logging;
 class FakeReceiver implements ReceiverRepository {
   FakeReceiver({
     this.autoStart = true,
+    this.videoQualities = const ['auto', '720', '1080'],
     this.capabilities = const {
       'platform': 'macos',
       'supportsExecutablePath': true,
     },
   });
   bool autoStart;
+  final List<String> videoQualities;
   final Map<String, dynamic>? capabilities;
   final controller = StreamController<Map<String, dynamic>>.broadcast(
     sync: true,
   );
   int starts = 0, stops = 0;
   String? startedName, savedName, failure;
-  String? savedVideoQuality;
+  String? savedVideoQuality, savedAudioOutput;
   Map<String, bool> savedOptions = {};
   Completer<void>? startup;
   Completer<void>? shutdown;
@@ -40,7 +43,10 @@ class FakeReceiver implements ReceiverRepository {
     'logs': <dynamic>[],
     if (capabilities?['platform'] == 'android') ...{
       'videoQuality': savedVideoQuality ?? 'auto',
-      'videoQualities': ['auto', '720', '1080'],
+      'audioOutput': savedAudioOutput ?? 'auto',
+      'buildTime': '2026-10-04T13:00:00Z',
+      'buildVersion': '1.0.0 (1)',
+      'videoQualities': videoQualities,
       'screenWidth': 1200,
       'screenHeight': 2670,
     },
@@ -80,11 +86,13 @@ class FakeReceiver implements ReceiverRepository {
     String path, {
     bool autoStart = true,
     String? videoQuality,
+    String? audioOutput,
     Map<String, bool> desktopOptions = const {},
   }) async {
     this.autoStart = autoStart;
     savedName = name;
     savedVideoQuality = videoQuality;
+    savedAudioOutput = audioOutput;
     savedOptions = Map.of(desktopOptions);
   }
 
@@ -132,6 +140,49 @@ void main() {
       expect(model.logs.length, 300);
     },
   );
+
+  test('Audio diagnostics reach the file logger while playback state stays unchanged', () async {
+    final written = <String>[];
+    final previous = logging.onWriteToFile;
+    logging.onWriteToFile = written.add;
+    final backend = FakeReceiver(autoStart: false);
+    final model = ReceiverModel(backend);
+    addTearDown(() async {
+      model.dispose();
+      await backend.controller.close();
+      logging.onWriteToFile = previous;
+    });
+    await model.initialize();
+    final snapshot = await backend.snapshot();
+    snapshot['status'] = 'streaming';
+    snapshot['message'] = 'Playing';
+    snapshot['logs'] = [
+      {
+        'id': 1,
+        'time': '2026-10-04T12:30:00Z',
+        'text': '[Native level=6] Audio receive totals: packets=100 pcm_packets=100',
+      },
+      {
+        'id': 2,
+        'time': '2026-10-04T12:30:05Z',
+        'text': '[Native level=6] Android audio output: callbacks_total=0 nonzero_frames_total=0',
+      },
+    ];
+    backend.controller.add({'type': 'snapshot', 'data': snapshot});
+    written.clear();
+    (snapshot['logs'] as List).add({
+      'id': 3,
+      'time': '2026-10-04T12:30:10Z',
+      'text': 'Android media audio: volume=0/15, muted=true',
+    });
+    backend.controller.add({'type': 'snapshot', 'data': snapshot});
+    expect(written, hasLength(1));
+    expect(written.single, contains('volume=0/15, muted=true'));
+    expect(
+      model.logs.map((entry) => entry.text),
+      contains(contains('callbacks_total=0')),
+    );
+  });
 
   Future<FakeReceiver> launch(
     WidgetTester tester, {
@@ -188,6 +239,65 @@ void main() {
       'videoHeight': 0,
     });
   }
+
+  testWidgets(
+    'TV logs page scrolls with remote and keeps sharing enabled after clearing',
+    (tester) async {
+      final backend = await launch(
+        tester,
+        platform: 'android',
+        tv: true,
+        size: const Size(960, 540),
+      );
+      final model = tester.widget<ReceiverApp>(find.byType(ReceiverApp)).model;
+      for (var id = 0; id < 100; id++) {
+        backend.controller.add({
+          'type': 'log',
+          'entry': {
+            'id': id,
+            'time': '2026-10-04T12:30:08',
+            'text': 'Video log $id',
+          },
+        });
+      }
+      Navigator.of(
+        tester.element(find.byType(Scaffold).first),
+      ).push<void>(MaterialPageRoute(builder: (_) => LogsPage(model: model)));
+      await tester.pumpAndSettle();
+      expect(find.byType(LogsPage), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      final list = tester.widget<ListView>(find.byKey(const Key('logList')));
+      final logFocus = find.byWidgetPredicate(
+        (widget) => widget is Focus && widget.debugLabel == 'Log list',
+      );
+      Focus.of(
+        tester.element(
+          find.descendant(of: logFocus, matching: find.byType(Scrollbar)),
+        ),
+      ).requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pumpAndSettle();
+      expect(list.controller!.offset, 100);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(list.controller!.offset, 0);
+      await tester.tap(find.text('清空当前列表'));
+      await tester.pumpAndSettle();
+      expect(model.logs, isEmpty);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('shareLogs')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(LogsPage), findsNothing);
+      expect(backend.stops, 0);
+    },
+  );
 
   testWidgets('Audio and sender pause have their own page until a new frame', (
     tester,
@@ -393,7 +503,9 @@ void main() {
       await tester.pump();
       final next = tester.widget<TextField>(field).controller!.text;
       expect(next, isNot(generated));
-      await tester.tap(find.text(locale == 'zh' ? '完成' : 'Done'));
+      await tester.tap(
+        find.text(locale == 'zh' ? '保存并重启' : 'Save and restart'),
+      );
       await tester.pumpAndSettle();
       expect(backend.savedName, next);
       expect(backend.startedName, next);
@@ -435,7 +547,7 @@ void main() {
   testWidgets('Android system permission entries preserve reception', (
     tester,
   ) async {
-    const window = MethodChannel('org.flutterairplay/window');
+    const window = MethodChannel('tech.soit.flutterairplay/window');
     final calls = <String>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(window, (
       call,
@@ -653,6 +765,87 @@ void main() {
     },
   );
 
+  for (final tv in [false, true]) {
+    testWidgets(
+      'Android audio output selection works on ${tv ? "TV" : "phone"}',
+      (tester) async {
+        final backend = FakeReceiver(
+          capabilities: {'platform': 'android', 'isTelevision': tv},
+        );
+        await launch(
+          tester,
+          platform: 'android',
+          tv: tv,
+          backend: backend,
+          size: tv ? const Size(960, 540) : const Size(390, 800),
+        );
+        await tester.tap(tv ? find.text('设置') : find.byTooltip('设置'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+        await tester.tap(find.byKey(const Key('advancedSettings')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('audioOutput')));
+        await tester.tap(find.byKey(const Key('audioOutput')));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('接收器下次启动'), findsOneWidget);
+        if (tv) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<ListTile>(find.byKey(const Key('audioOutputauto')))
+                .selected,
+            isTrue,
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.select);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<ListTile>(
+                  find.byKey(const Key('audioOutputaudiotrack')),
+                )
+                .selected,
+            isTrue,
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+          await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        } else {
+          await tester.tap(find.byKey(const Key('audioOutputaudiotrack')));
+          await tester.tap(find.text('完成'));
+        }
+        await tester.pumpAndSettle();
+        if (!tv) {
+          await tester.tap(find.text('完成'));
+          await tester.pumpAndSettle();
+        }
+        expect(backend.savedAudioOutput, 'audiotrack');
+        expect(backend.stops, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  test('Audio selection persists without restarting active receiver', () async {
+    final backend = FakeReceiver(capabilities: {'platform': 'android'});
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    expect(model.active, isTrue);
+    final starts = backend.starts;
+    await model.save(model.name, model.path, audioOutput: 'audiotrack');
+    expect(backend.savedAudioOutput, 'audiotrack');
+    expect(model.audioOutput, 'audiotrack');
+    expect(backend.stops, 0);
+    expect(backend.starts, starts);
+    final restored = ReceiverModel(backend);
+    await restored.initialize();
+    expect(restored.audioOutput, 'audiotrack');
+    model.dispose();
+    restored.dispose();
+    await backend.controller.close();
+  });
+
   test('Saving unchanged quality does not restart; changed quality survives reload', () async {
     final backend = FakeReceiver(capabilities: {'platform': 'android'});
     final model = ReceiverModel(backend);
@@ -668,6 +861,113 @@ void main() {
     model.dispose();
     restored.dispose();
     await backend.controller.close();
+  });
+
+  testWidgets('TV can select supported 4K and cancel restores quality focus', (
+    tester,
+  ) async {
+    final backend = FakeReceiver(
+      capabilities: {'platform': 'android', 'isTelevision': true},
+      videoQualities: const ['auto', '720', '1080', '1440', '2160'],
+    );
+    backend.savedVideoQuality = '2160';
+    await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      backend: backend,
+      size: const Size(960, 540),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
+      isTrue,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
+      isFalse,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
+      isTrue,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.stops, 0);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('quality2160')), findsOneWidget);
+    expect(
+      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
+      isTrue,
+    );
+    await tester.sendKeyEvent(
+      LogicalKeyboardKey.goBack,
+      physicalKey: PhysicalKeyboardKey.escape,
+      platform: 'android',
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('quality2160')), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('quality2160')), findsOneWidget);
+  });
+
+  testWidgets('TV quality D-pad moves focus without changing the draft', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(find.text('保存并重启'), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.text('保存并重启'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.savedVideoQuality, '720');
+    expect(backend.stops, 1);
+    expect(find.byKey(const Key('videoQuality')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('quality720')), findsOneWidget);
   });
 
   testWidgets(
@@ -702,6 +1002,74 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final tv in [false, true]) {
+    for (final page in ['settings', 'logs', 'quality']) {
+      testWidgets('Android ${tv ? 'TV' : 'phone'} back closes only $page', (
+        tester,
+      ) async {
+        final backend = await launch(
+          tester,
+          platform: 'android',
+          tv: tv,
+          size: tv ? const Size(960, 540) : const Size(390, 700),
+        );
+        final systemPops = <MethodCall>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'SystemNavigator.pop') systemPops.add(call);
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pumpAndSettle();
+        if (page != 'settings') {
+          final entry = page == 'logs'
+              ? find.text('接收日志')
+              : find.byKey(const Key('videoQuality'));
+          await tester.ensureVisible(entry);
+          await tester.tap(entry);
+          await tester.pumpAndSettle();
+        }
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        final route = ModalRoute.of(tester.element(find.byType(AppBar).last))!;
+        expect(route.isCurrent, isTrue);
+
+        // Android must receive the complete key sequence before navigating.
+        expect(
+          await tester.sendKeyDownEvent(
+            LogicalKeyboardKey.goBack,
+            physicalKey: PhysicalKeyboardKey.escape,
+            platform: 'android',
+          ),
+          isFalse,
+        );
+        await tester.pumpAndSettle();
+        expect(route.isCurrent, isTrue);
+        expect(
+          await tester.sendKeyUpEvent(
+            LogicalKeyboardKey.goBack,
+            physicalKey: PhysicalKeyboardKey.escape,
+            platform: 'android',
+          ),
+          isFalse,
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(route.isCurrent, isFalse);
+        expect(navigator.canPop(), page == 'quality');
+        expect(systemPops, isEmpty);
+        expect(backend.stops, 0);
+      });
+    }
+  }
 
   testWidgets('TV settings are a route with a separate device-name editor', (
     tester,
@@ -833,7 +1201,7 @@ void main() {
     },
   );
 
-  testWidgets('Settings log entry opens the existing log panel', (
+  testWidgets('Settings log entry opens the dedicated logs page', (
     tester,
   ) async {
     await launch(tester, platform: 'android');
@@ -842,7 +1210,9 @@ void main() {
     await tester.ensureVisible(find.text('接收日志'));
     await tester.tap(find.text('接收日志'));
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(LogsPage), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('分享日志文件'), findsOneWidget);
     expect(find.text('复制日志'), findsOneWidget);
   });
   testWidgets('TV D-pad can select disconnect explicitly', (tester) async {
@@ -921,6 +1291,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('playerControls')), findsNothing);
   });
+  for (final tv in [false, true]) {
+    testWidgets('Android native video preserves controls (TV=$tv)', (
+      tester,
+    ) async {
+      final backend = await launch(tester, platform: 'android', tv: tv);
+      backend.state('streaming');
+      backend.controller.add({
+        'type': 'video',
+        'textureId': -1,
+        'videoWidth': 1920,
+        'videoHeight': 1080,
+      });
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('nativeVideoSurface')), findsOneWidget);
+      expect(find.byType(Texture), findsNothing);
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+      expect(scaffold.backgroundColor, Colors.transparent);
+      await tester.tap(find.byKey(const Key('playerPage')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('disconnect')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('disconnect')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('nativeVideoSurface')), findsNothing);
+      expect(backend.stops, 1);
+    });
+  }
+
   testWidgets('Missing sender name falls back to iPhone', (tester) async {
     final backend = await launch(tester, platform: 'android');
     backend.controller.add({'type': 'client', 'name': '  '});
@@ -932,7 +1329,7 @@ void main() {
     'Flutter window controls and double tap invoke native operations',
     (tester) async {
       final calls = <MethodCall>[];
-      const channel = MethodChannel('org.flutterairplay/window');
+      const channel = MethodChannel('tech.soit.flutterairplay/window');
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
         call,
       ) async {
@@ -1006,7 +1403,7 @@ void main() {
     testWidgets('$platform player uses supported desktop controls', (
       tester,
     ) async {
-      const channel = MethodChannel('org.flutterairplay/window');
+      const channel = MethodChannel('tech.soit.flutterairplay/window');
       final calls = <String>[];
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
         call,
@@ -1039,7 +1436,7 @@ void main() {
     testWidgets(
       '$platform caption uses native window operations and preserves desktop preferences',
       (tester) async {
-        const channel = MethodChannel('org.flutterairplay/window');
+        const channel = MethodChannel('tech.soit.flutterairplay/window');
         const dragChannel = MethodChannel('window_manager');
         final calls = <String>[];
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -1122,7 +1519,7 @@ void main() {
     testWidgets(
       '$platform keyboard shortcuts control reception and fullscreen',
       (tester) async {
-        const channel = MethodChannel('org.flutterairplay/window');
+        const channel = MethodChannel('tech.soit.flutterairplay/window');
         final calls = <String>[];
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           channel,
@@ -1155,7 +1552,7 @@ void main() {
     testWidgets(
       '$platform tray actions reuse reception and update window state',
       (tester) async {
-        const channel = MethodChannel('org.flutterairplay/window');
+        const channel = MethodChannel('tech.soit.flutterairplay/window');
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           channel,
           (_) async => null,

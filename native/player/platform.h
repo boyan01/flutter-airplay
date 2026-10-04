@@ -4,6 +4,7 @@
 #include "timeline.h"
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace airplay {
@@ -11,6 +12,7 @@ struct VideoPacket {
     std::vector<uint8_t> bytes;
     int64_t deadline = 0;
     uint64_t generation = 0;
+    int64_t received_ns = 0; // Receiver callback arrival, not sender capture time.
 };
 class VideoOutput {
 public:
@@ -18,6 +20,12 @@ public:
     virtual void size(int width, int height) = 0;
     virtual bool decode(const VideoPacket &) = 0;
     virtual void drain() = 0;
+    // Absolute monotonic deadline for held output; zero leaves polling to the host.
+    // Called only by the playback worker, like decode/drain/reset.
+    virtual int64_t next_deadline() const { return 0; }
+    // Android can switch between the visible surface and a background consumer.
+    // Implementations must serialize this with their decode/reset operations.
+    virtual bool set_surface(void *) { return false; }
     virtual void reset() = 0;
 };
 class AudioOutput {
@@ -25,6 +33,7 @@ public:
     virtual ~AudioOutput() = default;
     virtual bool start() = 0;
     virtual void stop() = 0;
+    virtual std::string diagnostics() { return {}; }
 };
 struct VideoCallbacks {
     std::function<void(void *, int, int, int64_t, uint64_t)> frame;

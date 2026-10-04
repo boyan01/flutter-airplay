@@ -33,6 +33,8 @@ class ReceiverModel extends ChangeNotifier {
   String path = '';
   bool autoStart = true;
   String videoQuality = 'auto';
+  String audioOutput = 'auto';
+  String buildTime = '', buildVersion = '';
   List<String> videoQualities = const [];
   int screenWidth = 0, screenHeight = 0;
   bool get supportsVideoQuality => videoQualities.isNotEmpty;
@@ -47,7 +49,9 @@ class ReceiverModel extends ChangeNotifier {
   };
   int textureId = -1, videoWidth = 0, videoHeight = 0;
   bool audioPlaying = false, videoPaused = false;
-  bool get hasVideo => textureId >= 0 && videoWidth > 0 && videoHeight > 0;
+  bool get usesNativeVideo => platform == 'android';
+  bool get hasVideo =>
+      (usesNativeVideo || textureId >= 0) && videoWidth > 0 && videoHeight > 0;
   bool get showAudioPage =>
       status == 'streaming' && !hasVideo && (audioPlaying || videoPaused);
 
@@ -118,6 +122,9 @@ class ReceiverModel extends ChangeNotifier {
     path = data['path'] as String? ?? '';
     autoStart = data['autoStart'] as bool? ?? true;
     videoQuality = data['videoQuality'] as String? ?? videoQuality;
+    audioOutput = data['audioOutput'] as String? ?? audioOutput;
+    buildTime = data['buildTime'] as String? ?? buildTime;
+    buildVersion = data['buildVersion'] as String? ?? buildVersion;
     videoQualities =
         (data['videoQualities'] as List?)?.cast<String>() ?? videoQualities;
     screenWidth = data['screenWidth'] as int? ?? screenWidth;
@@ -271,6 +278,7 @@ class ReceiverModel extends ChangeNotifier {
     String nextPath, {
     bool? autoStart,
     String? videoQuality,
+    String? audioOutput,
     Map<String, bool>? desktopOptions,
   }) async {
     if (!editable) return;
@@ -294,12 +302,16 @@ class ReceiverModel extends ChangeNotifier {
         videoQuality: supportsVideoQuality
             ? videoQuality ?? this.videoQuality
             : null,
+        audioOutput: platform == 'android'
+            ? audioOutput ?? this.audioOutput
+            : null,
         desktopOptions: desktopOptions ?? this.desktopOptions,
       );
       name = nextName.trim();
       path = nextPath.trim();
       this.autoStart = autoStart ?? this.autoStart;
       this.videoQuality = videoQuality ?? this.videoQuality;
+      this.audioOutput = audioOutput ?? this.audioOutput;
       if (desktopOptions != null) this.desktopOptions.addAll(desktopOptions);
       if (restart) await repository.start(name, path);
     }, success: 'saved');

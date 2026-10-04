@@ -33,7 +33,9 @@ It also checks distinct sender-pause and decoded-audio events, including the
 audio-flush event that clears the UI's audio state. It compiles
 the receive callback translation unit into the fixture to avoid a test-only
 public player API. The Android fixture also verifies the resumed GPU pixels
-with the hardware and software decoder.
+with the hardware and software decoder. It also switches between two output
+surfaces and returns to the first without a new IDR, requiring blue pixels and
+an unchanged media clock after each switch.
 
 `android/` uses the same fixtures and packaged library in a separate test app.
 It feeds four frames per session because the system software decoder can buffer
@@ -58,6 +60,17 @@ second catches a future reference frame blocking earlier presentation timestamps
 `reorder_fixtures.h` contains only synthetic red video. Regenerate it with
 `python3 native/player-tests/generate_reorder_fixtures.py` (FFmpeg and x264 CLI).
 Texture consumption times do not measure physical display scanout.
+
+For additional pacing diagnostics, `PacingTest` accepts `--phase-sweep` after
+its decoder argument when launched with `app_process`. This samples at 120 and
+60 Hz with 0, 3, 7, 11 and 15 ms offsets, retaining the same loss/gap assertions.
+The 60 Hz sweep is a stress diagnostic, not part of the default regression:
+a timer-driven consumer can race asynchronous SurfaceTexture delivery at the
+same frame rate. Failures must be reported; this test does not simulate Android
+Choreographer or Flutter raster scheduling. Copy `classes.dex`,
+`libairplay_player.so` and `libplayer_regression.so` from the fixture build to a
+local device directory, set `CLASSPATH` to that dex file, and pass the directory
+and decoder name to `tech.soit.flutterairplay.player_regression.PacingTest`.
 
 Run the current scripts documented in the root AGENTS.md. Synthetic results
 cannot establish iPhone interoperability, audible output or A/V synchronization.

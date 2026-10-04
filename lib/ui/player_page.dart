@@ -356,7 +356,9 @@ class _PlayerPageState extends State<PlayerPage> {
                   child: AspectRatio(
                     aspectRatio:
                         widget.model.videoWidth / widget.model.videoHeight,
-                    child: Texture(textureId: widget.model.textureId),
+                    child: widget.model.usesNativeVideo
+                        ? const SizedBox.expand(key: Key('nativeVideoSurface'))
+                        : Texture(textureId: widget.model.textureId),
                   ),
                 ),
               ),

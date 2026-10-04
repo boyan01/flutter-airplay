@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.flutter_airplay
+package tech.soit.flutterairplay
 
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -8,12 +8,70 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.graphics.Color
+import android.view.Gravity
+import android.view.Surface
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import io.flutter.embedding.android.RenderMode
 import android.provider.Settings
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
+    private lateinit var video: SurfaceView
+    private var videoWidth = 0
+    private var videoHeight = 0
+    var playbackSurface: Surface? = null
+        private set
+
+    // Only UI controls are composited by Flutter. Video stays in a separate
+    // SurfaceView layer, below the transparent Flutter TextureView.
+    override fun getRenderMode(): RenderMode = RenderMode.texture
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val content = findViewById<ViewGroup>(android.R.id.content)
+        val flutter = content.getChildAt(0)
+        content.removeView(flutter)
+        val layers = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        video = SurfaceView(this)
+        layers.addView(video, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        layers.addView(flutter, FrameLayout.LayoutParams(-1, -1))
+        content.addView(layers, ViewGroup.LayoutParams(-1, -1))
+        layers.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitVideo() }
+        video.holder.addCallback(this)
+    }
+    internal fun renderVideo(data: Map<String, Any>) {
+        videoWidth = (data["videoWidth"] as? Number)?.toInt() ?: 0
+        videoHeight = (data["videoHeight"] as? Number)?.toInt() ?: 0
+        fitVideo()
+    }
+    private fun fitVideo() {
+        if (!::video.isInitialized || videoWidth <= 0 || videoHeight <= 0) return
+        val parent = video.parent as? ViewGroup ?: return
+        if (parent.width == 0 || parent.height == 0) return
+        val scale = minOf(parent.width.toDouble() / videoWidth, parent.height.toDouble() / videoHeight)
+        val width = (videoWidth * scale).toInt().coerceAtLeast(1)
+        val height = (videoHeight * scale).toInt().coerceAtLeast(1)
+        val params = video.layoutParams as FrameLayout.LayoutParams
+        if (params.width == width && params.height == height) return
+        params.width = width; params.height = height
+        video.layoutParams = params
+    }
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        playbackSurface = holder.surface
+        bridge?.nativeSurfaceReady(this)
+    }
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        playbackSurface = null
+        bridge?.nativeSurfaceDestroyed(this)
+    }
+
     private var presentation: MethodChannel? = null
     private var bridge: ReceiverBridge? = null
     override fun provideFlutterEngine(context: Context): FlutterEngine = ReceiverService.engine(context)
@@ -21,7 +79,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         bridge = ReceiverService.bridge(this)
-        presentation = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "org.flutterairplay/window").also { channel ->
+        presentation = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tech.soit.flutterairplay/window").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method == "requestBackgroundLaunch" || call.method == "openAppSettings") {
                     try {
@@ -69,5 +127,13 @@ class MainActivity : FlutterActivity() {
         bridge?.onDisplayChanged()
     }
     override fun onStop() { bridge?.onBackground(this); super.onStop() }
-    override fun onDestroy() { presentation?.setMethodCallHandler(null); presentation = null; bridge?.detach(this);bridge=null;super.onDestroy() }
+    override fun onDestroy() {
+        bridge?.nativeSurfaceDestroyed(this)
+        playbackSurface = null
+        presentation?.setMethodCallHandler(null)
+        presentation = null
+        bridge?.detach(this)
+        bridge = null
+        super.onDestroy()
+    }
 }

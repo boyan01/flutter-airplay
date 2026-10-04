@@ -12,16 +12,19 @@ mkdir -p "$output/classes" "$output/lib/arm64-v8a" "$project_root/artifacts/andr
     -std=c++17 -shared -fPIC -static-libstdc++ -Wl,-z,max-page-size=16384 \
     -I "$project_root/native/player" -I "$project_root/native/player-tests" \
     -I "$project_root/vendor/UxPlay/lib" \
+    -I "$project_root/android/.cache/deps/oboe/include" \
     "$project_root/native/player-tests/android/player_test.cpp" \
     "$project_root/native/player-tests/session_test.cpp" \
     -L "$project_root/android/app/src/main/jniLibs/arm64-v8a" -lairplay_player -landroid -lmediandk -llog \
     -o "$output/lib/arm64-v8a/libplayer_regression.so"
 cp "$project_root/android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so" "$output/lib/arm64-v8a/"
 javac -source 17 -target 17 -cp "$sdk/platforms/android-36/android.jar" \
-    -d "$output/classes" "$project_root/native/player-tests/android/"*.java
-"$tools/d8" --min-api 26 --output "$output" "$output/classes/io/github/boyan01/player_regression/"*.class
+    -d "$output/classes" "$project_root/native/player-tests/android/"*.java \
+    "$project_root/native/player/android/tech/soit/flutterairplay/audio/"*.java
+"$tools/d8" --min-api 26 --output "$output" "$output/classes/tech/soit/flutterairplay/player_regression/"*.class \
+    "$output/classes/tech/soit/flutterairplay/audio/"*.class
 cat > "$output/AndroidManifest.xml" <<'MANIFEST'
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.boyan01.player_regression">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="tech.soit.flutterairplay.player_regression">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <application android:label="Native playback fixtures" android:extractNativeLibs="true">
         <activity android:name=".TestActivity" android:exported="true">
@@ -39,9 +42,14 @@ if [[ ! -f "$output/test.keystore" ]]; then
 fi
 "$tools/apksigner" sign --ks "$output/test.keystore" --ks-pass pass:android --out "$output/player-tests.apk" "$output/aligned.apk"
 started=$("$sdk/platform-tools/adb" shell "date '+%m-%d %H:%M:%S.000'")
-android run --apks="$output/player-tests.apk"
+if [[ ${AIRPLAY_AUDIO_ONLY:-0} == 1 ]]; then
+    android install --apks="$output/player-tests.apk"
+    "$sdk/platform-tools/adb" shell am start -S -n tech.soit.flutterairplay.player_regression/.TestActivity --ez audioOnly true
+else
+    android run --apks="$output/player-tests.apk"
+fi
 # Poll only this fixture's log tag; the timeout is bounded and output is local.
-for attempt in {1..60}; do
+for attempt in {1..120}; do
     "$sdk/platform-tools/adb" logcat -d -T "$started" -s PlayerRegression:I '*:S' > "$project_root/artifacts/android/player-device-tests.log"
     if rg -q 'PASS:|FAIL:' "$project_root/artifacts/android/player-device-tests.log"; then break; fi
     sleep 1

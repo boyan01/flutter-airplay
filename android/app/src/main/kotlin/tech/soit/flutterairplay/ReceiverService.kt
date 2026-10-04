@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.flutter_airplay
+package tech.soit.flutterairplay
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -15,19 +15,19 @@ import android.provider.Settings
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/** Keeps reception and its Flutter texture registry alive independently of Activity. */
+/** Keeps reception and the UI engine alive independently of Activity. */
 class ReceiverService : Service() {
     companion object {
         private const val CHANNEL = "airplay_receiver"
         private const val CONNECTION_CHANNEL = "airplay_connection"
         private const val NOTIFICATION = 1
         private const val CONNECTION_NOTIFICATION = 2
-        private const val STOP = "io.github.boyan01.flutter_airplay.STOP_RECEIVER"
+        private const val STOP = "tech.soit.flutterairplay.STOP_RECEIVER"
         private var retainedEngine: FlutterEngine? = null
         private var retainedBridge: ReceiverBridge? = null
 
-        // A single engine also preserves the live SurfaceTexture when Activity is
-        // finished or recreated. It is retained until the application process exits.
+        // Keep the shared receiver state when Activity is finished or recreated.
+        // Video moves between the visible SurfaceView and a background consumer.
         fun engine(context: Context): FlutterEngine {
             retainedEngine?.let { return it }
             return FlutterEngine(context.applicationContext).also {

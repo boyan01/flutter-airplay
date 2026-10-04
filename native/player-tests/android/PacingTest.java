@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.player_regression;
+package tech.soit.flutterairplay.player_regression;
 
 import android.os.Looper;
 import android.util.Log;
@@ -8,18 +8,24 @@ import android.view.Surface;
 /** Measures the production receiver worker against a GPU texture consumer. */
 public final class PacingTest {
     private static native String run(Surface surface, String decoder,
-                                     TextureSurface consumer, int batch);
+                                     TextureSurface consumer, int batch, int refreshHz, int phaseMs);
 
     static void check(String decoder) {
-        for (int batch : new int[]{1, 3, 9}) {
+        check(decoder, false);
+    }
+
+    static void check(String decoder, boolean sweep) {
+        boolean failed = false;
+        for (int refresh : (sweep ? new int[]{120, 60} : new int[]{120})) for (int phase : (sweep ? new int[]{0, 3, 7, 11, 15} : new int[]{0})) for (int batch : new int[]{1, 3, 9}) {
             try (TextureSurface consumer = new TextureSurface(640, 360)) {
-                String result = run(consumer.surface, decoder, consumer, batch);
+                String result = run(consumer.surface, decoder, consumer, batch, refresh, phase);
                 Log.i("PlayerRegression", decoder + " " + result);
                 System.out.println(decoder + " " + result);
-                if (!result.startsWith("PACING_OK:")) throw new IllegalStateException(result);
+                if (!result.startsWith("PACING_OK:")) failed = true;
                 consumer.checkRedPixels();
             }
         }
+        if (failed) throw new IllegalStateException("Frame pacing phase sweep failed");
     }
 
     // A fast, unattended entry point without replacing or opening the product app.
@@ -28,7 +34,7 @@ public final class PacingTest {
         System.load(args[0] + "/libairplay_player.so");
         System.load(args[0] + "/libplayer_regression.so");
         try {
-            check(args[1]);
+            check(args[1], args.length > 2 && args[2].equals("--phase-sweep"));
             System.out.println("PASS: receiver frame pacing");
             System.exit(0);
         } catch (Throwable error) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.flutter_airplay
+package tech.soit.flutterairplay
 
 import android.app.UiModeManager
 import android.content.Context
@@ -26,10 +26,11 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     private var sink: EventChannel.EventSink? = null
     private var closed = false
     private var activity: Activity? = null
+    private var surfaceOwner: MainActivity? = null
     private var pendingStart: Pair<String, MethodChannel.Result>? = null
     var service: ReceiverService? = null
     val isActive: Boolean get() = host.isActive || pendingStart != null
-    private val host = PlaybackHost(context, engine.renderer) { event ->
+    private val host = PlaybackHost(context) { event ->
         if (!closed) { state.accept(event); publish(); reconcileLifecycle() }
     }
     private val lifecycle = ReceiverLifecycle(
@@ -87,6 +88,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
             if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+        (activity as? MainActivity)?.renderVideo(data)
         sink?.success(mapOf("type" to "snapshot", "data" to data))
         service?.update(data, foreground)
     }
@@ -94,6 +96,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     fun onForeground(activity: Activity) {
         this.activity = activity
         lifecycle.onForeground(preferences.getBoolean("autoStart", true))
+        nativeSurfaceReady(activity as? MainActivity)
         publish()
     }
 
@@ -151,8 +154,37 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
     /** Called only after the Service has posted its foreground notification. */
     fun startPending() {
         val request = pendingStart ?: return
+        val owner = activity as? MainActivity
+        val surface = owner?.playbackSurface?.takeIf { it.isValid }
+        surfaceOwner = if (surface != null) owner else null
         pendingStart = null
-        host.start(request.first, completion(request.second, starting = true))
+        host.start(request.first, completion(request.second, starting = true), surface)
+        publish()
+    }
+
+    fun nativeSurfaceReady(owner: MainActivity?) {
+        if (owner == null || owner !== activity) return
+        val surface = owner.playbackSurface ?: return
+        if (host.setSurface(surface)) surfaceOwner = owner
+        else stopAfterSurfaceFailure()
+    }
+
+    fun nativeSurfaceDestroyed(owner: MainActivity) {
+        if (surfaceOwner !== owner) return
+        surfaceOwner = null
+        // Move output before SurfaceHolder destroys the visible buffer queue.
+        // The background consumer preserves decoder references and reception.
+        if (!host.setSurface(null)) stopAfterSurfaceFailure()
+    }
+
+    private fun stopAfterSurfaceFailure() {
+        stop(object : MethodChannel.Result {
+            override fun success(value: Any?) {}
+            override fun error(code: String, message: String?, details: Any?) {}
+            override fun notImplemented() {}
+        })
+        host.awaitSurfaceStop()
+        state.error("Video surface switch failed; reconnect screen mirroring")
         publish()
     }
 
@@ -204,6 +236,11 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                         }
                         host.validateVideoQuality(quality)
                     }
+                    val audioOutput = call.argument<String>("audioOutput")
+                    require(audioOutput == null || audioOutput in listOf("auto", "aaudio", "audiotrack")) {
+                        "Invalid audio output selection"
+                    }
+                    if (audioOutput != null) preferences.edit().putString("audioOutput", audioOutput).apply()
                     saveName(nextName)
                     if (quality != null) preferences.edit().putString("videoQuality", quality).apply()
                     call.argument<Boolean>("autoStart")?.let {

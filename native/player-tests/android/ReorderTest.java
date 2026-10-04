@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.player_regression;
+package tech.soit.flutterairplay.player_regression;
 
 import android.os.Looper;
 import android.util.Log;

@@ -165,7 +165,7 @@ final class ReceiverHost {
             defaults.set(identity, forKey: "receiverIdentity")
         }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "org.flutterairplay.receiver")
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "tech.soit.flutterairplay")
         do { try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true) }
         catch { stop(); throw error }
         var error = [CChar](repeating: 0, count: 512)

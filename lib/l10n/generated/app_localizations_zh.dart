@@ -376,8 +376,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quality1440 => '高清 · 1440p';
 
   @override
+  String get quality2160 => '超高清 · 4K';
+
+  @override
   String get qualityHelp =>
-      '适配本机会参考屏幕像素和解码能力，最高请求 1440p。实际尺寸由发送端决定。保存后需重新连接屏幕镜像。';
+      '适配本机会参考屏幕像素和解码能力，最高请求 4K（3840 × 2160）。4K 档位按 16:9 解码能力检查，实际尺寸由发送端决定。保存后需重新连接屏幕镜像。';
 
   @override
   String get qualityUnsupported => '此设备的解码器不支持此档位';
@@ -396,4 +399,47 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get qualityRestartHelp => '修改设备名或清晰度后会重新启动接收，当前投屏将结束。';
+
+  @override
+  String get shareLogs => '分享日志文件';
+
+  @override
+  String get exportingLogs => '正在打包日志…';
+
+  @override
+  String get shareLogsFailed => '日志导出或分享失败，请重试。';
+
+  @override
+  String get shareLogsUnavailable => '此设备没有可用的文件分享应用。';
+
+  @override
+  String get clearLogView => '清空当前列表';
+
+  @override
+  String get shareLogsHelp =>
+      '将历史日志、应用版本和播放信息打包为 ZIP 文件分享。清空列表会保留日志文件。日志可能包含设备和网络信息。';
+
+  @override
+  String get audioOutput => '音频输出';
+
+  @override
+  String get audioOutputAuto => '自动（推荐）';
+
+  @override
+  String get audioOutputAutoHelp => '优先低延迟，失败时切换兼容输出';
+
+  @override
+  String get audioOutputAAudio => '低延迟（AAudio）';
+
+  @override
+  String get audioOutputTrack => '兼容（AudioTrack）';
+
+  @override
+  String get audioOutputRestartHelp => '更改将在接收器下次启动时生效。请停止并启动接收器以应用新选择。';
+
+  @override
+  String get buildVersion => '版本';
+
+  @override
+  String get buildTime => '构建时间（UTC）';
 }

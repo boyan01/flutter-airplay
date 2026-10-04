@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package io.github.boyan01.flutter_airplay
+package tech.soit.flutterairplay
 
+import android.media.AudioManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.hardware.display.DisplayManager
@@ -14,22 +15,21 @@ import android.util.Log
 import android.view.Display
 import android.view.Surface
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.view.TextureRegistry
-import io.github.jqssun.airplay.renderer.DecoderSelector
+import tech.soit.flutterairplay.renderer.DecoderSelector
 import java.io.File
 import java.security.SecureRandom
 import java.util.concurrent.Executors
 
 /** Owns one receiver, playback surface and its two discovery registrations. */
-class PlaybackHost(private val context: Context, private val textures: TextureRegistry,
+class PlaybackHost(private val context: Context,
                    private val emit: (Map<String, Any>) -> Unit) {
     companion object { init { System.loadLibrary("airplay_player") } }
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val registrations = mutableListOf<Registration>()
-    private var texture: TextureRegistry.SurfaceTextureEntry? = null
     private var surface: Surface? = null
+    private var backgroundSurface: BackgroundSurface? = null
     private var multicast: WifiManager.MulticastLock? = null
     private var pendingStart: MethodChannel.Result? = null
     private var busy = false
@@ -59,6 +59,19 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             "physical=${mode?.physicalWidth}x${mode?.physicalHeight}, " +
             "app=${metrics.widthPixels}x${metrics.heightPixels}, density=${metrics.density}, " +
             "refreshHz=${display?.refreshRate}, rotation=${display?.rotation}")
+        diagnostic("Display modes: ${display?.supportedModes?.joinToString { "${it.modeId}:${it.physicalWidth}x${it.physicalHeight}@${it.refreshRate}" }}")
+        diagnostic("Build: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TIME}")
+    }
+    private fun logAudioSystemInfo() {
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        runCatching {
+            val devices = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .joinToString { "id=${it.id}/type=${it.type}" }
+            diagnostic("Android media audio: volume=${audio.getStreamVolume(AudioManager.STREAM_MUSIC)}/" +
+                "${audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}, " +
+                "muted=${audio.isStreamMute(AudioManager.STREAM_MUSIC)}, mode=${audio.mode}, " +
+                "availableOutputs=[$devices]")
+        }.onFailure { diagnostic("Android media audio query failed: ${it.javaClass.simpleName}") }
     }
     private val videoDecoder by lazy { DecoderSelector().avc() }
     private fun supportsVideoSize(width: Int, height: Int): Boolean = runCatching {
@@ -75,6 +88,10 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             .getDisplay(Display.DEFAULT_DISPLAY)?.mode
         val metrics = context.resources.displayMetrics
         return mapOf(
+            "buildTime" to BuildConfig.BUILD_TIME,
+            "buildVersion" to "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            "audioOutput" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
+                .getString("audioOutput", "auto")!!,
             "videoQuality" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 .getString("videoQuality", "auto")!!,
             "screenWidth" to (mode?.physicalWidth ?: metrics.widthPixels),
@@ -88,7 +105,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         VideoQuality.height(value, settings["screenHeight"] as Int, ::supportsVideoSize)
     }
 
-    fun start(requestedName: String, result: MethodChannel.Result) {
+    fun start(requestedName: String, result: MethodChannel.Result, nativeSurface: Surface?) {
         if (busy || running) { result.error("busy", "接收器已启动或正在操作", null); return }
         val name = requestedName.trim()
         if (name.isEmpty() || name.toByteArray(Charsets.UTF_8).size > 50 ||
@@ -110,9 +127,12 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         frames = 0
         try {
             logDisplayInfo()
+            logAudioSystemInfo()
+            diagnostic("Audio output selection: ${settings["audioOutput"]}; applies for this receiver run")
             diagnostic("Receiver request: quality=${settings["videoQuality"]}, H.264, ${requestWidth}x${requestHeight}, maxFPS=60; sender chooses actual size/rate")
-            texture = textures.createSurfaceTexture().also { it.surfaceTexture().setDefaultBufferSize(1920, 1080) }
-            surface = Surface(texture!!.surfaceTexture())
+            diagnostic("Video output: native SurfaceView")
+            backgroundSurface = BackgroundSurface()
+            surface = nativeSurface ?: backgroundSurface!!.surface
             val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             multicast = wifi.createMulticastLock("FlutterAirPlayDiscovery").also { it.setReferenceCounted(false); it.acquire() }
         } catch (e: Exception) {
@@ -125,7 +145,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             try {
                 val selector = DecoderSelector().also { it.onDiagnostic = ::diagnostic }
                 val decoder = videoDecoder?.name ?: error("No H.264 decoder available")
-                val fallback = selector.software(DecoderSelector.AVC, (requestHeight * 12 / 5 + 15) / 16 * 16, (requestHeight + 15) / 16 * 16)?.name ?: ""
+                val fallback = selector.software(DecoderSelector.AVC, VideoQuality.decoderWidth(requestHeight), (requestHeight + 15) / 16 * 16)?.name ?: ""
                 val prefs=context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 val hex=prefs.getString("identity",null) ?: ByteArray(6).also {
                     SecureRandom().nextBytes(it); it[0]=((it[0].toInt() or 2) and 254).toByte()
@@ -134,7 +154,8 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
                 }
                 val identity=hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                 val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath,
-                    surface!!, decoder, fallback, epoch, requestWidth, requestHeight)
+                    surface!!, decoder, fallback, epoch, requestWidth, requestHeight,
+                    when (settings["audioOutput"]) { "aaudio" -> 1; "audiotrack" -> 2; else -> 0 })
                 val videoTxt=parseTxt(txtNative(false)); val audioTxt=parseTxt(txtNative(true))
                 main.post {
                     if(epoch!=generation) return@post
@@ -147,7 +168,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
                         register(name,"_airplay._tcp",port,videoTxt,epoch,done)
                         register("${hex.uppercase()}@$name","_raop._tcp",port,audioTxt,epoch,done)
                         pendingStart = null
-                        result.success(mapOf("textureId" to texture!!.id(), "width" to 1920,"height" to 1080, "name" to name))
+                        result.success(mapOf("textureId" to -1L, "width" to 1920,"height" to 1080, "name" to name))
                     } catch(e:Exception) {
                         busy=false
                         pendingStart = null
@@ -210,9 +231,20 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             main.post { cleanupSurface();busy=false;send("接收器已停止","stopped");result?.success(null) }
         }
     }
+    // SurfaceHolder requires all rendering to stop before surfaceDestroyed returns.
+    // Native shutdown runs on the same serialized worker and never waits on main.
+    fun setSurface(visible: Surface?): Boolean {
+        if (!isActive) return true
+        val target = visible ?: backgroundSurface?.surface ?: return true
+        val changed = worker.submit<Boolean> { setSurfaceNative(target) }.get()
+        diagnostic("Video surface: ${if (visible == null) "background" else "visible"}, switched=$changed")
+        return changed
+    }
+    fun awaitSurfaceStop() { worker.submit { stopNative() }.get() }
     private fun cleanupSurface() {
-        surface?.release();surface=null
-        texture?.release();texture=null
+        // SurfaceHolder owns this surface; native shutdown releases its window reference.
+        surface=null
+        backgroundSurface?.close();backgroundSurface=null
         multicast?.let { if(it.isHeld)it.release() };multicast=null
     }
     fun close() { stopInternal(null); worker.shutdown() }
@@ -226,6 +258,12 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         main.post {
             if (epoch != generation) return@post
             when (type) {
+                "audio", "audio_stopped", "paused", "reset", "error" -> {
+                    diagnostic("[Native event=$type] $detail")
+                    if (type == "audio") logAudioSystemInfo()
+                }
+            }
+            when (type) {
                 "client" -> emit(mapOf("clientName" to detail, "state" to "connecting"))
                 "connecting" -> send("已建立连接，等待第一帧画面", "connecting")
                 "playing" -> {
@@ -235,7 +273,6 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
                     }
                     if (frames++ == 0L) send("正在播放屏幕镜像", "playing")
                 }
-                "size" -> texture?.surfaceTexture()?.setDefaultBufferSize(width, height)
                 "paused", "reset" -> { frames = 0; emit(mapOf("width" to 0, "height" to 0, "state" to type)) }
                 "audio", "audio_stopped" -> emit(mapOf("state" to type))
                 "waiting" -> send("等待 iPhone 屏幕镜像", "waiting")
@@ -244,7 +281,8 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         }
     }
     private external fun startNative(name: String, identity: ByteArray, keyPath: String,
-                                     surface: Surface, decoder: String, fallback: String, epoch: Int, width: Int, height: Int): Int
+                                     surface: Surface, decoder: String, fallback: String, epoch: Int, width: Int, height: Int, audioMode: Int): Int
     private external fun txtNative(raop: Boolean): ByteArray
+    private external fun setSurfaceNative(surface: Surface): Boolean
     private external fun stopNative()
 }

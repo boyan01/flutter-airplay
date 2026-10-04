@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +10,7 @@ import 'home_page.dart';
 import 'audio_page.dart';
 import 'player_page.dart';
 import 'settings_page.dart';
+import 'logs_page.dart';
 import 'desktop_window_bar.dart';
 
 class ReceiverScreen extends StatefulWidget {
@@ -22,7 +22,7 @@ class ReceiverScreen extends StatefulWidget {
 }
 
 class _ReceiverScreenState extends State<ReceiverScreen> {
-  static const _window = MethodChannel('org.flutterairplay/window');
+  static const _window = MethodChannel('tech.soit.flutterairplay/window');
   final _homeFocus = FocusNode(debugLabel: 'Home action');
   bool _dialogOpen = false;
   bool _maximized = false;
@@ -249,7 +249,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         },
       },
       child: Scaffold(
-        backgroundColor: model.hasVideo ? Colors.black : null,
+        backgroundColor: model.hasVideo
+            ? model.usesNativeVideo
+                  ? Colors.transparent
+                  : Colors.black
+            : null,
         body: model.hasVideo
             ? PlayerPage(
                 model: model,
@@ -334,64 +338,8 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   Future<void> _logs() async {
     if (_dialogOpen) return;
     setState(() => _dialogOpen = true);
-    await showDialog<void>(
-      context: context,
-      builder: (context) => CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.goBack): () =>
-              Navigator.pop(context),
-        },
-        child: ListenableBuilder(
-          listenable: model,
-          builder: (context, _) => AlertDialog(
-            title: Text(l10n(context).logs),
-            content: SizedBox(
-              width: 680,
-              height: math.min(360, MediaQuery.sizeOf(context).height * .45),
-              child: model.logs.isEmpty
-                  ? Text(l10n(context).noLogs)
-                  : ListView.builder(
-                      reverse: true,
-                      itemCount: model.logs.length,
-                      itemBuilder: (_, index) => SelectableText(
-                        model.logs[model.logs.length - 1 - index].display,
-                        style: const TextStyle(
-                          fontFamily: 'Menlo',
-                          fontSize: 12,
-                          height: 1.6,
-                        ),
-                      ),
-                    ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: model.logs.isEmpty
-                    ? null
-                    : () async {
-                        await Clipboard.setData(
-                          ClipboardData(text: model.logText),
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n(context).logsCopied)),
-                          );
-                        }
-                      },
-                child: Text(l10n(context).copyLogs),
-              ),
-              TextButton(
-                onPressed: model.logs.isEmpty ? null : model.clearLogs,
-                child: Text(l10n(context).clear),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(l10n(context).back),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    await Navigator.of(context)
+        .push<void>(MaterialPageRoute(builder: (_) => LogsPage(model: model)));
     if (mounted) {
       setState(() => _dialogOpen = false);
       _restoreFocus();

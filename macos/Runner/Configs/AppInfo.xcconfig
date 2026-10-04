@@ -8,7 +8,7 @@
 PRODUCT_NAME = Flutter AirPlay
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = org.flutterairplay.receiver
+PRODUCT_BUNDLE_IDENTIFIER = tech.soit.flutterairplay
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Airplay Receiver contributors. GPL-3.0-or-later.

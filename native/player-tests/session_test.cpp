@@ -102,8 +102,55 @@ int main() {
 #include <android/native_window_jni.h>
 #include "video_fixtures.h"
 
-extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_PacingTest_run(
-        JNIEnv *env, jclass, jobject surface, jstring decoder, jobject consumer, jint batch) {
+extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_TestActivity_switchSurface(
+        JNIEnv *env, jobject, jobject first, jobject second, jstring decoder, jobject a, jobject b) {
+    auto *first_window = ANativeWindow_fromSurface(env, first);
+    auto *second_window = ANativeWindow_fromSurface(env, second);
+    const char *name = env->GetStringUTFChars(decoder, nullptr);
+    std::string result;
+    try {
+        auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, first_window, name, "");
+        auto receive = receiver_callbacks(p.get());
+        float w = 640, h = 360;
+        receive.video_report_size(receive.cls, &w, &h, nullptr, nullptr);
+        auto feed = [&](int begin, int end, jobject consumer) {
+            const auto pts = realtime_ns();
+            for (int i = begin; i < end; ++i) {
+                video_decode_struct data{};
+                data.data = const_cast<uint8_t *>(resume_frames[i]);
+                data.data_len = int(resume_sizes[i]);
+                data.ntp_time_local = pts + int64_t(i-begin) * kSecond / 60;
+                receive.video_process(receive.cls, nullptr, &data);
+            }
+            auto sample = env->GetMethodID(env->GetObjectClass(consumer), "sampleTimestamp", "()J");
+            const auto until = monotonic_ns() + 350000000;
+            while (monotonic_ns() < until) {
+                env->CallLongMethod(consumer, sample);
+                if (env->ExceptionCheck()) throw std::runtime_error("Surface consumer failed");
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            auto check = env->GetMethodID(env->GetObjectClass(consumer), begin == 0 ? "checkRedPixels" : "checkBluePixels", "()V");
+            env->CallVoidMethod(consumer, check);
+            if (env->ExceptionCheck()) throw std::runtime_error("Surface switch lost decoded pixels");
+        };
+        feed(0,3,a);
+        const auto pts = realtime_ns(), due = p->timeline.deadline(pts);
+        const auto generation = p->pcm->generation();
+        if (!airplay_player_set_surface(p.get(), second_window)) throw std::runtime_error("Cannot switch to background surface");
+        feed(3,6,b);
+        if (!airplay_player_set_surface(p.get(), first_window)) throw std::runtime_error("Cannot restore visible surface");
+        feed(6,9,a); // No new SPS or IDR: decoder references must survive both switches.
+        if (generation != p->pcm->generation() || due != p->timeline.deadline(pts))
+            throw std::runtime_error("Surface switch resets audio or media clock");
+        result = "PASS: surface switch and return, inter-frame blue pixels, preserved media clock";
+    } catch (const std::exception &error) { result = std::string("FAIL: ") + error.what(); }
+    env->ReleaseStringUTFChars(decoder, name);
+    ANativeWindow_release(first_window); ANativeWindow_release(second_window);
+    return env->ExceptionCheck() ? nullptr : env->NewStringUTF(result.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_PacingTest_run(
+        JNIEnv *env, jclass, jobject surface, jstring decoder, jobject consumer, jint batch, jint refresh_hz, jint phase_ms) {
     auto sample = env->GetMethodID(env->GetObjectClass(consumer), "sampleTimestamp", "()J");
     if (!sample) return nullptr;
     auto *window = ANativeWindow_fromSurface(env, surface);
@@ -133,7 +180,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_P
         const auto first_due = p->timeline.deadline(pts);
         int sent = 0, consumed = 0, early = 0;
         int64_t last_pts = 0, last_latch = 0, max_gap = 0, max_early = 0;
-        auto next_sample = start;
+        auto next_sample = start + int64_t(phase_ms) * 1000000;
         while (monotonic_ns() < start + 1400000000) {
             const auto now = monotonic_ns();
             // The padding keeps software codecs from retaining the measured tail.
@@ -151,14 +198,15 @@ extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_P
                     if (last_latch) max_gap = std::max(max_gap, latch - last_latch);
                     last_latch = latch; last_pts = timestamp;
                 }
-                next_sample = now + kSecond / 120;
+                next_sample += kSecond / refresh_hz;
+                if (next_sample <= latch) next_sample = latch + kSecond / refresh_hz;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         char summary[256];
-        snprintf(summary, sizeof(summary), "%s batch=%d consumed=%d/60 early=%d maxEarlyMs=%.2f maxGapMs=%.2f",
+        snprintf(summary, sizeof(summary), "%s batch=%d refresh=%d phase_ms=%d consumed=%d/60 early=%d maxEarlyMs=%.2f maxGapMs=%.2f",
             !early && consumed >= 58 && max_gap < 42000000 ? "PACING_OK:" : "FAIL:",
-            batch, consumed, early, double(max_early) / 1e6, double(max_gap) / 1e6);
+            batch, refresh_hz, phase_ms, consumed, early, double(max_early) / 1e6, double(max_gap) / 1e6);
         result = summary;
         if (batch == 9 && !early && consumed >= 58) {
             // Reset while decoded output is held for a future deadline. A new
@@ -188,7 +236,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_P
     return env->NewStringUTF(result.c_str());
 }
 
-extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_TestActivity_resume(
+extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_TestActivity_resume(
         JNIEnv *env, jobject, jobject surface, jstring decoder) {
     auto *window = ANativeWindow_fromSurface(env, surface);
     const char *name = env->GetStringUTFChars(decoder, nullptr);
@@ -200,7 +248,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_T
 }
 
 #include "reorder_fixtures.h"
-extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_ReorderTest_run(
+extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_ReorderTest_run(
         JNIEnv *env, jclass, jobject surface, jstring decoder, jobject consumer, jboolean bframes) {
     using namespace reorder_fixtures;
     auto sample = env->GetMethodID(env->GetObjectClass(consumer), "sampleTimestamp", "()J");

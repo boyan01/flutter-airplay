@@ -25,8 +25,11 @@ class _SettingsPageState extends State<SettingsPage> {
   late final _name = TextEditingController(text: widget.model.name);
   late final _path = TextEditingController(text: widget.model.path);
   late String _videoQuality = widget.model.videoQuality;
+  late String _audioOutput = widget.model.audioOutput;
   late bool _autoStart = widget.model.autoStart;
   late final _options = Map<String, bool>.of(widget.model.desktopOptions);
+  final _qualityFocus = FocusNode();
+  final _audioOutputFocus = FocusNode();
   String? _error;
   String? _systemSettingsError;
   ReceiverModel get model => widget.model;
@@ -34,6 +37,8 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _name.dispose();
     _path.dispose();
+    _qualityFocus.dispose();
+    _audioOutputFocus.dispose();
     super.dispose();
   }
 
@@ -45,6 +50,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _path.text,
       autoStart: _autoStart,
       videoQuality: model.supportsVideoQuality ? _videoQuality : null,
+      audioOutput: model.platform == 'android' ? _audioOutput : null,
       desktopOptions: _options,
     );
     if (!mounted) return;
@@ -68,7 +74,9 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (_) => _VideoQualityPage(model: model, value: _videoQuality),
       ),
     );
-    if (mounted && value != null) setState(() => _videoQuality = value);
+    if (!mounted) return;
+    if (value != null) setState(() => _videoQuality = value);
+    if (model.isTelevision) _qualityFocus.requestFocus();
   }
 
   Widget _option(String key, String title, {bool enabled = true}) =>
@@ -89,7 +97,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _systemSettings(String method) async {
     try {
-      await const MethodChannel('org.flutterairplay/window')
+      await const MethodChannel('tech.soit.flutterairplay/window')
           .invokeMethod<void>(method);
     } on PlatformException catch (error) {
       if (mounted) setState(() => _systemSettingsError = error.message);
@@ -188,6 +196,7 @@ class _SettingsPageState extends State<SettingsPage> {
               outline: tv,
               child: ListTile(
                 key: const Key('videoQuality'),
+                focusNode: _qualityFocus,
                 contentPadding: EdgeInsets.zero,
                 title: Text(l10n(context).videoQuality),
                 subtitle: Text(_qualityLabel(context, _videoQuality)),
@@ -240,6 +249,43 @@ class _SettingsPageState extends State<SettingsPage> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
+          if (model.platform == 'android')
+            ExpansionTile(
+              key: const Key('advancedSettings'),
+              title: Text(l10n(context).advanced),
+              tilePadding: EdgeInsets.zero,
+              children: [
+                TvFocus(
+                  outline: tv,
+                  child: ListTile(
+                    key: const Key('audioOutput'),
+                    focusNode: _audioOutputFocus,
+                    title: Text(l10n(context).audioOutput),
+                    subtitle: Text(_audioOutputLabel(context, _audioOutput)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: model.editable
+                        ? () async {
+                            final value = await Navigator.of(context)
+                                .push<String>(
+                                  MaterialPageRoute(
+                                    builder: (_) => _AudioOutputPage(
+                                      model: model,
+                                      value: _audioOutput,
+                                    ),
+                                  ),
+                                );
+                            if (mounted && value != null) {
+                              setState(() => _audioOutput = value);
+                            }
+                            if (mounted && model.isTelevision) {
+                              _audioOutputFocus.requestFocus();
+                            }
+                          }
+                        : null,
+                  ),
+                ),
+              ],
+            ),
           if (model.supportsExecutablePath)
             ExpansionTile(
               title: Text(l10n(context).advanced),
@@ -271,6 +317,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
+          if (model.buildTime.isNotEmpty) ...[
+            ListTile(
+              key: const Key('buildInfo'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                '${l10n(context).buildVersion}: ${model.buildVersion}',
+              ),
+              subtitle: Text('${l10n(context).buildTime}: ${model.buildTime}'),
+            ),
+          ],
           if (!desktop) ...[
             TvFocus(
               outline: tv,
@@ -390,9 +446,11 @@ class _SettingsPageState extends State<SettingsPage> {
             const SingleActivator(LogicalKeyboardKey.escape): () {
               if (!model.busy) Navigator.pop(context);
             },
-            const SingleActivator(LogicalKeyboardKey.goBack): () {
-              if (!model.busy) Navigator.pop(context);
-            },
+            // Android back keys must reach system navigation without an early pop.
+            if (model.platform != 'android')
+              const SingleActivator(LogicalKeyboardKey.goBack): () {
+                if (!model.busy) Navigator.pop(context);
+              },
           },
           child: content,
         ),
@@ -465,6 +523,7 @@ String _qualityLabel(BuildContext context, String value) => switch (value) {
   '720' => l10n(context).quality720,
   '1080' => l10n(context).quality1080,
   '1440' => l10n(context).quality1440,
+  '2160' => l10n(context).quality2160,
   _ => l10n(context).qualityAuto,
 };
 
@@ -488,6 +547,174 @@ class _VideoQualityPageState extends State<_VideoQualityPage> {
     if (mounted) Navigator.pop(context, _value);
   }
 
+  Widget _qualityOption(BuildContext context, String value) {
+    final model = widget.model;
+    final supported = model.videoQualities.contains(value);
+    final enabled = model.editable && supported;
+    final title = Text(_qualityLabel(context, value));
+    final subtitle = supported ? null : Text(l10n(context).qualityUnsupported);
+    final autofocus = value == widget.value;
+    return TvFocus(
+      outline: model.isTelevision,
+      child: model.isTelevision
+          ? ListTile(
+              key: Key('quality$value'),
+              autofocus: autofocus,
+              enabled: enabled,
+              title: title,
+              subtitle: subtitle,
+              trailing: Icon(
+                value == _value
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+              ),
+              selected: value == _value,
+              onTap: enabled ? () => setState(() => _value = value) : null,
+            )
+          : RadioListTile<String>(
+              key: Key('quality$value'),
+              value: value,
+              autofocus: autofocus,
+              enabled: enabled,
+              title: title,
+              subtitle: subtitle,
+            ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.model,
+    builder: (context, _) {
+      final model = widget.model;
+      return PopScope(
+        canPop: !model.busy,
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): () {
+              if (!model.busy) Navigator.pop(context);
+            },
+            if (model.platform != 'android')
+              const SingleActivator(LogicalKeyboardKey.goBack): () {
+                if (!model.busy) Navigator.pop(context);
+              },
+          },
+          child: Scaffold(
+            appBar: AppBar(title: Text(l10n(context).videoQuality)),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.all(model.isTelevision ? 48 : 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          RadioGroup<String>(
+                            groupValue: _value,
+                            onChanged: (value) {
+                              if (value != null) setState(() => _value = value);
+                            },
+                            child: Column(
+                              children: [
+                                for (final value in const [
+                                  'auto',
+                                  '720',
+                                  '1080',
+                                  '1440',
+                                  '2160',
+                                ])
+                                  _qualityOption(context, value),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(l10n(context).qualityHelp),
+                          if (model.commandError != null)
+                            Text(
+                              localizedMessage(context, model.commandError!),
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Wrap(
+                      spacing: 12,
+                      children: [
+                        TvFocus(
+                          outline: model.isTelevision,
+                          child: TextButton(
+                            onPressed: model.busy
+                                ? null
+                                : () => Navigator.pop(context),
+                            child: Text(l10n(context).cancel),
+                          ),
+                        ),
+                        TvFocus(
+                          outline: model.isTelevision,
+                          child: FilledButton(
+                            onPressed:
+                                model.editable &&
+                                    model.videoQualities.contains(_value)
+                                ? _confirm
+                                : null,
+                            child: Text(
+                              model.busy
+                                  ? l10n(context).saving
+                                  : model.isTelevision &&
+                                        model.active &&
+                                        _value != model.videoQuality
+                                  ? l10n(context).saveRestart
+                                  : l10n(context).done,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+String _audioOutputLabel(BuildContext context, String value) => switch (value) {
+  'aaudio' => l10n(context).audioOutputAAudio,
+  'audiotrack' => l10n(context).audioOutputTrack,
+  _ => l10n(context).audioOutputAuto,
+};
+
+class _AudioOutputPage extends StatefulWidget {
+  const _AudioOutputPage({required this.model, required this.value});
+  final ReceiverModel model;
+  final String value;
+  @override
+  State<_AudioOutputPage> createState() => _AudioOutputPageState();
+}
+
+class _AudioOutputPageState extends State<_AudioOutputPage> {
+  late String _value = widget.value;
+  Future<void> _confirm() async {
+    if (widget.model.isTelevision) {
+      await widget.model.save(
+        widget.model.name,
+        widget.model.path,
+        audioOutput: _value,
+      );
+      if (!mounted || widget.model.commandError != null) return;
+    }
+    if (mounted) Navigator.pop(context, _value);
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.model,
@@ -496,7 +723,7 @@ class _VideoQualityPageState extends State<_VideoQualityPage> {
       return PopScope(
         canPop: !model.busy,
         child: Scaffold(
-          appBar: AppBar(title: Text(l10n(context).videoQuality)),
+          appBar: AppBar(title: Text(l10n(context).audioOutput)),
           body: SafeArea(
             child: Column(
               children: [
@@ -515,33 +742,57 @@ class _VideoQualityPageState extends State<_VideoQualityPage> {
                             children: [
                               for (final value in const [
                                 'auto',
-                                '720',
-                                '1080',
-                                '1440',
+                                'aaudio',
+                                'audiotrack',
                               ])
                                 TvFocus(
                                   outline: model.isTelevision,
-                                  child: RadioListTile<String>(
-                                    key: Key('quality$value'),
-                                    value: value,
-                                    autofocus: value == _value,
-                                    enabled:
-                                        model.editable &&
-                                        model.videoQualities.contains(value),
-                                    title: Text(_qualityLabel(context, value)),
-                                    subtitle:
-                                        model.videoQualities.contains(value)
-                                        ? null
-                                        : Text(
-                                            l10n(context).qualityUnsupported,
+                                  child: model.isTelevision
+                                      ? ListTile(
+                                          key: Key('audioOutput$value'),
+                                          autofocus: value == widget.value,
+                                          enabled: model.editable,
+                                          title: Text(
+                                            _audioOutputLabel(context, value),
                                           ),
-                                  ),
+                                          subtitle: value == 'auto'
+                                              ? Text(
+                                                  l10n(context)
+                                                      .audioOutputAutoHelp,
+                                                )
+                                              : null,
+                                          trailing: Icon(
+                                            value == _value
+                                                ? Icons.radio_button_checked
+                                                : Icons.radio_button_unchecked,
+                                          ),
+                                          selected: value == _value,
+                                          onTap: model.editable
+                                              ? () => setState(
+                                                  () => _value = value,
+                                                )
+                                              : null,
+                                        )
+                                      : RadioListTile<String>(
+                                          key: Key('audioOutput$value'),
+                                          value: value,
+                                          enabled: model.editable,
+                                          title: Text(
+                                            _audioOutputLabel(context, value),
+                                          ),
+                                          subtitle: value == 'auto'
+                                              ? Text(
+                                                  l10n(context)
+                                                      .audioOutputAutoHelp,
+                                                )
+                                              : null,
+                                        ),
                                 ),
                             ],
                           ),
                         ),
                         const SizedBox(height: 16),
-                        Text(l10n(context).qualityHelp),
+                        Text(l10n(context).audioOutputRestartHelp),
                         if (model.commandError != null)
                           Text(
                             localizedMessage(context, model.commandError!),
@@ -558,27 +809,22 @@ class _VideoQualityPageState extends State<_VideoQualityPage> {
                   child: Wrap(
                     spacing: 12,
                     children: [
-                      TextButton(
-                        onPressed: model.busy
-                            ? null
-                            : () => Navigator.pop(context),
-                        child: Text(l10n(context).cancel),
+                      TvFocus(
+                        outline: model.isTelevision,
+                        child: TextButton(
+                          onPressed: model.busy
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: Text(l10n(context).cancel),
+                        ),
                       ),
                       TvFocus(
                         outline: model.isTelevision,
                         child: FilledButton(
-                          onPressed:
-                              model.editable &&
-                                  model.videoQualities.contains(_value)
-                              ? _confirm
-                              : null,
+                          onPressed: model.editable ? _confirm : null,
                           child: Text(
                             model.busy
                                 ? l10n(context).saving
-                                : model.isTelevision &&
-                                      model.active &&
-                                      _value != model.videoQuality
-                                ? l10n(context).saveRestart
                                 : l10n(context).done,
                           ),
                         ),

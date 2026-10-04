@@ -49,7 +49,7 @@ WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window, bo
         return FALSE;
       }), this);
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-  channel_ = fl_method_channel_new(messenger_, "org.flutterairplay/window", FL_METHOD_CODEC(codec));
+  channel_ = fl_method_channel_new(messenger_, "tech.soit.flutterairplay/window", FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(channel_,
       [](FlMethodChannel*, FlMethodCall* call, gpointer data) {
         static_cast<WindowChannel*>(data)->Handle(call);
@@ -87,7 +87,7 @@ WindowChannel::~WindowChannel() {
   if (g_signal_handler_is_connected(window_, state_handler_))
     g_signal_handler_disconnect(window_, state_handler_);
   fl_method_channel_set_method_call_handler(channel_, nullptr, nullptr, nullptr);
-  fl_binary_messenger_set_message_handler_on_channel(messenger_, "org.flutterairplay/window",
+  fl_binary_messenger_set_message_handler_on_channel(messenger_, "tech.soit.flutterairplay/window",
                                                        nullptr, nullptr, nullptr);
   g_object_unref(channel_);
   g_object_unref(messenger_);

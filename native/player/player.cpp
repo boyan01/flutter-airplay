@@ -3,6 +3,9 @@
 // remains the shared C receive core, with its original license notices.
 #include "platform.h"
 #include "audio_decoder.h"
+#ifdef __ANDROID__
+#include "android_audio.h"
+#endif
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
@@ -39,6 +42,12 @@ struct AirplayPlayer {
     int width = 1920, height = 1080;
     int requested_width = 1920, requested_height = 1080;
     size_t queued_bytes = 0;
+    // Protected by lock; receive counts are compressed callback packets, not display frames.
+    int64_t video_report_ns = 0, video_arrival_ns = 0, video_gap_ns = 0;
+    uint64_t video_received = 0;
+    size_t video_peak_queue = 0;
+    std::atomic<uint64_t> audio_packets{0}, audio_bytes{0}, audio_decode_errors{0}, audio_pcm_packets{0}, audio_timestamp_rejects{0};
+    std::atomic<int64_t> audio_lead_ms{0};
 
     AirplayPlayer(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback)
         : callbacks(cb), audio(pcm, [this](const char *text) { log(text); }) {
@@ -92,12 +101,18 @@ struct AirplayPlayer {
     }
     void run() {
         uint64_t generation = 1;
+        auto next_audio_report = monotonic_ns() + 5 * kSecond;
         while (!closing) {
             VideoPacket packet;
             int w, h;
             bool reset;
+            // A fixed poll can release consecutive 60 FPS frames on opposite sides
+            // of a display refresh. Wake for held output instead of adding 0-5 ms
+            // of presentation jitter; new packets and shutdown still wake early.
+            const auto deadline = video->next_deadline();
+            const auto wait_ns = deadline ? std::clamp<int64_t>(deadline - monotonic_ns(), 0, 5000000) : 5000000;
             { std::unique_lock<std::mutex> guard(lock);
-              wake.wait_for(guard, std::chrono::milliseconds(5), [&] { return closing || video_reset || !packets.empty(); });
+              wake.wait_for(guard, std::chrono::nanoseconds(wait_ns), [&] { return closing || video_reset || !packets.empty(); });
               if (closing) break;
               reset = video_reset; video_reset = false; generation = video_generation; w = width; h = height;
               if (!packets.empty()) { packet = std::move(packets.front()); packets.pop_front(); queued_bytes -= packet.bytes.size(); } }
@@ -107,6 +122,21 @@ struct AirplayPlayer {
                 video->reset(); event("error", "Video decoding failed; reconnect screen mirroring");
             }
             video->drain();
+            const auto now = monotonic_ns();
+            if (now >= next_audio_report) {
+                next_audio_report = now + 5 * kSecond;
+                if (connections.load() > 0) {
+                    char message[320];
+                    std::snprintf(message, sizeof(message),
+                        "Audio receive totals: packets=%llu bytes=%llu decode_errors=%llu pcm_packets=%llu timestamp_rejects=%llu last_lead_ms=%lld",
+                        static_cast<unsigned long long>(audio_packets.load()), static_cast<unsigned long long>(audio_bytes.load()),
+                        static_cast<unsigned long long>(audio_decode_errors.load()), static_cast<unsigned long long>(audio_pcm_packets.load()),
+                        static_cast<unsigned long long>(audio_timestamp_rejects.load()), static_cast<long long>(audio_lead_ms.load()));
+                    log(message);
+                    const auto output_report = output->diagnostics();
+                    if (!output_report.empty()) log(output_report.c_str());
+                }
+            }
         }
         video->reset();
     }
@@ -126,20 +156,40 @@ void video_process(void *cls, raop_ntp_t *, video_decode_struct *data) {
         p->packets.clear(); p->queued_bytes = 0; p->video_reset = true;
         ++p->video_generation; p->log("Video input backlog reset; waiting for a keyframe");
     }
-    p->packets.push_back({std::vector<uint8_t>(data->data, data->data + data->data_len), due, p->video_generation});
-    p->queued_bytes += data->data_len; p->wake.notify_all();
+    p->packets.push_back({std::vector<uint8_t>(data->data, data->data + data->data_len), due, p->video_generation, now});
+    p->queued_bytes += data->data_len;
+    if (!p->video_report_ns) p->video_report_ns = now;
+    if (p->video_arrival_ns) p->video_gap_ns = std::max(p->video_gap_ns, now - p->video_arrival_ns);
+    p->video_arrival_ns = now;
+    ++p->video_received;
+    p->video_peak_queue = std::max(p->video_peak_queue, p->packets.size());
+    if (now - p->video_report_ns >= 5 * kSecond) {
+        char message[256];
+        std::snprintf(message, sizeof(message),
+            "Video receive stats: interval_ms=%lld packets=%llu max_arrival_gap_ms=%.1f queued=%zu peak_queued=%zu queued_bytes=%zu",
+            static_cast<long long>((now - p->video_report_ns) / 1000000),
+            static_cast<unsigned long long>(p->video_received), p->video_gap_ns / 1000000.0,
+            p->packets.size(), p->video_peak_queue, p->queued_bytes);
+        p->log(message);
+        p->video_report_ns = now; p->video_received = 0; p->video_gap_ns = 0;
+        p->video_peak_queue = p->packets.size();
+    }
+    p->wake.notify_all();
 }
 void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
     auto *p = player(cls);
     if (p->closing || data->data_len <= 0 || data->data_len > 65536) return;
+    ++p->audio_packets; p->audio_bytes.fetch_add(data->data_len);
     const auto now = monotonic_ns();
     const auto due = p->timeline.deadline(data->ntp_time_local ? int64_t(data->ntp_time_local) : realtime_ns(), now);
-    if (due < now - kSecond || due > now + 2 * kSecond) { p->log("Rejected out-of-window audio timestamp"); return; }
+    p->audio_lead_ms.store((due - now) / 1000000);
+    if (due < now - kSecond || due > now + 2 * kSecond) { ++p->audio_timestamp_rejects; return; }
     const auto generation = p->pcm->generation();
     bool produced = false;
     if (!p->audio.decode(data->data, data->data_len, data->ct, due, &produced)) {
-        p->log("Audio packet could not be decoded");
+        if (p->audio_decode_errors.fetch_add(1) == 0) p->log("Audio packet could not be decoded; see audio receive totals");
     } else if (produced) {
+        ++p->audio_pcm_packets;
         std::lock_guard<std::mutex> guard(p->lock);
         if (generation == p->pcm->generation() && !p->audio_playing) {
             p->audio_playing = true;
@@ -149,7 +199,15 @@ void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
 }
 void audio_format(void *cls, unsigned char *ct, unsigned short *spf, bool *, bool *, uint64_t *) {
     auto *p = player(cls); p->audio.format(*ct, *spf);
-    if (!p->output->start()) p->event("error", "Cannot open audio output");
+    char message[160];
+    std::snprintf(message, sizeof(message), "Audio format: codec=%s ct=%u samples_per_packet=%u rate=%d channels=2",
+        *ct == 2 ? "ALAC" : *ct == 4 ? "AAC" : *ct == 8 ? "AAC-ELD" : "unknown", *ct, *spf, kSampleRate);
+    p->log(message);
+    const auto started = p->output->start();
+    p->log(started ? "Audio output start requested" : "Audio output start failed");
+    const auto report = p->output->diagnostics();
+    if (!report.empty()) p->log(report.c_str());
+    if (!started) p->log("Audio output error: cannot open output; video continues");
 }
 void video_size(void *cls, float *sw, float *sh, float *, float *) {
     auto *p = player(cls);
@@ -184,7 +242,12 @@ void client(void *cls, char *, char *, char *name, bool *admit) {
 }
 void mirror(void *cls, bool running) { if (running) player(cls)->event("connecting", "Sender connected"); }
 double volume(void *) { return 0.; }
-void volume_set(void *cls, float db) { player(cls)->pcm->volume(db); }
+void volume_set(void *cls, float db) {
+    auto *p = player(cls); p->pcm->volume(db);
+    char message[96];
+    std::snprintf(message, sizeof(message), "Sender audio volume: db=%.1f muted=%s", db, db <= -144 ? "true" : "false");
+    p->log(message);
+}
 int codec(void *, video_codec_t c) { return c == VIDEO_CODEC_H264 ? 0 : -1; }
 void log(void *cls, int level, const char *text) { player(cls)->log(text, level); }
 raop_callbacks_t receiver_callbacks(AirplayPlayer *p) {
@@ -239,3 +302,14 @@ extern "C" size_t airplay_player_txt(AirplayPlayer *p, bool audio, uint8_t *outp
     return length;
 }
 extern "C" void airplay_player_destroy(AirplayPlayer *p) { delete p; }
+
+#ifdef __ANDROID__
+extern "C" bool airplay_player_set_surface(AirplayPlayer *p, void *surface) {
+    return p && surface && p->video->set_surface(surface);
+}
+extern "C" bool airplay_player_set_audio_output(AirplayPlayer *p, int mode) {
+    if (!p || p->receiver || mode < 0 || mode > 2) return false;
+    p->output = make_android_audio_output(p->pcm, mode, [p](const char *text) { p->log(text); });
+    return true;
+}
+#endif
