@@ -53,7 +53,7 @@ Redistributions must retain the corresponding source and exact build configurati
 
 ## Linux system dependencies
 
-The Linux host links distribution-provided FFmpeg, GTK/GLib, PulseAudio, Avahi,
+The Linux host links distribution-provided FFmpeg, GTK/GLib, PulseAudio, Avahi, Ayatana AppIndicator,
 OpenSSL and libplist libraries. It does not vendor those sources or use FDK-AAC.
 Dependency licensing and distribution requirements are recorded in
 [NOTICE](linux/NOTICE). Preserve the exact notices and licenses of any packages

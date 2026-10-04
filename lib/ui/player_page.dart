@@ -279,7 +279,7 @@ class _PlayerPageState extends State<PlayerPage> {
                               label: Text(l10n(context).alwaysOnTop),
                             ),
                           IconButton(
-                            tooltip: widget.model.platform == 'windows'
+                            tooltip: widget.model.platform != 'macos'
                                 ? l10n(context).fullscreenWindows
                                 : l10n(context).fullscreen,
                             color: Colors.white,

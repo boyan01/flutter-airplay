@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nativeapi/nativeapi.dart' as native;
+import 'package:window_manager/window_manager.dart' as desktop;
 
 import 'receiver_strings.dart';
 
@@ -78,14 +79,16 @@ class DesktopWindowBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final windows = platform == 'windows';
+    final windows = platform != 'macos';
     final titleArea = Expanded(
       child: GestureDetector(
         key: const Key('windowDragArea'),
         behavior: HitTestBehavior.opaque,
         onPanStart: (_) {
-          if (windows) {
+          if (platform == 'windows') {
             _command('startDragging');
+          } else if (platform == 'linux') {
+            desktop.windowManager.startDragging();
           } else {
             final window = native.WindowManager.instance.getCurrent();
             if (window != null && !window.isFullScreen) window.startDragging();
@@ -113,7 +116,7 @@ class DesktopWindowBar extends StatelessWidget {
       ),
     );
     return SizedBox(
-      key: Key(windows ? 'windowsWindowBar' : 'macWindowBar'),
+      key: Key(windows ? '${platform}WindowBar' : 'macWindowBar'),
       height: 36,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: windows ? 0 : 8),

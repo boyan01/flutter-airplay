@@ -158,14 +158,14 @@ class _SettingsPageState extends State<SettingsPage> {
               l10n(context).launchAtLogin,
               enabled: model.supportsLaunchAtLogin,
             ),
-            if (!model.supportsLaunchAtLogin)
+            if (!model.supportsLaunchAtLogin && model.platform == 'macos')
               Text(
                 l10n(context).loginUnavailable,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             _option(
               'keepInMenuBar',
-              model.platform == 'windows'
+              model.platform != 'macos'
                   ? l10n(context).keepInTray
                   : l10n(context).keepInMenuBar,
             ),

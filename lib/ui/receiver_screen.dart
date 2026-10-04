@@ -78,7 +78,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   Future<void> _setWindowStrings() async {
-    if (!model.loaded || model.platform != 'windows') return;
+    if (!model.loaded || !{'windows', 'linux'}.contains(model.platform)) return;
     final locale = Localizations.localeOf(context).toLanguageTag();
     if (_windowLocale == locale) return;
     _windowLocale = locale;
@@ -222,7 +222,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     listenable: model,
     builder: (context, _) => CallbackShortcuts(
       bindings: {
-        if (model.platform == 'windows') ...{
+        if ({'windows', 'linux'}.contains(model.platform)) ...{
           const SingleActivator(LogicalKeyboardKey.keyR, control: true):
               _toggleReceiver,
           const SingleActivator(LogicalKeyboardKey.comma, control: true):
@@ -294,7 +294,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     setState(() => _dialogOpen = true);
     final page = SettingsPage(model: model, editName: editName, onLogs: _logs);
     if (model.supportsWindowPreferences) {
-      final top = model.platform == 'windows' ? 44.0 : 12.0;
+      final top = model.platform == 'macos' ? 12.0 : 44.0;
       await showGeneralDialog<void>(
         context: context,
         barrierDismissible: true,

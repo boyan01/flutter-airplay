@@ -11,6 +11,8 @@ Linux links distribution-provided libraries rather than vendoring their code:
   build license to GPL. Check the chosen distribution's build/license notices.
   No FDK-AAC dependency is used.
 - GTK 3 / GLib: LGPL-2.1-or-later, https://www.gtk.org/
+- Ayatana AppIndicator: LGPL-2.1-or-later or LGPL-3.0,
+  https://github.com/AyatanaIndicators/libayatana-appindicator
 - PulseAudio: LGPL-2.1-or-later client libraries, https://www.freedesktop.org/wiki/Software/PulseAudio/
 - Avahi: LGPL-2.1-or-later, https://avahi.org/
 - OpenSSL: Apache-2.0 for OpenSSL 3, https://www.openssl.org/source/license.html

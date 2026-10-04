@@ -41,17 +41,32 @@ set(AIRPLAY_FLUTTER_ENGINE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../flutter/ephemeral
 if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
   pkg_check_modules(AVAHI REQUIRED IMPORTED_TARGET avahi-client)
+  pkg_check_modules(APPINDICATOR REQUIRED IMPORTED_TARGET ayatana-appindicator3-0.1)
   add_executable(linux_host_tests host_test.cc ../runner/receiver_host.cc
     ../runner/frame_texture.cc ../runner/discovery.cc)
   target_include_directories(linux_host_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
   target_link_libraries(linux_host_tests PRIVATE airplay_player PkgConfig::GTK PkgConfig::AVAHI
     "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   add_test(NAME linux_flutter_host_lifecycle COMMAND linux_host_tests)
+  add_executable(linux_window_tests window_test.cc ../runner/window_channel.cc)
+  target_include_directories(linux_window_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
+  target_link_libraries(linux_window_tests PRIVATE PkgConfig::GTK PkgConfig::APPINDICATOR
+    "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+  file(COPY ../icons DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
+  find_program(XVFB_RUN xvfb-run)
+  find_program(DBUS_RUN_SESSION dbus-run-session)
+  if(XVFB_RUN AND DBUS_RUN_SESSION)
+    add_test(NAME linux_window_tray_lifecycle COMMAND ${DBUS_RUN_SESSION} --
+      ${XVFB_RUN} -a $<TARGET_FILE:linux_window_tests>)
+    set_tests_properties(linux_window_tray_lifecycle PROPERTIES TIMEOUT 30)
+  else()
+    message(STATUS "Window/tray runtime tests need xvfb-run and dbus-run-session")
+  endif()
   # Developer-only fixture; not installed in the product bundle or run by CTest.
   add_executable(linux_synthetic_demo synthetic_demo.cc ../runner/frame_texture.cc ../runner/window_channel.cc)
   target_include_directories(linux_synthetic_demo PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
   target_link_libraries(linux_synthetic_demo PRIVATE airplay_player PkgConfig::GTK
-    "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+    PkgConfig::APPINDICATOR "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
 else()
   message(STATUS "Flutter host tests unavailable: build the Linux Flutter app first, then reconfigure")
 endif()

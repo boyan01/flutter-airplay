@@ -872,162 +872,176 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byKey(const Key('macWindowBar')), findsNothing);
       expect(find.byIcon(Icons.push_pin), findsNothing);
-      expect(
-        find.byIcon(Icons.push_pin_outlined),
-        platform == 'windows' ? findsOneWidget : findsNothing,
-      );
-      expect(
-        find.byKey(const Key('windowsWindowBar')),
-        platform == 'windows' ? findsOneWidget : findsNothing,
-      );
+      expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
+      expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
       await tester.tap(find.byIcon(Icons.fullscreen));
       expect(calls, contains('toggleFullscreen'));
       expect(tester.takeException(), isNull);
     });
   }
-  testWidgets(
-    'Windows caption uses native window operations and preserves desktop preferences',
-    (tester) async {
-      const channel = MethodChannel('org.flutterairplay/window');
-      final calls = <String>[];
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
-        call,
-      ) async {
-        calls.add(call.method);
-        return null;
-      });
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+  for (final platform in ['windows', 'linux']) {
+    testWidgets(
+      '$platform caption uses native window operations and preserves desktop preferences',
+      (tester) async {
+        const channel = MethodChannel('org.flutterairplay/window');
+        const dragChannel = MethodChannel('window_manager');
+        final calls = <String>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          dragChannel,
+          (call) async {
+            calls.add(call.method);
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            dragChannel,
+            null,
+          ),
+        );
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           channel,
-          null,
-        ),
-      );
-      final backend = await launch(tester, platform: 'windows');
-      expect(find.byKey(const Key('windowsWindowBar')), findsOneWidget);
-      expect(find.byKey(const Key('macWindowBar')), findsNothing);
-      calls.clear();
-      await tester.tap(find.byKey(const Key('windowMinimize')));
-      await tester.tap(find.byKey(const Key('windowMaximize')));
-      await tester.tap(find.byKey(const Key('windowClose')));
-      final title = find.byKey(const Key('windowDragArea'));
-      await tester.tap(title);
-      await tester.pump(const Duration(milliseconds: 80));
-      await tester.tap(title);
-      await tester.pump(const Duration(milliseconds: 350));
-      await tester.drag(title, const Offset(40, 0));
-      expect(calls, [
-        'minimizeWindow',
-        'toggleMaximize',
-        'closeWindow',
-        'toggleMaximize',
-        'startDragging',
-      ]);
-      await tester.tap(find.byKey(const Key('openSettings')));
-      await tester.pumpAndSettle();
-      expect(find.text('关闭窗口后保留在托盘'), findsOneWidget);
-      expect(find.text('登录启动需要 macOS 13 或更新版本'), findsNothing);
-      expect(
-        tester
-            .widget<SwitchListTile>(find.byKey(const Key('launchAtLogin')))
-            .onChanged,
-        isNotNull,
-      );
-      for (final key in [
-        'keepInMenuBar',
-        'showOnConnect',
-        'fullscreenOnConnect',
-        'alwaysOnTop',
-      ]) {
-        await tester.ensureVisible(find.byKey(Key(key)));
-        await tester.tap(find.byKey(Key(key)));
-        await tester.pump();
-      }
-      await tester.tap(find.text('完成'));
-      await tester.pumpAndSettle();
-      expect(backend.savedOptions, containsPair('keepInMenuBar', false));
-      expect(backend.savedOptions, containsPair('showOnConnect', false));
-      expect(backend.savedOptions, containsPair('fullscreenOnConnect', true));
-      expect(backend.savedOptions, containsPair('alwaysOnTop', true));
-      expect(backend.stops, 0);
-      expect(backend.starts, 1);
-    },
-  );
+          (call) async {
+            calls.add(call.method);
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        final backend = await launch(tester, platform: platform);
+        expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
+        expect(find.byKey(const Key('macWindowBar')), findsNothing);
+        calls.clear();
+        await tester.tap(find.byKey(const Key('windowMinimize')));
+        await tester.tap(find.byKey(const Key('windowMaximize')));
+        await tester.tap(find.byKey(const Key('windowClose')));
+        final title = find.byKey(const Key('windowDragArea'));
+        await tester.tap(title);
+        await tester.pump(const Duration(milliseconds: 80));
+        await tester.tap(title);
+        await tester.pump(const Duration(milliseconds: 350));
+        await tester.drag(title, const Offset(40, 0));
+        expect(calls, [
+          'minimizeWindow',
+          'toggleMaximize',
+          'closeWindow',
+          'toggleMaximize',
+          'startDragging',
+        ]);
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pumpAndSettle();
+        expect(find.text('关闭窗口后保留在托盘'), findsOneWidget);
+        expect(find.text('登录启动需要 macOS 13 或更新版本'), findsNothing);
+        expect(
+          tester
+              .widget<SwitchListTile>(find.byKey(const Key('launchAtLogin')))
+              .onChanged,
+          platform == 'windows' ? isNotNull : isNull,
+        );
+        for (final key in [
+          'keepInMenuBar',
+          'showOnConnect',
+          'fullscreenOnConnect',
+          'alwaysOnTop',
+        ]) {
+          await tester.ensureVisible(find.byKey(Key(key)));
+          await tester.tap(find.byKey(Key(key)));
+          await tester.pump();
+        }
+        await tester.tap(find.text('完成'));
+        await tester.pumpAndSettle();
+        expect(backend.savedOptions, containsPair('keepInMenuBar', false));
+        expect(backend.savedOptions, containsPair('showOnConnect', false));
+        expect(backend.savedOptions, containsPair('fullscreenOnConnect', true));
+        expect(backend.savedOptions, containsPair('alwaysOnTop', true));
+        expect(backend.stops, 0);
+        expect(backend.starts, 1);
+      },
+    );
 
-  testWidgets('Windows keyboard shortcuts control reception and fullscreen', (
-    tester,
-  ) async {
-    const channel = MethodChannel('org.flutterairplay/window');
-    final calls = <String>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
-      call,
-    ) async {
-      calls.add(call.method);
-      return null;
-    });
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        channel,
-        null,
-      ),
+    testWidgets(
+      '$platform keyboard shortcuts control reception and fullscreen',
+      (tester) async {
+        const channel = MethodChannel('org.flutterairplay/window');
+        final calls = <String>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            calls.add(call.method);
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        final backend = await launch(tester, platform: platform);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(backend.stops, 1);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(backend.starts, 2);
+        await tester.sendKeyEvent(LogicalKeyboardKey.f11);
+        expect(calls, contains('toggleFullscreen'));
+      },
     );
-    final backend = await launch(tester, platform: 'windows');
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pumpAndSettle();
-    expect(backend.stops, 1);
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pumpAndSettle();
-    expect(backend.starts, 2);
-    await tester.sendKeyEvent(LogicalKeyboardKey.f11);
-    expect(calls, contains('toggleFullscreen'));
-  });
-  testWidgets('Windows tray actions reuse reception and update window state', (
-    tester,
-  ) async {
-    const channel = MethodChannel('org.flutterairplay/window');
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      channel,
-      (_) async => null,
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        channel,
-        null,
-      ),
-    );
-    final backend = await launch(tester, platform: 'windows');
-    Future<void> nativeCall(String method, [Object? arguments]) async {
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        channel.name,
-        const StandardMethodCodec().encodeMethodCall(
-          MethodCall(method, arguments),
-        ),
-        (_) {},
-      );
-      await tester.pumpAndSettle();
-    }
+    testWidgets(
+      '$platform tray actions reuse reception and update window state',
+      (tester) async {
+        const channel = MethodChannel('org.flutterairplay/window');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (_) async => null,
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        final backend = await launch(tester, platform: platform);
+        Future<void> nativeCall(String method, [Object? arguments]) async {
+          await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            channel.name,
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall(method, arguments),
+            ),
+            (_) {},
+          );
+          await tester.pumpAndSettle();
+        }
 
-    await nativeCall('windowStateChanged', {
-      'maximized': true,
-      'fullscreen': false,
-    });
-    expect(find.byTooltip('还原'), findsOneWidget);
-    await nativeCall('toggleReceiver');
-    expect(backend.stops, 1);
-    await nativeCall('toggleReceiver');
-    expect(backend.starts, 2);
-    frame(backend);
-    await tester.pumpAndSettle();
-    await nativeCall('toggleOnTop');
-    expect(backend.savedOptions, containsPair('alwaysOnTop', true));
-    expect(backend.stops, 1);
-    await nativeCall('disconnectSession');
-    expect(backend.stops, 2);
-    expect(backend.starts, 3);
-    expect(find.byKey(const Key('playerPage')), findsNothing);
-    expect(find.byKey(const Key('windowsWindowBar')), findsOneWidget);
-  });
+        await nativeCall('windowStateChanged', {
+          'maximized': true,
+          'fullscreen': false,
+        });
+        expect(find.byTooltip('还原'), findsOneWidget);
+        await nativeCall('toggleReceiver');
+        expect(backend.stops, 1);
+        await nativeCall('toggleReceiver');
+        expect(backend.starts, 2);
+        frame(backend);
+        await tester.pumpAndSettle();
+        await nativeCall('toggleOnTop');
+        expect(backend.savedOptions, containsPair('alwaysOnTop', true));
+        expect(backend.stops, 1);
+        await nativeCall('disconnectSession');
+        expect(backend.stops, 2);
+        expect(backend.starts, 3);
+        expect(find.byKey(const Key('playerPage')), findsNothing);
+        expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
+      },
+    );
+  }
 }

@@ -105,6 +105,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   std::atomic<uint64_t> generation{0};
   std::atomic<uint64_t> listener_epoch{0};
   bool listening = false;  // Main thread only.
+  std::function<void(FlValue*)> on_snapshot;  // Main thread only.
   std::map<FlMethodCall*, bool> pending_calls;  // Main thread only; owns refs.
 
   std::thread worker;
@@ -122,6 +123,9 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   std::string config_error;
   std::string name = "Flutter AirPlay";
   bool auto_start = true;
+  const std::array<const char*, 4> window_keys{
+      "keepInMenuBar", "showOnConnect", "fullscreenOnConnect", "alwaysOnTop"};
+  std::array<bool, 4> window_options{true, true, false, false};
   std::array<uint8_t, 6> identity{};
   std::string status = "stopped";
   std::string message = "接收器未启动";
@@ -197,6 +201,9 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     }
     if (g_key_file_has_key(preferences, "Receiver", "autoStart", nullptr))
       auto_start = g_key_file_get_boolean(preferences, "Receiver", "autoStart", nullptr);
+    for (size_t i = 0; i < window_keys.size(); ++i)
+      if (g_key_file_has_key(preferences, "Receiver", window_keys[i], nullptr))
+        window_options[i] = g_key_file_get_boolean(preferences, "Receiver", window_keys[i], nullptr);
     g_autofree gchar* saved_id = g_key_file_get_string(preferences, "Receiver", "identity", nullptr);
     if (saved_id) {
       if (std::strlen(saved_id) != 12)
@@ -251,10 +258,8 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     Boolean(data.get(), "audioPlaying", audio_playing);
     Boolean(data.get(), "videoPaused", video_paused);
     Boolean(data.get(), "launchAtLogin", false);
-    Boolean(data.get(), "keepInMenuBar", false);
-    Boolean(data.get(), "showOnConnect", false);
-    Boolean(data.get(), "fullscreenOnConnect", false);
-    Boolean(data.get(), "alwaysOnTop", false);
+    for (size_t i = 0; i < window_keys.size(); ++i)
+      Boolean(data.get(), window_keys[i], window_options[i]);
     auto* capabilities = fl_value_new_map();
     String(capabilities, "platform", "linux");
     Boolean(capabilities, "supportsExecutablePath", false);
@@ -267,13 +272,15 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   }
 
   void Emit(Value event) {
+    auto snapshot = TextArgument(event.get(), "type") != "log" ? Snapshot() : Value{};
     const auto token = generation.load();
     const auto epoch = listener_epoch.load();
     std::weak_ptr<State> weak = shared_from_this();
-    PostMain(main_context, [weak, token, epoch, event = std::move(event)] {
+    PostMain(main_context, [weak, token, epoch, event = std::move(event), snapshot = std::move(snapshot)] {
       if (auto self = weak.lock()) {
-        if (self->closing || !self->listening || token != self->generation ||
-            epoch != self->listener_epoch) return;
+        if (self->closing || token != self->generation) return;
+        if (snapshot && self->on_snapshot) self->on_snapshot(snapshot.get());
+        if (!self->listening || epoch != self->listener_epoch) return;
         g_autoptr(GError) error = nullptr;
         if (!fl_event_channel_send(self->events, event.get(), nullptr, &error))
           g_warning("Receiver event could not be delivered: %s",
@@ -391,16 +398,26 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     auto* automatic = fl_value_lookup_string(args, "autoStart");
     if (automatic && fl_value_get_type(automatic) == FL_VALUE_TYPE_BOOL)
       next_auto = fl_value_get_bool(automatic);
+    auto next_options = window_options;
+    for (size_t i = 0; i < window_keys.size(); ++i) {
+      auto* option = fl_value_lookup_string(args, window_keys[i]);
+      if (option && fl_value_get_type(option) == FL_VALUE_TYPE_BOOL)
+        next_options[i] = fl_value_get_bool(option);
+      g_key_file_set_boolean(preferences, "Receiver", window_keys[i], next_options[i]);
+    }
     g_key_file_set_string(preferences, "Receiver", "name", next.c_str());
     g_key_file_set_boolean(preferences, "Receiver", "autoStart", next_auto);
     try { WritePreferences(); }
     catch (...) {
       g_key_file_set_string(preferences, "Receiver", "name", name.c_str());
       g_key_file_set_boolean(preferences, "Receiver", "autoStart", auto_start);
+      for (size_t i = 0; i < window_keys.size(); ++i)
+        g_key_file_set_boolean(preferences, "Receiver", window_keys[i], window_options[i]);
       throw;
     }
     name = next;
     auto_start = next_auto;
+    window_options = next_options;
   }
 
   void Cleanup() {
@@ -592,6 +609,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   }
 
   void Shutdown() {
+    on_snapshot = {};
     closing = true;
     listening = false;
     ++generation;
@@ -619,8 +637,10 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   }
 };
 
-ReceiverHost::ReceiverHost(FlBinaryMessenger* messenger, FlTextureRegistrar* registrar)
+ReceiverHost::ReceiverHost(FlBinaryMessenger* messenger, FlTextureRegistrar* registrar,
+                           std::function<void(FlValue*)> on_snapshot)
     : state_(std::make_shared<State>()) {
+  state_->on_snapshot = std::move(on_snapshot);
   state_->Install(messenger, registrar);
 }
 

@@ -205,10 +205,14 @@ int main(int argc, char** argv) {
       ? "SYNTHETIC ONLY - Linux decoded portrait - no receiver/network"
       : "SYNTHETIC ONLY - Linux decoded landscape - no receiver/network");
   gtk_window_set_default_size(GTK_WINDOW(window), 980, 680);
+  gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
   auto* view = fl_view_new(project);
-  auto window_channel = std::make_unique<WindowChannel>(fl_engine_get_binary_messenger(fl_view_get_engine(view)), GTK_WINDOW(window));
+  auto window_channel = std::make_unique<WindowChannel>(fl_engine_get_binary_messenger(fl_view_get_engine(view)), GTK_WINDOW(window), false);
   auto demo = std::make_unique<SyntheticDemo>(fl_view_get_engine(view), portrait);
-  gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+  auto* overlay = gtk_overlay_new();
+  gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(view));
+  AddWindowResizeHandles(GTK_OVERLAY(overlay), GTK_WINDOW(window));
+  gtk_container_add(GTK_CONTAINER(window), overlay);
   g_signal_connect(window, "delete-event", G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer data) -> gboolean {
     static_cast<std::unique_ptr<SyntheticDemo>*>(data)->reset();
     return FALSE;
