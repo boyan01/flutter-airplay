@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Flutter AirPlay
+Comment=AirPlay receiver
+Exec=flutter_airplay
+Icon=tech.soit.flutterairplay
+Terminal=false
+Categories=AudioVideo;Video;
+StartupWMClass=tech.soit.flutterairplay

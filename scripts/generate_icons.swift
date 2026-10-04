@@ -10,16 +10,17 @@ let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil)!
 let original = CGImageSourceCreateImageAtIndex(source, 0, nil)!
 let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
-func canvas(_ width: Int, _ height: Int) -> CGContext {
+func canvas(_ width: Int, _ height: Int, opaque: Bool = false) -> CGContext {
     let context = CGContext(data: nil, width: width, height: height,
                             bitsPerComponent: 8, bytesPerRow: width * 4,
                             space: colorSpace,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                            bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast
+                                                : CGImageAlphaInfo.premultipliedLast).rawValue)!
     context.interpolationQuality = .high
     return context
 }
 
-// Trim transparent padding so both platforms share the same optical size.
+// Trim transparent padding so all platforms share the same optical size.
 let probe = canvas(original.width, original.height)
 probe.draw(original, in: CGRect(x: 0, y: 0, width: original.width, height: original.height))
 let pixels = probe.data!.assumingMemoryBound(to: UInt8.self)
@@ -82,6 +83,58 @@ func save(_ context: CGContext, _ path: String) throws {
     precondition(CGImageDestinationFinalize(destination), "Could not write \(path)")
 }
 
+// iPhone and iPad share the existing asset catalog, including App Store artwork.
+// Supply opaque square artwork; the operating system applies its own mask.
+let iosDirectory = "ios/Runner/Assets.xcassets/AppIcon.appiconset"
+let catalogData = try Data(contentsOf: root.appendingPathComponent("\(iosDirectory)/Contents.json"))
+let catalog = try JSONSerialization.jsonObject(with: catalogData) as! [String: Any]
+var iosFiles = Set<String>()
+for entry in catalog["images"] as! [[String: String]] {
+    guard let filename = entry["filename"], iosFiles.insert(filename).inserted else { continue }
+    let points = Double(entry["size"]!.components(separatedBy: "x")[0])!
+    let scale = Double(entry["scale"]!.dropLast())!
+    let size = Int(points * scale)
+    let context = canvas(size, size, opaque: true)
+    background(context, CGRect(x: 0, y: 0, width: size, height: size))
+    symbol(context, center: CGPoint(x: size / 2, y: size / 2), width: CGFloat(size) * 0.68)
+    try save(context, "\(iosDirectory)/\(filename)")
+}
+
+// Windows ICO stores PNG images at each common shell size, including high DPI.
+func appendLE(_ value: Int, bytes: Int, to data: inout Data) {
+    for shift in 0..<bytes { data.append(UInt8((value >> (shift * 8)) & 0xff)) }
+}
+let windowsSizes = [16, 24, 32, 48, 64, 128, 256]
+var windowsImages = [Data]()
+for size in windowsSizes {
+    let context = canvas(size, size)
+    tile(context, size: CGFloat(size), inset: CGFloat(size) * 0.05, shadow: false)
+    let data = NSMutableData()
+    let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)!
+    CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+    precondition(CGImageDestinationFinalize(destination))
+    windowsImages.append(data as Data)
+}
+var ico = Data()
+appendLE(0, bytes: 2, to: &ico)
+appendLE(1, bytes: 2, to: &ico)
+appendLE(windowsSizes.count, bytes: 2, to: &ico)
+var offset = 6 + windowsSizes.count * 16
+for (size, data) in zip(windowsSizes, windowsImages) {
+    ico.append(contentsOf: [UInt8(size % 256), UInt8(size % 256), 0, 0])
+    appendLE(1, bytes: 2, to: &ico)
+    appendLE(32, bytes: 2, to: &ico)
+    appendLE(data.count, bytes: 4, to: &ico)
+    appendLE(offset, bytes: 4, to: &ico)
+    offset += data.count
+}
+for data in windowsImages { ico.append(data) }
+try ico.write(to: root.appendingPathComponent("windows/runner/resources/app_icon.ico"))
+
+let linuxIcon = canvas(512, 512)
+tile(linuxIcon, size: 512, inset: 512 * 0.05, shadow: false)
+try save(linuxIcon, "linux/icons/tech.soit.flutterairplay.png")
+
 for size in [16, 32, 64, 128, 256, 512, 1024] {
     let context = canvas(size, size)
     tile(context, size: CGFloat(size), inset: CGFloat(size) * 0.09375, shadow: true)
@@ -120,4 +173,4 @@ title.draw(at: CGPoint(x: (320 - titleSize.width) / 2, y: 35), withAttributes: a
 NSGraphicsContext.restoreGraphicsState()
 try save(banner, "android/app/src/main/res/drawable-xhdpi/tv_banner.png")
 
-print("Generated macOS icons, Android legacy/adaptive/themed icons and the TV banner.")
+print("Generated Android, macOS, Windows, Linux, iPhone/iPad icons and the TV banner.")

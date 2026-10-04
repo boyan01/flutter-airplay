@@ -246,8 +246,10 @@ void WindowChannel::UpdateTray() {
   auto* children = gtk_container_get_children(GTK_CONTAINER(menu_));
   app_indicator_set_secondary_activate_target(indicator_, GTK_WIDGET(g_list_nth_data(children, 3)));
   g_list_free(children);
-  const auto icon = icon_directory_ + (status == "error" ? "/airplay-error.svg" : playing || Preference("audioPlaying")
-      ? "/airplay-playing.svg" : "/airplay-idle.svg");
+  const bool media_playing = playing || Preference("audioPlaying");
+  const auto icon = icon_directory_ + (status == "error" ? "/airplay-error.svg"
+      : Transitioning(status) || (status == "streaming" && !media_playing) ? "/airplay-starting.svg"
+      : media_playing ? "/airplay-playing.svg" : Active(status) ? "/airplay-idle.svg" : "/airplay-off.svg");
   app_indicator_set_icon_full(indicator_, icon.c_str(), label.c_str());
   app_indicator_set_title(indicator_, name.c_str());
   if (previous) { gtk_widget_destroy(previous); g_object_unref(previous); }

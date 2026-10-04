@@ -264,8 +264,10 @@ void FlutterWindow::UpdateSnapshot(const Map& snapshot) {
 
 void FlutterWindow::UpdateTray() {
   const auto status = String(snapshot_, "status", "stopped");
-  const DWORD color = status == "error" ? 0xf06a6a : Transitioning(status) || status == "streaming" && !Playing(snapshot_)
-      ? 0xe4b55e : Playing(snapshot_) || Boolean(snapshot_, "audioPlaying", false) ? 0x7dd7c6 : 0xa0a9ae;
+  const bool playing = Playing(snapshot_) || Boolean(snapshot_, "audioPlaying", false);
+  const DWORD color = status == "error" ? 0xf06a6a
+      : Transitioning(status) || (status == "streaming" && !playing) ? 0xe4b55e
+      : playing ? 0x20bfa9 : Active(status) ? 0x32958a : 0xa0a9ae;
   HICON previous = nullptr;
   if (!tray_icon_ || tray_color_ != color) {
     HICON next = AirplayIcon(color);

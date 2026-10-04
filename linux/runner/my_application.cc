@@ -35,6 +35,15 @@ static void my_application_activate(GApplication* application) {
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
   gtk_window_set_title(window, "Flutter AirPlay");
+  // Load the bundled icon independently of the current working directory.
+  g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
+  g_autofree gchar* directory = executable ? g_path_get_dirname(executable) : nullptr;
+  g_autofree gchar* icon = directory ? g_build_filename(
+      directory, "data", "icons", "tech.soit.flutterairplay.png", nullptr) : nullptr;
+  g_autoptr(GError) icon_error = nullptr;
+  if (icon && !gtk_window_set_icon_from_file(window, icon, &icon_error)) {
+    g_warning("Failed to load application icon: %s", icon_error->message);
+  }
   gtk_window_set_decorated(window, FALSE);
   gtk_window_set_default_size(window, 440, 560);
   GdkGeometry geometry{};

@@ -103,6 +103,10 @@ install(CODE "
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 install(DIRECTORY "icons/" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/icons" COMPONENT Runtime)
+install(FILES "icons/tech.soit.flutterairplay.png"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/512x512/apps" COMPONENT Runtime)
+install(FILES "tech.soit.flutterairplay.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications" COMPONENT Runtime)
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
