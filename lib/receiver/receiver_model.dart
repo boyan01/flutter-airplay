@@ -32,6 +32,10 @@ class ReceiverModel extends ChangeNotifier {
   String name = 'Flutter AirPlay';
   String path = '';
   bool autoStart = true;
+  String videoQuality = 'auto';
+  List<String> videoQualities = const [];
+  int screenWidth = 0, screenHeight = 0;
+  bool get supportsVideoQuality => videoQualities.isNotEmpty;
   String? clientName;
   bool supportsLaunchAtLogin = false;
   final desktopOptions = <String, bool>{
@@ -113,6 +117,11 @@ class ReceiverModel extends ChangeNotifier {
     name = data['name'] as String;
     path = data['path'] as String? ?? '';
     autoStart = data['autoStart'] as bool? ?? true;
+    videoQuality = data['videoQuality'] as String? ?? videoQuality;
+    videoQualities =
+        (data['videoQualities'] as List?)?.cast<String>() ?? videoQualities;
+    screenWidth = data['screenWidth'] as int? ?? screenWidth;
+    screenHeight = data['screenHeight'] as int? ?? screenHeight;
     clientName = (data['clientName'] as String?)?.trim();
     if (clientName?.isEmpty ?? false) clientName = null;
     for (final key in desktopOptions.keys.toList()) {
@@ -261,6 +270,7 @@ class ReceiverModel extends ChangeNotifier {
     String nextName,
     String nextPath, {
     bool? autoStart,
+    String? videoQuality,
     Map<String, bool>? desktopOptions,
   }) async {
     if (!editable) return;
@@ -271,18 +281,25 @@ class ReceiverModel extends ChangeNotifier {
       return;
     }
     final restart =
-        active && (nextName.trim() != name || nextPath.trim() != path);
+        active &&
+        (nextName.trim() != name ||
+            nextPath.trim() != path ||
+            (videoQuality != null && videoQuality != this.videoQuality));
     await _command(() async {
       if (restart) await _stopAndWait();
       await repository.save(
         nextName.trim(),
         nextPath.trim(),
         autoStart: autoStart ?? this.autoStart,
+        videoQuality: supportsVideoQuality
+            ? videoQuality ?? this.videoQuality
+            : null,
         desktopOptions: desktopOptions ?? this.desktopOptions,
       );
       name = nextName.trim();
       path = nextPath.trim();
       this.autoStart = autoStart ?? this.autoStart;
+      this.videoQuality = videoQuality ?? this.videoQuality;
       if (desktopOptions != null) this.desktopOptions.addAll(desktopOptions);
       if (restart) await repository.start(name, path);
     }, success: 'saved');

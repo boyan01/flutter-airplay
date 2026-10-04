@@ -359,4 +359,41 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get fullscreenWindows => '切换全屏（F11）';
+
+  @override
+  String get videoQuality => '投屏清晰度';
+
+  @override
+  String get qualityAuto => '适配本机';
+
+  @override
+  String get quality720 => '流畅 · 720p';
+
+  @override
+  String get quality1080 => '标准 · 1080p';
+
+  @override
+  String get quality1440 => '高清 · 1440p';
+
+  @override
+  String get qualityHelp =>
+      '适配本机会参考屏幕像素和解码能力，最高请求 1440p。实际尺寸由发送端决定。保存后需重新连接屏幕镜像。';
+
+  @override
+  String get qualityUnsupported => '此设备的解码器不支持此档位';
+
+  @override
+  String get screenSize => '当前屏幕';
+
+  @override
+  String get receivedSize => '实际接收';
+
+  @override
+  String get noReceivedVideo => '等待画面';
+
+  @override
+  String get saveRestart => '保存并重启';
+
+  @override
+  String get qualityRestartHelp => '修改设备名或清晰度后会重新启动接收，当前投屏将结束。';
 }

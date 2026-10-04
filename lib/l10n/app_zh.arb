@@ -134,5 +134,17 @@
   "maximize": "最大化",
   "restore": "还原",
   "keepInTray": "关闭窗口后保留在托盘",
-  "fullscreenWindows": "切换全屏（F11）"
+  "fullscreenWindows": "切换全屏（F11）",
+  "videoQuality": "投屏清晰度",
+  "qualityAuto": "适配本机",
+  "quality720": "流畅 · 720p",
+  "quality1080": "标准 · 1080p",
+  "quality1440": "高清 · 1440p",
+  "qualityHelp": "适配本机会参考屏幕像素和解码能力，最高请求 1440p。实际尺寸由发送端决定。保存后需重新连接屏幕镜像。",
+  "qualityUnsupported": "此设备的解码器不支持此档位",
+  "screenSize": "当前屏幕",
+  "receivedSize": "实际接收",
+  "noReceivedVideo": "等待画面",
+  "saveRestart": "保存并重启",
+  "qualityRestartHelp": "修改设备名或清晰度后会重新启动接收，当前投屏将结束。"
 }

@@ -50,6 +50,13 @@ presentation, skipped frame timestamps and long presentation gaps. It also
 resets the receiver while a decoded frame is waiting for its deadline and
 requires fresh output without the cancelled frame. The fixture runs against
 the available default, hardware, low-latency and software AVC decoders.
+On Qualcomm AVC decoders, `ReorderTest` also exercises 1440p30 with POC type 0
+and no SPS bitstream restriction, then a stream with real B-frames. It requires
+60 measured images without early or backwards presentation. The first case
+catches decoder buffering that can make every output miss its deadline; the
+second catches a future reference frame blocking earlier presentation timestamps.
+`reorder_fixtures.h` contains only synthetic red video. Regenerate it with
+`python3 native/player-tests/generate_reorder_fixtures.py` (FFmpeg and x264 CLI).
 Texture consumption times do not measure physical display scanout.
 
 Run the current scripts documented in the root AGENTS.md. Synthetic results

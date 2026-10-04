@@ -86,8 +86,14 @@ int main() {
             AirplayCallbacks callbacks{};
             auto *player = airplay_player_create(callbacks, nullptr, nullptr, nullptr);
             check(player, "create receiver with platform adapters");
+            const int request_height = session == 0 ? 1080 : session == 1 ? 720 : 1440;
+            const int request_width = request_height * 16 / 9;
+            check(!airplay_player_set_video_size(player, 0, request_height), "reject zero request size");
+            check(!airplay_player_set_video_size(player, 4097, request_height), "reject oversized request");
+            if (session != 0) check(airplay_player_set_video_size(player, request_width, request_height), "configure requested quality");
             char error[512];
             check(airplay_player_start(player, "Synthetic Receiver", identity, key.c_str(), error, sizeof(error)), error);
+            check(!airplay_player_set_video_size(player, 1280, 720), "cannot mutate a running receiver request");
             const auto port = airplay_player_port(player);
             check(port != 0, "dynamic receiver port");
             const auto count = airplay_player_txt(player, true, nullptr, 0);
@@ -98,10 +104,40 @@ int main() {
             sockaddr_in address{}; address.sin_family = AF_INET; address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(port);
             check(connect(client, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0, "loopback listener connect");
             timeval timeout{2,0}; setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-            const char request[] = "OPTIONS * RTSP/1.0\r\nCSeq: 1\r\n\r\n";
+            const char request[] = "GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n";
             check(send(client, request, strlen(request), 0) == int(strlen(request)), "send synthetic RTSP request");
-            char response[1024]{}; const auto received = recv(client, response, sizeof(response)-1, 0);
-            check(received > 0 && strstr(response, "200 OK"), "receive real RTSP response"); close(client);
+            std::string response;
+            size_t header_end = std::string::npos, body_length = 0;
+            while (true) {
+                char chunk[4096]; const auto received = recv(client, chunk, sizeof(chunk), 0);
+                check(received > 0, "receive complete info response");
+                response.append(chunk, size_t(received));
+                header_end = response.find("\r\n\r\n");
+                if (header_end == std::string::npos) continue;
+                const auto length = response.find("Content-Length: ");
+                check(length < header_end, "info response has body length");
+                body_length = std::stoul(response.substr(length + strlen("Content-Length: ")));
+                if (response.size() >= header_end + 4 + body_length) break;
+            }
+            close(client);
+            check(response.find("200 OK") < header_end, "receive real RTSP response");
+            const auto data = CFDataCreate(nullptr, reinterpret_cast<const UInt8 *>(response.data() + header_end + 4), body_length);
+            const auto info = CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
+            CFRelease(data);
+            check(info && CFGetTypeID(info) == CFDictionaryGetTypeID(), "decode advertised info plist");
+            const auto displays = static_cast<CFArrayRef>(CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), CFSTR("displays")));
+            check(displays && CFArrayGetCount(displays) > 0, "advertised display exists");
+            const auto display = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(displays, 0));
+            auto number = [&](CFStringRef key) {
+                int value = 0;
+                const auto item = static_cast<CFNumberRef>(CFDictionaryGetValue(display, key));
+                check(item && CFNumberGetValue(item, kCFNumberIntType, &value), "numeric display property");
+                return value;
+            };
+            check(number(CFSTR("width")) == request_width && number(CFSTR("height")) == request_height,
+                  "receiver advertises selected quality, including unchanged default");
+            check(number(CFSTR("maxFPS")) == 60, "quality retains 60 FPS capability");
+            CFRelease(info);
             airplay_player_destroy(player);
         }
         std::filesystem::remove_all(directory);

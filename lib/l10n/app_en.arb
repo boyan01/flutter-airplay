@@ -141,5 +141,17 @@
   "maximize": "Maximize",
   "restore": "Restore",
   "keepInTray": "Keep in system tray when the window closes",
-  "fullscreenWindows": "Toggle fullscreen (F11)"
+  "fullscreenWindows": "Toggle fullscreen (F11)",
+  "videoQuality": "Mirroring quality",
+  "qualityAuto": "Fit this device",
+  "quality720": "Smooth · 720p",
+  "quality1080": "Standard · 1080p",
+  "quality1440": "High · 1440p",
+  "qualityHelp": "Fit this device uses screen pixels and decoder capabilities, requesting up to 1440p. The sender decides the actual size. Reconnect Screen Mirroring after saving.",
+  "qualityUnsupported": "This decoder does not support this quality",
+  "screenSize": "Current screen",
+  "receivedSize": "Received video",
+  "noReceivedVideo": "Waiting for video",
+  "saveRestart": "Save and restart",
+  "qualityRestartHelp": "Changing the name or quality restarts the receiver and ends the current session."
 }

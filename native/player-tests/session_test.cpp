@@ -198,4 +198,62 @@ extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_T
     env->ReleaseStringUTFChars(decoder, name); ANativeWindow_release(window);
     return env->NewStringUTF(result.c_str());
 }
+
+#include "reorder_fixtures.h"
+extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_ReorderTest_run(
+        JNIEnv *env, jclass, jobject surface, jstring decoder, jobject consumer, jboolean bframes) {
+    using namespace reorder_fixtures;
+    auto sample = env->GetMethodID(env->GetObjectClass(consumer), "sampleTimestamp", "()J");
+    if (!sample) return nullptr;
+    auto *window = ANativeWindow_fromSurface(env, surface);
+    const char *name = env->GetStringUTFChars(decoder, nullptr);
+    std::string result;
+    try {
+        auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, window, name, "");
+        const auto receive = receiver_callbacks(p.get());
+        float width = bframes ? 640 : 2560, height = bframes ? 360 : 1440;
+        receive.video_report_size(receive.cls, &width, &height, nullptr, nullptr);
+        const auto *bytes = bframes ? bframes_data : unrestricted_data;
+        const auto *packets = bframes ? bframes_packets : unrestricted_packets;
+        const int64_t period = kSecond / (bframes ? 60 : 30);
+        const auto start = monotonic_ns(), pts = realtime_ns();
+        const auto first_due = p->timeline.deadline(pts);
+        int sent = 0, consumed = 0, early = 0, backwards = 0;
+        int64_t last_pts = 0, last_latch = 0, max_gap = 0, next_sample = start;
+        while (monotonic_ns() < start + 96 * period + 300000000) {
+            const auto now = monotonic_ns();
+            if (sent < 96 && now >= start + sent * period) {
+                const auto &packet = packets[sent++];
+                video_decode_struct data{};
+                data.data = const_cast<uint8_t *>(bytes + packet[0]); data.data_len = packet[1];
+                // Packet order is decode order; NTP timestamps are presentation order.
+                data.ntp_time_local = pts + packet[2] * period;
+                receive.video_process(receive.cls, nullptr, &data);
+            }
+            if (now >= next_sample) {
+                const auto timestamp = env->CallLongMethod(consumer, sample);
+                const auto latch = monotonic_ns();
+                // Ignore startup and give the decoder enough padding at the end.
+                if (timestamp != last_pts && timestamp >= (first_due + 16 * period) / 1000 * 1000 &&
+                    timestamp < (first_due + 76 * period) / 1000 * 1000) {
+                    ++consumed;
+                    if (timestamp > latch + 2000000) ++early;
+                    if (last_pts && timestamp < last_pts) ++backwards;
+                    if (last_latch) max_gap = std::max(max_gap, int64_t(latch - last_latch));
+                    last_latch = latch; last_pts = timestamp;
+                }
+                next_sample = now + kSecond / 120;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        char summary[256];
+        snprintf(summary, sizeof(summary), "%s %s consumed=%d/60 early=%d backwards=%d maxGapMs=%.2f",
+            consumed >= 58 && !early && !backwards && max_gap < period + 25000000 ? "ORDER_OK:" : "FAIL:",
+            bframes ? "B-frames" : "1440p30 unrestricted POC", consumed, early, backwards, double(max_gap) / 1e6);
+        result = summary;
+    } catch (const std::exception &error) { result = std::string("FAIL: ") + error.what(); }
+    env->ReleaseStringUTFChars(decoder, name); ANativeWindow_release(window);
+    if (env->ExceptionCheck()) return nullptr;
+    return env->NewStringUTF(result.c_str());
+}
 #endif

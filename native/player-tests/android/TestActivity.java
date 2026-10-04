@@ -45,6 +45,9 @@ public class TestActivity extends Activity {
                 if(hardware!=null)decoders.add(hardware);if(software!=null)decoders.add(software);
                 if(lowLatency!=null)decoders.add(lowLatency);
                 for (String selected : decoders) PacingTest.check(selected);
+                for (String selected : decoders) {
+                    if (selected.startsWith("c2.qti.") || selected.startsWith("OMX.qcom.")) ReorderTest.check(selected);
+                }
                 for (String selected : decoders) for (boolean portrait : new boolean[]{false,true}) {
                     try (TextureSurface consumer=new TextureSurface(portrait?360:640,portrait?640:360)) {
                         Log.i("PlayerRegression", "Testing decoder: "+selected);
@@ -61,7 +64,7 @@ public class TestActivity extends Activity {
                         consumer.checkBluePixels();
                     }
                 }
-                result = "PASS: regular/burst frame pacing, landscape/portrait Surface pixels, NDK decoder/reset, sender pause/resume blue pixels, continuous audio clock, shared audio PCM, silent Oboe restart";
+                result = "PASS: decoder buffering/B-frame ordering, regular/burst frame pacing, landscape/portrait Surface pixels, NDK decoder/reset, sender pause/resume blue pixels, continuous audio clock, shared audio PCM, silent Oboe restart";
             } catch (Throwable error) { result="FAIL: "+error; }
             Log.i("PlayerRegression",result);
             final String text=result; runOnUiThread(() -> label.setText(text));

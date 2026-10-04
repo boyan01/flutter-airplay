@@ -60,6 +60,34 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             "app=${metrics.widthPixels}x${metrics.heightPixels}, density=${metrics.density}, " +
             "refreshHz=${display?.refreshRate}, rotation=${display?.rotation}")
     }
+    private val videoDecoder by lazy { DecoderSelector().avc() }
+    private fun supportsVideoSize(width: Int, height: Int): Boolean = runCatching {
+        videoDecoder?.getCapabilitiesForType(DecoderSelector.AVC)?.videoCapabilities
+            ?.areSizeAndRateSupported(width, height, 60.0) == true
+    }.getOrDefault(false)
+
+    private val videoQualities by lazy {
+        VideoQuality.presets.filter { it == "auto" || VideoQuality.supported(it.toInt(), ::supportsVideoSize) }
+    }
+
+    fun videoSettings(): Map<String, Any> {
+        val mode = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+            .getDisplay(Display.DEFAULT_DISPLAY)?.mode
+        val metrics = context.resources.displayMetrics
+        return mapOf(
+            "videoQuality" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
+                .getString("videoQuality", "auto")!!,
+            "screenWidth" to (mode?.physicalWidth ?: metrics.widthPixels),
+            "screenHeight" to (mode?.physicalHeight ?: metrics.heightPixels),
+            "videoQualities" to videoQualities,
+        )
+    }
+
+    fun validateVideoQuality(value: String) {
+        val settings = videoSettings()
+        VideoQuality.height(value, settings["screenHeight"] as Int, ::supportsVideoSize)
+    }
+
     fun start(requestedName: String, result: MethodChannel.Result) {
         if (busy || running) { result.error("busy", "接收器已启动或正在操作", null); return }
         val name = requestedName.trim()
@@ -67,13 +95,22 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
             name.any { it.code < 32 || it.code == 127 }) {
             result.error("name", "设备名需要 1–50 个 UTF-8 字节，不能含控制字符", null); return
         }
+        val settings = videoSettings()
+        val requestHeight: Int
+        try {
+            requestHeight = VideoQuality.height(settings["videoQuality"] as String,
+                settings["screenHeight"] as Int, ::supportsVideoSize)
+        } catch (error: Exception) {
+            result.error("video_quality", error.message, null); return
+        }
+        val requestWidth = VideoQuality.width(requestHeight)
         pendingStart = result
         busy = true
         val epoch = ++generation
         frames = 0
         try {
             logDisplayInfo()
-            diagnostic("Receiver request: H.264, 1920x1080, maxFPS=60; sender chooses actual size/rate")
+            diagnostic("Receiver request: quality=${settings["videoQuality"]}, H.264, ${requestWidth}x${requestHeight}, maxFPS=60; sender chooses actual size/rate")
             texture = textures.createSurfaceTexture().also { it.surfaceTexture().setDefaultBufferSize(1920, 1080) }
             surface = Surface(texture!!.surfaceTexture())
             val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -87,8 +124,8 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         worker.execute {
             try {
                 val selector = DecoderSelector().also { it.onDiagnostic = ::diagnostic }
-                val decoder = selector.avc()?.name ?: error("No H.264 decoder available")
-                val fallback = selector.software(DecoderSelector.AVC, 1920, 1080)?.name ?: ""
+                val decoder = videoDecoder?.name ?: error("No H.264 decoder available")
+                val fallback = selector.software(DecoderSelector.AVC, (requestHeight * 12 / 5 + 15) / 16 * 16, (requestHeight + 15) / 16 * 16)?.name ?: ""
                 val prefs=context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 val hex=prefs.getString("identity",null) ?: ByteArray(6).also {
                     SecureRandom().nextBytes(it); it[0]=((it[0].toInt() or 2) and 254).toByte()
@@ -97,7 +134,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
                 }
                 val identity=hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                 val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath,
-                    surface!!, decoder, fallback, epoch)
+                    surface!!, decoder, fallback, epoch, requestWidth, requestHeight)
                 val videoTxt=parseTxt(txtNative(false)); val audioTxt=parseTxt(txtNative(true))
                 main.post {
                     if(epoch!=generation) return@post
@@ -207,7 +244,7 @@ class PlaybackHost(private val context: Context, private val textures: TextureRe
         }
     }
     private external fun startNative(name: String, identity: ByteArray, keyPath: String,
-                                     surface: Surface, decoder: String, fallback: String, epoch: Int): Int
+                                     surface: Surface, decoder: String, fallback: String, epoch: Int, width: Int, height: Int): Int
     private external fun txtNative(raop: Boolean): ByteArray
     private external fun stopNative()
 }

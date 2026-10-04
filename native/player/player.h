@@ -27,6 +27,9 @@ typedef struct {
 // It is unused on macOS.
 AirplayPlayer *airplay_player_create(AirplayCallbacks callbacks, void *surface,
                                     const char *decoder, const char *fallback);
+// Sets the advertised size before start; the sender chooses actual frame dimensions.
+// Defaults to 1920x1080. Call on the same lifecycle thread as start/destroy.
+bool airplay_player_set_video_size(AirplayPlayer *, int width, int height);
 bool airplay_player_start(AirplayPlayer *, const char *name, const uint8_t identity[6],
                           const char *key_path, char *error, size_t error_size);
 uint16_t airplay_player_port(AirplayPlayer *);

@@ -37,6 +37,7 @@ struct AirplayPlayer {
     bool video_paused = false;
     bool audio_playing = false;
     int width = 1920, height = 1080;
+    int requested_width = 1920, requested_height = 1080;
     size_t queued_bytes = 0;
 
     AirplayPlayer(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback)
@@ -201,6 +202,11 @@ raop_callbacks_t receiver_callbacks(AirplayPlayer *p) {
 extern "C" AirplayPlayer *airplay_player_create(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback) {
     try { return new AirplayPlayer(cb, surface, decoder, fallback); } catch (...) { return nullptr; }
 }
+extern "C" bool airplay_player_set_video_size(AirplayPlayer *p, int width, int height) {
+    if (!p || p->receiver || width < 1 || height < 1 || width > 4096 || height > 4096) return false;
+    p->requested_width = width; p->requested_height = height;
+    return true;
+}
 extern "C" bool airplay_player_start(AirplayPlayer *p, const char *name, const uint8_t identity[6], const char *key,
                                      char *error, size_t capacity) {
     auto fail = [&](const char *text) { if (error && capacity) snprintf(error, capacity, "%s", text); return false; };
@@ -217,7 +223,7 @@ extern "C" bool airplay_player_start(AirplayPlayer *p, const char *name, const u
     raop_set_dnssd(p->receiver, p->dns);
     dnssd_set_airplay_features(p->dns, 0, 0); dnssd_set_airplay_features(p->dns, 4, 0);
     dnssd_set_airplay_features(p->dns, 7, 1); dnssd_set_airplay_features(p->dns, 42, 0);
-    raop_set_plist(p->receiver, "width", 1920); raop_set_plist(p->receiver, "height", 1080); raop_set_plist(p->receiver, "maxFPS", 60);
+    raop_set_plist(p->receiver, "width", p->requested_width); raop_set_plist(p->receiver, "height", p->requested_height); raop_set_plist(p->receiver, "maxFPS", 60);
     if (raop_start_httpd(p->receiver, &p->port) < 0 || !p->port) return fail("Cannot bind AirPlay listener");
     raop_set_port(p->receiver, p->port);
     if (dnssd_register_raop(p->dns, p->port) || dnssd_register_airplay(p->dns, p->port)) return fail("Cannot register discovery services");

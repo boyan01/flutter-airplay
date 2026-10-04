@@ -81,7 +81,7 @@ void log(void *context, int level, const char *message) {
 }
 extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_PlaybackHost_startNative(
         JNIEnv *env, jobject target, jstring name, jbyteArray identity, jstring key,
-        jobject surface, jstring decoder, jstring fallback, jint epoch) {
+        jobject surface, jstring decoder, jstring fallback, jint epoch, jint width, jint height) {
     std::lock_guard<std::mutex> guard(lifecycle);
     if (active || env->GetArrayLength(identity) != 6) { fail(env, "Invalid native receiver lifecycle"); return 0; }
     auto host = std::make_unique<Host>();
@@ -100,6 +100,9 @@ extern "C" JNIEXPORT jint JNICALL Java_io_github_boyan01_flutter_1airplay_Playba
     host->player = airplay_player_create(callbacks, window, primary.c_str(), backup.c_str());
     ANativeWindow_release(window);
     if (!host->player) { fail(env, "Cannot create native player"); return 0; }
+    if (!airplay_player_set_video_size(host->player, width, height)) {
+        fail(env, "Invalid video request size"); return 0;
+    }
     char error[512]{};
     if (!airplay_player_start(host->player, label.c_str(), id, path.c_str(), error, sizeof(error))) { fail(env, error); return 0; }
     const auto port = airplay_player_port(host->player);

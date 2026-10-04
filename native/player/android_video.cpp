@@ -22,7 +22,8 @@ public:
         if (w != width_ || h != height_) { reset(); width_ = w; height_ = h; }
     }
     void reset() override {
-        pending_index_ = -1;
+        pending_.clear();
+        last_presented_due_ = 0;
         if (codec_) { AMediaCodec_stop(codec_); AMediaCodec_delete(codec_); codec_ = nullptr; }
     }
     bool decode(const VideoPacket &packet) override {
@@ -54,20 +55,6 @@ public:
         if (!codec_) return;
         AMediaCodecBufferInfo info{};
         while (true) {
-            if (pending_index_ >= 0) {
-                const auto now = monotonic_ns();
-                // Flutter consumes SurfaceTexture images as soon as available;
-                // releaseOutputBufferAtTime only stamps them on this surface.
-                // Retain the codec buffer until due instead of blocking the worker.
-                if (pending_due_ > now) return;
-                const auto index = pending_index_;
-                pending_index_ = -1;
-                if (pending_due_ < now - 150000000) AMediaCodec_releaseOutputBuffer(codec_, index, false);
-                else {
-                    AMediaCodec_releaseOutputBufferAtTime(codec_, index, pending_due_);
-                    callbacks_.frame(nullptr, visible_width_, visible_height_, pending_due_, generation_);
-                }
-            }
             auto index = AMediaCodec_dequeueOutputBuffer(codec_, &info, 0);
             if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
                 auto *format = AMediaCodec_getOutputFormat(codec_);
@@ -88,15 +75,39 @@ public:
                 AMediaFormat_delete(format); continue;
             }
             if (index < 0) break;
-            pending_index_ = index;
-            pending_due_ = info.presentationTimeUs * 1000;
+            pending_.push_back({index, info.presentationTimeUs * 1000});
+        }
+        // Decode-order output can put a future reference frame before its
+        // B-frames. Collect all available output before choosing the earliest
+        // due timestamp; holding the first buffer would block earlier frames.
+        while (!pending_.empty()) {
+            auto next = std::min_element(pending_.begin(), pending_.end(),
+                [](const PendingOutput &a, const PendingOutput &b) { return a.due < b.due; });
+            const auto now = monotonic_ns();
+            if (next->due > now) break;
+            const auto output = *next;
+            pending_.erase(next);
+            // A B-frame decoded after a later picture was already presented
+            // cannot be displayed retroactively, even within the lateness limit.
+            if (output.due <= last_presented_due_ || output.due < now - 150000000)
+                AMediaCodec_releaseOutputBuffer(codec_, output.index, false);
+            else {
+                // Flutter consumes SurfaceTexture images immediately. Keep
+                // ownership until due; AtTime alone only stamps this surface.
+                AMediaCodec_releaseOutputBufferAtTime(codec_, output.index, output.due);
+                last_presented_due_ = output.due;
+                callbacks_.frame(nullptr, visible_width_, visible_height_, output.due, generation_);
+            }
         }
     }
 private:
     bool open(const std::string &name) {
         if (name.empty()) return false;
-        // Retry without vendor low-latency options when a device rejects them.
-        for (int attempt = 0; attempt < 2; ++attempt) {
+        const bool qualcomm = name.rfind("c2.qti.", 0) == 0 || name.rfind("OMX.qcom.", 0) == 0;
+        const int attempts = qualcomm ? 3 : 2;
+        // Retry standard low latency, then plain configuration, if a vendor
+        // rejects decode-order output. Other decoders keep their existing path.
+        for (int attempt = 0; attempt < attempts; ++attempt) {
             auto *candidate = AMediaCodec_createCodecByName(name.c_str());
             if (!candidate) return false;
             auto *format = AMediaFormat_new();
@@ -104,7 +115,11 @@ private:
             AMediaFormat_setInt32(format, "width", width_); AMediaFormat_setInt32(format, "height", height_);
             AMediaFormat_setInt32(format, "max-input-size", std::max(width_ * height_, 4 * 1024 * 1024));
             AMediaFormat_setInt32(format, "frame-rate", 60);
-            if (!attempt) AMediaFormat_setInt32(format, "low-latency", 1);
+            if (attempt < attempts - 1) AMediaFormat_setInt32(format, "low-latency", 1);
+            // Qualcomm otherwise buffers POC type 0 streams without a VUI
+            // reorder limit, even when Android low-latency mode is enabled.
+            // Presentation ordering remains owned by drain(), not the codec.
+            if (qualcomm && !attempt) AMediaFormat_setInt32(format, "vendor.qti-ext-dec-picture-order.enable", 1);
             auto status = AMediaCodec_configure(candidate, format, window_, nullptr, 0);
             AMediaFormat_delete(format);
             if (status == AMEDIA_OK && AMediaCodec_start(candidate) == AMEDIA_OK) {
@@ -116,8 +131,10 @@ private:
     }
     ANativeWindow *window_;
     AMediaCodec *codec_ = nullptr;
-    ssize_t pending_index_ = -1;
-    int64_t pending_due_ = 0;
+    struct PendingOutput { ssize_t index; int64_t due; };
+    // Bounded by the codec's output buffer pool; reset returns all ownership.
+    std::vector<PendingOutput> pending_;
+    int64_t last_presented_due_ = 0;
     std::string decoder_, fallback_;
     VideoCallbacks callbacks_;
     int width_ = 1920, height_ = 1080, visible_width_ = 1920, visible_height_ = 1080;

@@ -41,7 +41,7 @@ fi
 started=$("$sdk/platform-tools/adb" shell "date '+%m-%d %H:%M:%S.000'")
 android run --apks="$output/player-tests.apk"
 # Poll only this fixture's log tag; the timeout is bounded and output is local.
-for attempt in {1..30}; do
+for attempt in {1..60}; do
     "$sdk/platform-tools/adb" logcat -d -T "$started" -s PlayerRegression:I '*:S' > "$project_root/artifacts/android/player-device-tests.log"
     if rg -q 'PASS:|FAIL:' "$project_root/artifacts/android/player-device-tests.log"; then break; fi
     sleep 1

@@ -23,6 +23,7 @@ class FakeReceiver implements ReceiverRepository {
   );
   int starts = 0, stops = 0;
   String? startedName, savedName, failure;
+  String? savedVideoQuality;
   Map<String, bool> savedOptions = {};
   Completer<void>? startup;
   Completer<void>? shutdown;
@@ -37,6 +38,12 @@ class FakeReceiver implements ReceiverRepository {
     'name': 'Flutter AirPlay',
     'path': '',
     'logs': <dynamic>[],
+    if (capabilities?['platform'] == 'android') ...{
+      'videoQuality': savedVideoQuality ?? 'auto',
+      'videoQualities': ['auto', '720', '1080'],
+      'screenWidth': 1200,
+      'screenHeight': 2670,
+    },
     if (capabilities != null) 'capabilities': capabilities,
   };
   void state(String status, [int pid = 42]) => controller.add({
@@ -72,10 +79,12 @@ class FakeReceiver implements ReceiverRepository {
     String name,
     String path, {
     bool autoStart = true,
+    String? videoQuality,
     Map<String, bool> desktopOptions = const {},
   }) async {
     this.autoStart = autoStart;
     savedName = name;
+    savedVideoQuality = videoQuality;
     savedOptions = Map.of(desktopOptions);
   }
 
@@ -607,6 +616,93 @@ void main() {
     );
   });
 
+  testWidgets(
+    'Quality is a draft until save; unsupported options are disabled',
+    (tester) async {
+      final backend = await launch(tester, platform: 'android');
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      expect(find.text('当前屏幕: 1200 × 2670'), findsOneWidget);
+      expect(find.text('实际接收: 等待画面'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<RadioListTile<String>>(find.byKey(const Key('quality1440')))
+            .enabled,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const Key('quality720')));
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(find.text('适配本机'), findsOneWidget);
+      expect(backend.stops, 0);
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quality1080')));
+      await tester.tap(find.text('完成'));
+      await tester.pumpAndSettle();
+      expect(backend.stops, 0);
+      expect(backend.savedVideoQuality, isNull);
+      await tester.tap(find.text('保存并重启'));
+      await tester.pumpAndSettle();
+      expect(backend.savedVideoQuality, '1080');
+      expect(backend.stops, 1);
+      expect(backend.starts, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test('Saving unchanged quality does not restart; changed quality survives reload', () async {
+    final backend = FakeReceiver(capabilities: {'platform': 'android'});
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    await model.save(model.name, model.path, videoQuality: 'auto');
+    expect(backend.stops, 0);
+    await model.save(model.name, model.path, videoQuality: '720');
+    expect(model.videoQuality, '720');
+    expect(backend.stops, 1);
+    final restored = ReceiverModel(backend);
+    await restored.initialize();
+    expect(restored.videoQuality, '720');
+    model.dispose();
+    restored.dispose();
+    await backend.controller.close();
+  });
+
+  testWidgets(
+    'TV quality confirms once; compact quality page supports scaled text',
+    (tester) async {
+      final backend = await launch(
+        tester,
+        platform: 'android',
+        tv: true,
+        size: const Size(960, 540),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('videoQuality')));
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quality720')));
+      await tester.pumpAndSettle();
+      expect(backend.stops, 0);
+      await tester.tap(find.text('保存并重启'));
+      await tester.pumpAndSettle();
+      expect(backend.savedVideoQuality, '720');
+      expect(backend.stops, 1);
+      expect(find.byKey(const Key('videoQuality')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('videoQuality')));
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.binding.setSurfaceSize(const Size(390, 560));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('TV settings are a route with a separate device-name editor', (
     tester,
   ) async {
@@ -743,6 +839,7 @@ void main() {
     await launch(tester, platform: 'android');
     await tester.tap(find.byKey(const Key('openSettings')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('接收日志'));
     await tester.tap(find.text('接收日志'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);

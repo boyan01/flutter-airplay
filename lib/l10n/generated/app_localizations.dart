@@ -781,6 +781,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Toggle fullscreen (F11)'**
   String get fullscreenWindows;
+
+  /// No description provided for @videoQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Mirroring quality'**
+  String get videoQuality;
+
+  /// No description provided for @qualityAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit this device'**
+  String get qualityAuto;
+
+  /// No description provided for @quality720.
+  ///
+  /// In en, this message translates to:
+  /// **'Smooth · 720p'**
+  String get quality720;
+
+  /// No description provided for @quality1080.
+  ///
+  /// In en, this message translates to:
+  /// **'Standard · 1080p'**
+  String get quality1080;
+
+  /// No description provided for @quality1440.
+  ///
+  /// In en, this message translates to:
+  /// **'High · 1440p'**
+  String get quality1440;
+
+  /// No description provided for @qualityHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit this device uses screen pixels and decoder capabilities, requesting up to 1440p. The sender decides the actual size. Reconnect Screen Mirroring after saving.'**
+  String get qualityHelp;
+
+  /// No description provided for @qualityUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'This decoder does not support this quality'**
+  String get qualityUnsupported;
+
+  /// No description provided for @screenSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Current screen'**
+  String get screenSize;
+
+  /// No description provided for @receivedSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Received video'**
+  String get receivedSize;
+
+  /// No description provided for @noReceivedVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for video'**
+  String get noReceivedVideo;
+
+  /// No description provided for @saveRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Save and restart'**
+  String get saveRestart;
+
+  /// No description provided for @qualityRestartHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Changing the name or quality restarts the receiver and ends the current session.'**
+  String get qualityRestartHelp;
 }
 
 class _AppLocalizationsDelegate

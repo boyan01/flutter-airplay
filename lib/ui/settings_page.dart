@@ -24,6 +24,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late final _name = TextEditingController(text: widget.model.name);
   late final _path = TextEditingController(text: widget.model.path);
+  late String _videoQuality = widget.model.videoQuality;
   late bool _autoStart = widget.model.autoStart;
   late final _options = Map<String, bool>.of(widget.model.desktopOptions);
   String? _error;
@@ -43,6 +44,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _name.text,
       _path.text,
       autoStart: _autoStart,
+      videoQuality: model.supportsVideoQuality ? _videoQuality : null,
       desktopOptions: _options,
     );
     if (!mounted) return;
@@ -58,6 +60,15 @@ class _SettingsPageState extends State<SettingsPage> {
       context,
     ).push<bool>(MaterialPageRoute(builder: (_) => _TvNamePage(model: model)));
     if (mounted && changed == true) setState(() => _name.text = model.name);
+  }
+
+  Future<void> _editVideoQuality() async {
+    final value = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => _VideoQualityPage(model: model, value: _videoQuality),
+      ),
+    );
+    if (mounted && value != null) setState(() => _videoQuality = value);
   }
 
   Widget _option(String key, String title, {bool enabled = true}) =>
@@ -172,6 +183,26 @@ class _SettingsPageState extends State<SettingsPage> {
             _option('fullscreenOnConnect', l10n(context).fullscreenOnConnect),
             _option('alwaysOnTop', l10n(context).alwaysOnTop),
           ],
+          if (model.supportsVideoQuality) ...[
+            TvFocus(
+              outline: tv,
+              child: ListTile(
+                key: const Key('videoQuality'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n(context).videoQuality),
+                subtitle: Text(_qualityLabel(context, _videoQuality)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: model.editable ? _editVideoQuality : null,
+              ),
+            ),
+            Text(
+              '${l10n(context).screenSize}: ${model.screenWidth} × ${model.screenHeight}',
+            ),
+            Text(
+              '${l10n(context).receivedSize}: ${model.hasVideo ? '${model.videoWidth} × ${model.videoHeight}' : l10n(context).noReceivedVideo}',
+            ),
+            const SizedBox(height: 12),
+          ],
           if (model.platform == 'android') ...[
             TvFocus(
               outline: tv,
@@ -203,7 +234,9 @@ class _SettingsPageState extends State<SettingsPage> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                l10n(context).restartHelp,
+                model.supportsVideoQuality
+                    ? l10n(context).qualityRestartHelp
+                    : l10n(context).restartHelp,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -293,7 +326,14 @@ class _SettingsPageState extends State<SettingsPage> {
             FilledButton(
               onPressed: model.editable ? _save : null,
               child: Text(
-                model.busy ? l10n(context).saving : l10n(context).done,
+                model.busy
+                    ? l10n(context).saving
+                    : model.active &&
+                          (_videoQuality != model.videoQuality ||
+                              _name.text.trim() != model.name ||
+                              _path.text.trim() != model.path)
+                    ? l10n(context).saveRestart
+                    : l10n(context).done,
               ),
             ),
           ],
@@ -418,5 +458,139 @@ class _TvNamePageState extends State<_TvNamePage> {
         ),
       ),
     ),
+  );
+}
+
+String _qualityLabel(BuildContext context, String value) => switch (value) {
+  '720' => l10n(context).quality720,
+  '1080' => l10n(context).quality1080,
+  '1440' => l10n(context).quality1440,
+  _ => l10n(context).qualityAuto,
+};
+
+class _VideoQualityPage extends StatefulWidget {
+  const _VideoQualityPage({required this.model, required this.value});
+  final ReceiverModel model;
+  final String value;
+  @override
+  State<_VideoQualityPage> createState() => _VideoQualityPageState();
+}
+
+class _VideoQualityPageState extends State<_VideoQualityPage> {
+  late String _value = widget.value;
+
+  Future<void> _confirm() async {
+    final model = widget.model;
+    if (model.isTelevision) {
+      await model.save(model.name, model.path, videoQuality: _value);
+      if (!mounted || model.commandError != null) return;
+    }
+    if (mounted) Navigator.pop(context, _value);
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.model,
+    builder: (context, _) {
+      final model = widget.model;
+      return PopScope(
+        canPop: !model.busy,
+        child: Scaffold(
+          appBar: AppBar(title: Text(l10n(context).videoQuality)),
+          body: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(model.isTelevision ? 48 : 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        RadioGroup<String>(
+                          groupValue: _value,
+                          onChanged: (value) {
+                            if (value != null) setState(() => _value = value);
+                          },
+                          child: Column(
+                            children: [
+                              for (final value in const [
+                                'auto',
+                                '720',
+                                '1080',
+                                '1440',
+                              ])
+                                TvFocus(
+                                  outline: model.isTelevision,
+                                  child: RadioListTile<String>(
+                                    key: Key('quality$value'),
+                                    value: value,
+                                    autofocus: value == _value,
+                                    enabled:
+                                        model.editable &&
+                                        model.videoQualities.contains(value),
+                                    title: Text(_qualityLabel(context, value)),
+                                    subtitle:
+                                        model.videoQualities.contains(value)
+                                        ? null
+                                        : Text(
+                                            l10n(context).qualityUnsupported,
+                                          ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(l10n(context).qualityHelp),
+                        if (model.commandError != null)
+                          Text(
+                            localizedMessage(context, model.commandError!),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Wrap(
+                    spacing: 12,
+                    children: [
+                      TextButton(
+                        onPressed: model.busy
+                            ? null
+                            : () => Navigator.pop(context),
+                        child: Text(l10n(context).cancel),
+                      ),
+                      TvFocus(
+                        outline: model.isTelevision,
+                        child: FilledButton(
+                          onPressed:
+                              model.editable &&
+                                  model.videoQualities.contains(_value)
+                              ? _confirm
+                              : null,
+                          child: Text(
+                            model.busy
+                                ? l10n(context).saving
+                                : model.isTelevision &&
+                                      model.active &&
+                                      _value != model.videoQuality
+                                ? l10n(context).saveRestart
+                                : l10n(context).done,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
   );
 }

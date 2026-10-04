@@ -76,7 +76,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         return state.snapshot(name(), if (isActive) Process.myPid() else 0, television) +
-            mapOf("autoStart" to preferences.getBoolean("autoStart", true))
+            mapOf("autoStart" to preferences.getBoolean("autoStart", true)) + host.videoSettings()
     }
 
     private fun publish() {
@@ -108,7 +108,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         this.activity = null
     }
 
-    fun onDisplayChanged() { if (host.isActive) host.logDisplayInfo() }
+    fun onDisplayChanged() { if (host.isActive) host.logDisplayInfo(); publish() }
     fun refresh() { publish() }
 
     private fun reconcileLifecycle() { if (!closed) lifecycle.reconcile() }
@@ -197,7 +197,15 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                     requireEmbeddedPath(call)
                     val nextName = requestedName(call)
                     check(!isActive || nextName == name()) { "请等待接收器停止后再修改设备名。" }
+                    val quality = call.argument<String>("videoQuality")
+                    if (quality != null) {
+                        check(!isActive || quality == preferences.getString("videoQuality", "auto")) {
+                            "请先停止接收器再修改清晰度。"
+                        }
+                        host.validateVideoQuality(quality)
+                    }
                     saveName(nextName)
+                    if (quality != null) preferences.edit().putString("videoQuality", quality).apply()
                     call.argument<Boolean>("autoStart")?.let {
                         preferences.edit().putBoolean("autoStart", it).apply()
                     }

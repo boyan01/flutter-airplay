@@ -370,4 +370,42 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fullscreenWindows => 'Toggle fullscreen (F11)';
+
+  @override
+  String get videoQuality => 'Mirroring quality';
+
+  @override
+  String get qualityAuto => 'Fit this device';
+
+  @override
+  String get quality720 => 'Smooth · 720p';
+
+  @override
+  String get quality1080 => 'Standard · 1080p';
+
+  @override
+  String get quality1440 => 'High · 1440p';
+
+  @override
+  String get qualityHelp =>
+      'Fit this device uses screen pixels and decoder capabilities, requesting up to 1440p. The sender decides the actual size. Reconnect Screen Mirroring after saving.';
+
+  @override
+  String get qualityUnsupported => 'This decoder does not support this quality';
+
+  @override
+  String get screenSize => 'Current screen';
+
+  @override
+  String get receivedSize => 'Received video';
+
+  @override
+  String get noReceivedVideo => 'Waiting for video';
+
+  @override
+  String get saveRestart => 'Save and restart';
+
+  @override
+  String get qualityRestartHelp =>
+      'Changing the name or quality restarts the receiver and ends the current session.';
 }
