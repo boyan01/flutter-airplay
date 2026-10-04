@@ -100,6 +100,94 @@ int main() {
 #else
 #include <jni.h>
 #include <android/native_window_jni.h>
+#include "video_fixtures.h"
+
+extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_PacingTest_run(
+        JNIEnv *env, jclass, jobject surface, jstring decoder, jobject consumer, jint batch) {
+    auto sample = env->GetMethodID(env->GetObjectClass(consumer), "sampleTimestamp", "()J");
+    if (!sample) return nullptr;
+    auto *window = ANativeWindow_fromSurface(env, surface);
+    const char *name = env->GetStringUTFChars(decoder, nullptr);
+    std::string result;
+    try {
+        auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, window, name, "");
+        const auto receive = receiver_callbacks(p.get());
+        float width = landscape_width, height = landscape_height;
+        receive.video_report_size(receive.cls, &width, &height, nullptr, nullptr);
+        auto feed = [&](int64_t pts) {
+            video_decode_struct data{};
+            data.data = const_cast<uint8_t *>(landscape); data.data_len = sizeof(landscape);
+            data.ntp_time_local = pts;
+            receive.video_process(receive.cls, nullptr, &data);
+        };
+        constexpr int64_t period = kSecond / 60;
+        const auto warmup = realtime_ns();
+        for (int i = 0; i < 6; ++i) feed(warmup + i * period);
+        auto until = monotonic_ns() + 250000000;
+        while (monotonic_ns() < until) {
+            env->CallLongMethod(consumer, sample);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        const auto start = monotonic_ns(), pts = realtime_ns();
+        const auto first_due = p->timeline.deadline(pts);
+        int sent = 0, consumed = 0, early = 0;
+        int64_t last_pts = 0, last_latch = 0, max_gap = 0, max_early = 0;
+        auto next_sample = start;
+        while (monotonic_ns() < start + 1400000000) {
+            const auto now = monotonic_ns();
+            // The padding keeps software codecs from retaining the measured tail.
+            if (sent < 66 && now >= start + sent * period) {
+                for (int b = 0; b < batch && sent < 66; ++b, ++sent) feed(pts + sent * period);
+            }
+            if (now >= next_sample) {
+                const auto timestamp = env->CallLongMethod(consumer, sample);
+                const auto latch = monotonic_ns();
+                if (timestamp != last_pts && timestamp >= first_due / 1000 * 1000 &&
+                    timestamp < (first_due + 60 * period) / 1000 * 1000) {
+                    ++consumed;
+                    if (timestamp > latch + 2000000) ++early;
+                    max_early = std::max(max_early, int64_t(timestamp - latch));
+                    if (last_latch) max_gap = std::max(max_gap, latch - last_latch);
+                    last_latch = latch; last_pts = timestamp;
+                }
+                next_sample = now + kSecond / 120;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        char summary[256];
+        snprintf(summary, sizeof(summary), "%s batch=%d consumed=%d/60 early=%d maxEarlyMs=%.2f maxGapMs=%.2f",
+            !early && consumed >= 58 && max_gap < 42000000 ? "PACING_OK:" : "FAIL:",
+            batch, consumed, early, double(max_early) / 1e6, double(max_gap) / 1e6);
+        result = summary;
+        if (batch == 9 && !early && consumed >= 58) {
+            // Reset while decoded output is held for a future deadline. A new
+            // codec must neither release an old index nor display the old frame.
+            const auto future_pts = realtime_ns() + 500000000;
+            const auto cancelled_due = p->timeline.deadline(future_pts) / 1000 * 1000;
+            for (int i = 0; i < 4; ++i) feed(future_pts + i * period);
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            p->reset();
+            const auto fresh_pts = realtime_ns();
+            const auto fresh_due = p->timeline.deadline(fresh_pts) / 1000 * 1000;
+            for (int i = 0; i < 6; ++i) feed(fresh_pts + i * period);
+            bool fresh_image = false;
+            while (monotonic_ns() < cancelled_due + 4 * period + 50000000) {
+                const auto timestamp = env->CallLongMethod(consumer, sample);
+                if (timestamp >= cancelled_due && timestamp < cancelled_due + 4 * period)
+                    throw std::runtime_error("reset displays a cancelled future frame");
+                fresh_image |= timestamp >= fresh_due && timestamp < fresh_due + 6 * period;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            if (!fresh_image) throw std::runtime_error("reset of pending output prevents fresh video");
+            result += " pendingReset=ok";
+        }
+    } catch (const std::exception &error) { result = std::string("FAIL: ") + error.what(); }
+    env->ReleaseStringUTFChars(decoder, name); ANativeWindow_release(window);
+    if (env->ExceptionCheck()) return nullptr;
+    return env->NewStringUTF(result.c_str());
+}
+
 extern "C" JNIEXPORT jstring JNICALL Java_io_github_boyan01_player_1regression_TestActivity_resume(
         JNIEnv *env, jobject, jobject surface, jstring decoder) {
     auto *window = ANativeWindow_fromSurface(env, surface);

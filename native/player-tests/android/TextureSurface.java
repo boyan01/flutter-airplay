@@ -47,6 +47,10 @@ final class TextureSurface implements AutoCloseable {
     void checkBluePixels(){
         checkPixels(0,0,255);
     }
+    long sampleTimestamp(){
+        texture.updateTexImage();
+        return texture.getTimestamp();
+    }
     private void checkPixels(int red, int green, int blue){
         texture.updateTexImage();
         if(texture.getTimestamp()==0)throw new IllegalStateException("GPU Surface has no decoded image");

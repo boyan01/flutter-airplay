@@ -22,6 +22,7 @@ public:
         if (w != width_ || h != height_) { reset(); width_ = w; height_ = h; }
     }
     void reset() override {
+        pending_index_ = -1;
         if (codec_) { AMediaCodec_stop(codec_); AMediaCodec_delete(codec_); codec_ = nullptr; }
     }
     bool decode(const VideoPacket &packet) override {
@@ -32,16 +33,20 @@ public:
             if (!open(decoder_) && !open(fallback_)) return false;
         }
         generation_ = packet.generation;
-        for (int tries = 0; tries < 10; ++tries) {
-            auto index = AMediaCodec_dequeueInputBuffer(codec_, 20000);
+        const auto timeout = monotonic_ns() + 200000000;
+        do {
+            // Held output buffers can backpressure input. Keep presenting while
+            // waiting for an input slot, without adding a 20 ms presentation gap.
+            drain();
+            auto index = AMediaCodec_dequeueInputBuffer(codec_, 1000);
             if (index >= 0) {
                 size_t capacity = 0; auto *bytes = AMediaCodec_getInputBuffer(codec_, index, &capacity);
                 if (!bytes || capacity < packet.bytes.size()) return false;
                 memcpy(bytes, packet.bytes.data(), packet.bytes.size());
                 return AMediaCodec_queueInputBuffer(codec_, index, 0, packet.bytes.size(), packet.deadline / 1000, 0) == AMEDIA_OK;
             }
-            drain();
-        }
+            if (index != AMEDIACODEC_INFO_TRY_AGAIN_LATER) return false;
+        } while (monotonic_ns() < timeout);
         callbacks_.log("MediaCodec input stalled; waiting for a new keyframe");
         return false;
     }
@@ -49,6 +54,20 @@ public:
         if (!codec_) return;
         AMediaCodecBufferInfo info{};
         while (true) {
+            if (pending_index_ >= 0) {
+                const auto now = monotonic_ns();
+                // Flutter consumes SurfaceTexture images as soon as available;
+                // releaseOutputBufferAtTime only stamps them on this surface.
+                // Retain the codec buffer until due instead of blocking the worker.
+                if (pending_due_ > now) return;
+                const auto index = pending_index_;
+                pending_index_ = -1;
+                if (pending_due_ < now - 150000000) AMediaCodec_releaseOutputBuffer(codec_, index, false);
+                else {
+                    AMediaCodec_releaseOutputBufferAtTime(codec_, index, pending_due_);
+                    callbacks_.frame(nullptr, visible_width_, visible_height_, pending_due_, generation_);
+                }
+            }
             auto index = AMediaCodec_dequeueOutputBuffer(codec_, &info, 0);
             if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
                 auto *format = AMediaCodec_getOutputFormat(codec_);
@@ -69,12 +88,8 @@ public:
                 AMediaFormat_delete(format); continue;
             }
             if (index < 0) break;
-            const auto due = info.presentationTimeUs * 1000;
-            if (due < monotonic_ns() - 150000000) AMediaCodec_releaseOutputBuffer(codec_, index, false);
-            else {
-                AMediaCodec_releaseOutputBufferAtTime(codec_, index, due);
-                callbacks_.frame(nullptr, visible_width_, visible_height_, due, generation_);
-            }
+            pending_index_ = index;
+            pending_due_ = info.presentationTimeUs * 1000;
         }
     }
 private:
@@ -101,6 +116,8 @@ private:
     }
     ANativeWindow *window_;
     AMediaCodec *codec_ = nullptr;
+    ssize_t pending_index_ = -1;
+    int64_t pending_due_ = 0;
     std::string decoder_, fallback_;
     VideoCallbacks callbacks_;
     int width_ = 1920, height_ = 1080, visible_width_ = 1920, visible_height_ = 1080;

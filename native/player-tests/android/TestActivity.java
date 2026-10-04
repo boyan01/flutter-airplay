@@ -24,7 +24,7 @@ public class TestActivity extends Activity {
                 MediaFormat format = MediaFormat.createVideoFormat("video/avc",640,360);
                 String decoder = new MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format);
                 if (decoder == null) throw new IllegalStateException("No AVC decoder");
-                String hardware = null, software = null;
+                String hardware = null, software = null, lowLatency = null;
                 for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
                     if (info.isEncoder()) continue;
                     if (Build.VERSION.SDK_INT>=29 && info.isSoftwareOnly()) {
@@ -32,10 +32,19 @@ public class TestActivity extends Activity {
                         continue;
                     }
                     if(hardware==null)for (String type : info.getSupportedTypes()) if (type.equalsIgnoreCase("video/avc")) { hardware=info.getName(); break; }
-
+                    if (Build.VERSION.SDK_INT >= 30 && lowLatency == null) {
+                        for (String type : info.getSupportedTypes()) {
+                            if (type.equalsIgnoreCase("video/avc") && info.getCapabilitiesForType(type)
+                                    .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)) {
+                                lowLatency = info.getName(); break;
+                            }
+                        }
+                    }
                 }
                 LinkedHashSet<String> decoders=new LinkedHashSet<>();decoders.add(decoder);
                 if(hardware!=null)decoders.add(hardware);if(software!=null)decoders.add(software);
+                if(lowLatency!=null)decoders.add(lowLatency);
+                for (String selected : decoders) PacingTest.check(selected);
                 for (String selected : decoders) for (boolean portrait : new boolean[]{false,true}) {
                     try (TextureSurface consumer=new TextureSurface(portrait?360:640,portrait?640:360)) {
                         Log.i("PlayerRegression", "Testing decoder: "+selected);
@@ -52,7 +61,7 @@ public class TestActivity extends Activity {
                         consumer.checkBluePixels();
                     }
                 }
-                result = "PASS: landscape/portrait Surface pixels, NDK decoder/reset, sender pause/resume blue pixels, continuous audio clock, shared audio PCM, silent Oboe restart";
+                result = "PASS: regular/burst frame pacing, landscape/portrait Surface pixels, NDK decoder/reset, sender pause/resume blue pixels, continuous audio clock, shared audio PCM, silent Oboe restart";
             } catch (Throwable error) { result="FAIL: "+error; }
             Log.i("PlayerRegression",result);
             final String text=result; runOnUiThread(() -> label.setText(text));

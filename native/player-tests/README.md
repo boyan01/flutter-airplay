@@ -43,5 +43,14 @@ drivers do not support CPU-readable ImageReader planes); Oboe is opened with an 
 buffer so the test does not emit a tone. This exercises platform playback,
 not Flutter's application host, discovery or a real AirPlay sender.
 
+The Android pacing fixture feeds 60 FPS timestamps through the production
+receiver worker, with one, three or nine compressed frames arriving per batch.
+It samples the GPU SurfaceTexture at approximately 120 Hz and checks for early
+presentation, skipped frame timestamps and long presentation gaps. It also
+resets the receiver while a decoded frame is waiting for its deadline and
+requires fresh output without the cancelled frame. The fixture runs against
+the available default, hardware, low-latency and software AVC decoders.
+Texture consumption times do not measure physical display scanout.
+
 Run the current scripts documented in the root AGENTS.md. Synthetic results
 cannot establish iPhone interoperability, audible output or A/V synchronization.
