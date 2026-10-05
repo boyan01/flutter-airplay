@@ -175,7 +175,7 @@ Dart 使用 Flutter 自带命令，无需额外脚本。Native 入口默认运�
 | Format, analyze and Dart tests | workflow 的 actionlint、原生构建入口回归、Dart format 检查、`flutter analyze --fatal-infos`、完整 `flutter test` |
 | macOS | 原生构建、Debug 应用编译、player/host/texture/RTP 回归 |
 | Linux | Debug 应用编译、完整 native suite、Xvfb 中的 GTK/托盘及真实标题拖动、独立 ALAC decoder |
-| Windows | 原生及 Debug 应用编译、像素、兼容层、HTTP 生命周期、音频恢复、平台及 FFmpeg 视频回归 |
+| Windows | 原生及 Debug 应用编译、像素、兼容层、HTTP 生命周期、音频恢复、平台/GPU/FFmpeg 视频及 Flutter 纹理生命周期回归 |
 | Android | arm64 JNI 与 Debug APK 编译、host 协议测试、Kotlin 单元测试 |
 | iPad | 设备/模拟器原生归档、模拟器 Debug 应用、iPad 模拟器 XCTest |
 
@@ -228,7 +228,8 @@ Kotlin 状态适配层属于 Android native 检查，使用已配置的 `GRADLE_
 | Android 播放器 | `./scripts/test_native.sh android player` | 最新 JNI 库、授权 arm64 设备、JDK 17+、SDK build-tools 36.0.0、`android` CLI；默认选定 decoder 回归，`--full` 运行完整矩阵；独立 fixture app 保留接收应用 |
 | iPad 播放器 | `./scripts/test_native.sh ios` | 原生 XCFramework、通过 `flutter run` 准备的模拟器 Debug 产物与已有 iPad 模拟器；结果写入 `artifacts/ios/` |
 | Windows 基础 | `bash scripts/test_native.sh windows` | 已使用 `build_native.ps1 -Tests` 构建 fixture；像素、socket/thread、HTTP 生命周期与音频恢复 |
-| Windows 视频 / 全部 | `bash scripts/test_native.sh windows video` / `windows all` | 显式检查平台及 FFmpeg 视频 decoder，或全部原生 fixture |
+| Windows 视频 / 全部 | `bash scripts/test_native.sh windows video` / `windows all` | 显式检查平台、D3D11 纹理转换/硬解及 FFmpeg 视频 decoder，或全部原生 fixture；无可用显卡时 GPU 转换明确跳过 |
+| Windows 纹理宿主 | `bash scripts/test_native.sh windows texture` | 先用 `flutter build windows --debug` 准备宿主，再执行 `cmake --build build/windows/x64 --config Debug --target windows_texture_test`；检查 Flutter GPU 纹理描述的导入、释放、旋转及重连 |
 | Linux 基础 | `./scripts/test_native.sh linux` | Linux 开发依赖；时钟、PCM/音频、H.264 恢复、会话与 loopback；只构建相关 fixture |
 | Linux 视频 / 宿主 / 全部 | `./scripts/test_native.sh linux video` / `linux host` / `linux all` | 视频矩阵需要 ffmpeg/ffprobe 和 Python 3；宿主需要 Flutter engine；all 包括可用的窗口/托盘测试 |
 
@@ -377,7 +378,7 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 
 macOS 包无需 Homebrew 运行时；Developer ID 签名与公证是额外分发步骤。
 Android 授权更新使用同一 application ID/签名的 `adb install -r` 保留数据。
-Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder 及相关共享库，不启用 GPL/nonfree
+Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及相关共享库，不启用 GPL/nonfree
 或外部 codec，包内包含固定来源和构建配置。Linux 系统依赖许可见 [NOTICE](linux/NOTICE)。
 
 ## 资源与内部脚本

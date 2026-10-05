@@ -18,6 +18,7 @@ options=(
     "--prefix=$prefix" --enable-shared --disable-static '--ln_s=cp -f'
     --disable-programs --disable-doc --disable-debug --disable-autodetect
     --disable-everything --enable-decoder=aac,hevc --enable-swscale --disable-x86asm
+    --enable-d3d11va --enable-hwaccel=hevc_d3d11va,hevc_d3d11va2
     --disable-avdevice --disable-avfilter --disable-avformat
     --disable-postproc --disable-network
 )

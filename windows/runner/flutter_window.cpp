@@ -123,8 +123,11 @@ bool FlutterWindow::OnCreate() {
     } else { result->NotImplemented(); return; }
     result->Success();
   });
+  IDXGIAdapter *adapter = nullptr;
+  flutter_controller_->engine()->GetGraphicsAdapter(&adapter);
   receiver_ = std::make_unique<ReceiverBridge>(GetHandle(), registrar->messenger(), registrar->texture_registrar(),
-      [this](const Map& snapshot) { UpdateSnapshot(snapshot); });
+      [this](const Map& snapshot) { UpdateSnapshot(snapshot); }, adapter);
+  if (adapter) adapter->Release();
   taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
   UpdateTray();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());

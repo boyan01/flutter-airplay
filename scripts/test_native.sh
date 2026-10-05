@@ -15,9 +15,10 @@ Without a target, run the current OS's basic native suite.
   linux [player|video|host|all] [CMake arguments]
       player is the default; all includes available GTK/window tests.
       linux window [bundle-path] tests real caption dragging.
-  windows [player|video|all] [CTest arguments]
+  windows [player|video|texture|all] [CTest arguments]
       player is the default; video checks platform and FFmpeg decoders.
       Run existing fixtures prepared by build_native.ps1 -Tests.
+      texture uses windows_texture_test built in the Flutter Windows project.
       Invoke this script with Bash from the configured Windows toolchain.
   android [host|rtp|player [--full]|kotlin]
       host is the default; RTP is separate to avoid duplicate host runs.
@@ -325,9 +326,15 @@ windows_tests() {
     local suite=player
     if [[ $# -gt 0 && "$1" != -* ]]; then suite="$1"; shift; fi
     local test_args=(--no-tests=error)
+    if [[ "$suite" == texture ]]; then
+        [[ -f "$project_root/build/windows/x64/CTestTestfile.cmake" ]] ||
+            fail 'Prepare the Windows host with flutter build windows --debug first.'
+        ctest --test-dir "$project_root/build/windows/x64" -C Debug --output-on-failure -R '^windows_texture$' "${test_args[@]}" "$@"
+        return
+    fi
     case "$suite" in
         player) test_args+=(-R '^windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery)$') ;;
-        video) test_args+=(-R '^windows_(video|hevc_software)$') ;;
+        video) test_args+=(-R '^windows_(video|video_gpu|hevc_software)$') ;;
         all) ;;
         *) fail "Unknown Windows suite: $suite. Use --help." ;;
     esac

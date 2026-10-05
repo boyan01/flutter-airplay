@@ -21,12 +21,12 @@ Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一�
 | Android 手机 | Android 8.0（API 26）及以上，当前仅打包 arm64-v8a；H.264，选定尺寸的 60 FPS HEVC 硬解可用时宣告 HEVC 支持 |
 | Android TV | 共用 Android 应用和 HEVC 能力检测，提供 TV 布局与遥控器方向键操作，当前仅打包 arm64-v8a |
 | iPad | iPadOS 15+，前台接收 H.264、ALAC、AAC-LC、AAC-ELD；HEVC 硬解可用时宣告 HEVC 支持；切到后台停止接收 |
-| Windows | Windows 10+ x64；H.264、HEVC、ALAC、AAC-LC、有限 AAC-ELD；HEVC 优先系统解码，包内 FFmpeg 提供软件备用路径 |
+| Windows | Windows 10+ x64；H.264、HEVC、ALAC、AAC-LC、有限 AAC-ELD；HEVC 优先系统解码，包内 FFmpeg 提供 D3D11 硬解和软件备用路径 |
 | Linux 桌面 | GTK 3、FFmpeg 6+、PulseAudio 兼容音频服务和 Avahi 等系统依赖；H.264、HEVC 软件解码，AAC-LC、有限 AAC-ELD、ALAC 实现 |
 
-Windows 的 H.264 播放在 Windows N 上需要 Media Feature Pack。HEVC 软件备用路径
-无需额外安装系统 HEVC 扩展，但流畅度取决于 CPU，不保证 4K 60 FPS。
-Windows 与 Linux 的 Main10 画面输出为八位 RGBA，目前不提供 HDR tone mapping。
+Windows 的 H.264 播放在 Windows N 上需要 Media Feature Pack。包内 FFmpeg 可直接调用
+D3D11 进行 HEVC 硬解，无需系统 HEVC 扩展；显卡不支持时使用软件解码，流畅度取决于 CPU，不保证 4K 60 FPS。
+Windows 与 Linux 的 Main10 画面输出为八位 RGB，目前不提供 HDR tone mapping。
 两者的 AAC-ELD 支持常见 480/512 样本帧，不支持 LD-SBR 和部分 ER 工具；
 音频输出为 44.1 kHz 双声道。持续播放、音频设备变化和音画同步仍需按目标设备验证。
 
@@ -85,7 +85,8 @@ iPad 使用内置屏幕实际像素，Linux 使用主屏幕（无主屏幕时使
 视频编码由发送端协商选择，选择高分辨率不保证发送端采用 HEVC 或达到 60 FPS。
 各平台日志中的 `Video codec selected` 和解码器记录可以确认实际编码。
 macOS 和 iPad 使用 VideoToolbox 硬解，Android 手机和 TV 使用 MediaCodec 硬解。
-Windows 优先使用系统同步 Media Foundation HEVC decoder，无法配置时使用包内 FFmpeg；
+Windows 优先使用 Media Foundation 的 D3D11 硬解，在 GPU 上转换颜色并通过共享纹理交给 Flutter；
+显卡、驱动或视频格式不支持时回退 CPU，HEVC 系统 decoder 无法配置时使用包内 FFmpeg；
 Linux 使用系统 FFmpeg。软件解码的流畅度取决于 CPU、视频尺寸与帧率。
 
 Android 视频统一使用原生 SurfaceView，在应用页面内播放，Flutter 负责首页、设置和播放控制。

@@ -44,3 +44,14 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Host texture fixture needs the actual Flutter ABI headers. Build it explicitly
+# after Flutter has prepared the Windows project; exclude it from app packaging.
+add_executable(windows_texture_test EXCLUDE_FROM_ALL "../tests/texture_test.cpp")
+apply_standard_settings(windows_texture_test)
+target_compile_definitions(windows_texture_test PRIVATE NOMINMAX)
+target_include_directories(windows_texture_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../native/player")
+target_link_libraries(windows_texture_test PRIVATE flutter_wrapper_plugin d3d11 dxgi)
+add_test(NAME windows_texture COMMAND windows_texture_test)
+set_tests_properties(windows_texture PROPERTIES TIMEOUT 15 SKIP_RETURN_CODE 77)

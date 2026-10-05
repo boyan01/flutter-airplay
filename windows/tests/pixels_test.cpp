@@ -40,5 +40,26 @@ int main() {
     assert(rgba[0] >= 250 && rgba[1] <= 2 && rgba[2] <= 2 && rgba[3] == 255);
     assert(!airplay::windows_p010_to_rgba(p010_red, sizeof(p010_red)-1, 2, 2, 4, false, false, rgba));
     assert(!airplay::windows_p010_to_rgba(p010_red, sizeof(p010_red), 2, 2, 2, false, false, rgba));
+    // Differentially protect SIMD rounding, clipping, channel order, range,
+    // P010 high-byte handling, unaligned input and padded rows, including 4K.
+    uint32_t random = 17;
+    for (const auto width : {size_t(2), size_t(4), size_t(12), size_t(994), size_t(3840)}) {
+        const size_t height = width == 3840 ? 2160 : 8;
+        for (const bool p010 : {false, true}) for (const bool padded : {false, true}) {
+            const size_t stride = width * (p010 ? 2 : 1) + (padded ? 8 : 0);
+            std::vector<uint8_t> input(1 + stride * (height + height / 2));
+            for (auto &byte : input) { random = random * 1664525 + 1013904223; byte = uint8_t(random >> 24); }
+            for (const bool bt709 : {false, true}) for (const bool full : {false, true}) {
+                std::vector<uint8_t> reference, accelerated;
+                assert(airplay::windows_yuv420_to_rgba_scalar(input.data() + 1, input.size() - 1,
+                    width, height, stride, bt709, full, reference, p010));
+                assert(airplay::windows_yuv420_to_rgba(input.data() + 1, input.size() - 1,
+                    width, height, stride, bt709, full, accelerated, p010));
+                assert(reference == accelerated);
+                assert(!airplay::windows_yuv420_to_rgba(input.data() + 1, input.size() - 2,
+                    width, height, stride, bt709, full, accelerated, p010));
+            }
+        }
+    }
     std::puts("NV12/P010 color, stride, range and malformed-buffer regressions passed");
 }

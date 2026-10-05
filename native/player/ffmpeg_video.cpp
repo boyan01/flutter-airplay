@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "platform.h"
 #include "ffmpeg_video.h"
+#include "ffmpeg_colors.h"
 #ifdef _WIN32
 #include "windows_video.h"
+#include "windows_gpu.h"
 #else
 #include "linux_video.h"
 #endif
@@ -18,6 +20,10 @@ extern "C" {
 #include <libavutil/buffer.h>
 #include <libavutil/error.h>
 #include <libavutil/pixdesc.h>
+#ifdef _WIN32
+#include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_d3d11va.h>
+#endif
 #include <libswscale/swscale.h>
 }
 
@@ -91,23 +97,16 @@ int bounded_buffer(AVCodecContext *context, AVFrame *frame, int flags) {
     return avcodec_default_get_buffer2(context, frame, flags);
 }
 
-int colorspace(AVColorSpace space) {
-    switch (space) {
-        case AVCOL_SPC_BT709: return SWS_CS_ITU709;
-        case AVCOL_SPC_FCC: return SWS_CS_FCC;
-        case AVCOL_SPC_BT470BG:
-        case AVCOL_SPC_SMPTE170M: return SWS_CS_ITU601;
-        case AVCOL_SPC_SMPTE240M: return SWS_CS_SMPTE240M;
-        case AVCOL_SPC_BT2020_NCL:
-        case AVCOL_SPC_BT2020_CL: return SWS_CS_BT2020;
-        default: return SWS_CS_DEFAULT;
-    }
-}
 } // namespace
 
 class FFmpegVideo final : public VideoOutput {
 public:
     explicit FFmpegVideo(VideoCallbacks callbacks) : callbacks_(std::move(callbacks)) {}
+#ifdef _WIN32
+    FFmpegVideo(VideoCallbacks callbacks, const WindowsVideoOptions *options) : FFmpegVideo(std::move(callbacks)) {
+        if (options) { adapter_ = options->adapter; gpu_requested_ = options->gpu; }
+    }
+#endif
     ~FFmpegVideo() override { release(); }
     bool supports_hevc() const override {
         const auto *decoder = avcodec_find_decoder_by_name("hevc");
@@ -226,14 +225,14 @@ private:
     }
 
     bool open() {
-        // Explicitly choose FFmpeg's native CPU decoder, never a device backend.
+        // The bundled decoder can use D3D11 without the Windows HEVC extension.
+        // Linux and explicitly requested software tests retain CPU decoding.
         const AVCodec *decoder = avcodec_find_decoder_by_name(hevc_ ? "hevc" : "h264");
         if (!decoder || decoder->id != (hevc_ ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264))
             return fail("FFmpeg software video decoder is unavailable");
         codec_ = avcodec_alloc_context3(decoder);
         frame_ = av_frame_alloc();
-        rgba_ = av_frame_alloc();
-        if (!codec_ || !frame_ || !rgba_) return fail("Cannot allocate video decoder");
+        if (!codec_ || !frame_) return fail("Cannot allocate video decoder");
         codec_->pkt_timebase = kNanoseconds;
         codec_->flags |= AV_CODEC_FLAG_COPY_OPAQUE;
         // Slice threads avoid the extra frame latency of frame threading while
@@ -241,12 +240,38 @@ private:
         codec_->thread_count = 2;
         codec_->thread_type = FF_THREAD_SLICE;
         codec_->get_format = software_format;
+#ifdef _WIN32
+        if (gpu_requested_ && gpu_.create(adapter_.Get())) {
+            bool supported = false;
+            for (int i = 0; const auto *config = avcodec_get_hw_config(decoder, i); ++i) {
+                if (config->device_type == AV_HWDEVICE_TYPE_D3D11VA &&
+                    (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) { supported = true; break; }
+            }
+            AVBufferRef *device = supported ? av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA) : nullptr;
+            if (device) {
+                auto *context = reinterpret_cast<AVHWDeviceContext *>(device->data);
+                auto *d3d = static_cast<AVD3D11VADeviceContext *>(context->hwctx);
+                d3d->device = gpu_.device(); d3d->device->AddRef();
+                if (av_hwdevice_ctx_init(device) >= 0) {
+                    codec_->hw_device_ctx = device;
+                    codec_->get_format = [](AVCodecContext *context, const AVPixelFormat *formats) {
+                        for (const auto *format = formats; *format != AV_PIX_FMT_NONE; ++format)
+                            if (*format == AV_PIX_FMT_D3D11) return *format;
+                        // libavcodec calls again without D3D11 if driver/profile
+                        // negotiation failed. Choose a supported CPU layout.
+                        return software_format(context, formats);
+                    };
+                } else av_buffer_unref(&device);
+            }
+        }
+#endif
         codec_->get_buffer2 = bounded_buffer;
         codec_->max_pixels = int64_t(kMaxDimension) * kMaxDimension;
         codec_->err_recognition = AV_EF_BITSTREAM | AV_EF_BUFFER | AV_EF_EXPLODE;
         const int status = avcodec_open2(codec_, decoder, nullptr);
         if (status < 0) return fail("Cannot open software video decoder", status);
-        if (callbacks_.log) callbacks_.log(hevc_ ? "FFmpeg software HEVC decoder ready; borrowed RGBA output"
+        if (callbacks_.log) callbacks_.log(codec_->hw_device_ctx ? "FFmpeg HEVC decoder ready; D3D11 preferred with CPU fallback"
+                                               : hevc_ ? "FFmpeg software HEVC decoder ready; borrowed RGBA output"
                                                : "FFmpeg software H.264 decoder ready; borrowed RGBA output");
         return true;
     }
@@ -273,28 +298,56 @@ private:
         PacketTiming timing{};
         std::memcpy(&timing, frame_->opaque_ref->data, sizeof(timing));
 
-        if (rgba_->width != width || rgba_->height != height) {
-            av_frame_unref(rgba_);
-            rgba_->format = AV_PIX_FMT_RGBA;
-            rgba_->width = width;
-            rgba_->height = height;
-            const int status = av_frame_get_buffer(rgba_, 32);
-            if (status < 0) return fail("Cannot allocate RGBA video frame", status);
-        }
-        scaler_ = sws_getCachedContext(scaler_, width, height, static_cast<AVPixelFormat>(frame_->format),
-            width, height, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
-        if (!scaler_) return fail("Cannot create video RGBA converter");
-        const auto *coefficients = sws_getCoefficients(colorspace(frame_->colorspace));
-        if (sws_setColorspaceDetails(scaler_, coefficients, frame_->color_range == AVCOL_RANGE_JPEG,
-                coefficients, 1, 0, 1 << 16, 1 << 16) < 0)
-            return fail("Unsupported video color space");
-        const int rows = sws_scale(scaler_, frame_->data, frame_->linesize, 0, height,
-                                    rgba_->data, rgba_->linesize);
-        if (rows != height) return fail("Incomplete video RGBA conversion");
 #ifdef _WIN32
-        WindowsVideoFrame output{rgba_->data[0], size_t(width), size_t(height), size_t(rgba_->linesize[0])};
+        if (gpu_requested_ && timing.deadline < monotonic_ns() - kVideoLateToleranceNs) return true;
+        if (frame_->format == AV_PIX_FMT_D3D11) {
+            const bool supported_color = frame_->colorspace == AVCOL_SPC_BT709 ||
+                frame_->colorspace == AVCOL_SPC_BT470BG || frame_->colorspace == AVCOL_SPC_SMPTE170M ||
+                frame_->colorspace == AVCOL_SPC_UNSPECIFIED;
+            const auto begin = monotonic_ns();
+            const bool bt709 = frame_->colorspace == AVCOL_SPC_BT709;
+            auto texture = supported_color ? gpu_.convert(reinterpret_cast<ID3D11Texture2D *>(frame_->data[0]),
+                UINT(reinterpret_cast<uintptr_t>(frame_->data[1])), 0, 0, UINT(width), UINT(height),
+                bt709, frame_->color_range == AVCOL_RANGE_JPEG) : ComPtr<ID3D11Texture2D>{};
+            if (texture) {
+                ++gpu_frames_; gpu_time_ns_ += monotonic_ns() - begin;
+                if (!gpu_reported_ && callbacks_.log) {
+                    callbacks_.log("FFmpeg D3D11 HEVC active: hardware decode -> GPU color conversion -> Flutter shared texture");
+                    gpu_reported_ = true;
+                }
+                if (monotonic_ns() >= next_gpu_report_ && callbacks_.log) {
+                    char message[192];
+                    std::snprintf(message, sizeof(message), "FFmpeg D3D11 output: frames=%llu conversion_avg_ms=%.3f size=%dx%d",
+                        static_cast<unsigned long long>(gpu_frames_), double(gpu_time_ns_) / gpu_frames_ / 1000000, width, height);
+                    callbacks_.log(message); next_gpu_report_ = monotonic_ns() + 5 * kSecond;
+                }
+                WindowsVideoFrame output{nullptr, size_t(width), size_t(height), 0, texture.Get()};
+                if (callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
+                return true;
+            }
+            // Preserve playback for a color space/video processor the GPU cannot
+            // convert. Transfer only on this fallback, never on the normal path.
+            AVFrame *software = av_frame_alloc();
+            if (!software) return fail("Cannot allocate D3D11 fallback frame");
+            const int transfer = av_hwframe_transfer_data(software, frame_, 0);
+            if (transfer < 0) { av_frame_free(&software); return fail("Cannot read D3D11 video frame", transfer); }
+            const int properties = av_frame_copy_props(software, frame_);
+            if (properties < 0) { av_frame_free(&software); return fail("Cannot preserve D3D11 frame metadata", properties); }
+            av_frame_unref(frame_); av_frame_move_ref(frame_, software); av_frame_free(&software);
+        }
+        if (gpu_requested_ && !cpu_reported_ && callbacks_.log) {
+            callbacks_.log("FFmpeg video output is using CPU RGBA conversion; D3D11 decoding/output unavailable for this format");
+            cpu_reported_ = true;
+        }
+#endif
+
+        const int status = colors_.convert(*frame_);
+        if (status < 0) return fail("Cannot convert video to RGBA", status);
+        const auto *rgba = colors_.rgba();
+#ifdef _WIN32
+        WindowsVideoFrame output{rgba->data[0], size_t(width), size_t(height), size_t(rgba->linesize[0])};
 #else
-        AirplayLinuxVideoFrame output{rgba_->data[0], rgba_->linesize[0], width, height};
+        AirplayLinuxVideoFrame output{rgba->data[0], rgba->linesize[0], width, height};
 #endif
         if (callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
         return true;
@@ -303,16 +356,20 @@ private:
     void release() {
         avcodec_free_context(&codec_);
         av_frame_free(&frame_);
-        av_frame_free(&rgba_);
-        sws_freeContext(scaler_);
-        scaler_ = nullptr;
+        colors_.reset();
     }
 
     VideoCallbacks callbacks_;
     AVCodecContext *codec_ = nullptr;
     AVFrame *frame_ = nullptr;
-    AVFrame *rgba_ = nullptr;
-    SwsContext *scaler_ = nullptr;
+    FFmpegColors colors_;
+#ifdef _WIN32
+    WindowsGpuVideo gpu_;
+    ComPtr<IDXGIAdapter> adapter_;
+    bool gpu_requested_ = false, gpu_reported_ = false, cpu_reported_ = false;
+    uint64_t gpu_frames_ = 0;
+    int64_t gpu_time_ns_ = 0, next_gpu_report_ = 0;
+#endif
     std::vector<std::vector<uint8_t>> parameters_;
     size_t parameter_bytes_ = 0;
     bool waiting_for_keyframe_ = true;
@@ -323,4 +380,9 @@ private:
 std::unique_ptr<VideoOutput> make_ffmpeg_video_output(VideoCallbacks callbacks) {
     return std::make_unique<FFmpegVideo>(std::move(callbacks));
 }
+#ifdef _WIN32
+std::unique_ptr<VideoOutput> make_ffmpeg_video_output(VideoCallbacks callbacks, const WindowsVideoOptions *options) {
+    return std::make_unique<FFmpegVideo>(std::move(callbacks), options);
+}
+#endif
 } // namespace airplay

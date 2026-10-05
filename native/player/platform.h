@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace airplay {
+constexpr int64_t kVideoLateToleranceNs = 150000000;
 struct VideoPacket {
     std::vector<uint8_t> bytes;
     int64_t deadline = 0;

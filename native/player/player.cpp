@@ -74,7 +74,7 @@ struct AirplayPlayer {
                 if (delay > 0 && frame) wake.wait_for(guard, std::chrono::nanoseconds(delay), [&] {
                     return closing || video_paused || generation != video_generation;
                 });
-                if (closing || video_paused || generation != video_generation || due < monotonic_ns() - 150000000) return;
+                if (closing || video_paused || generation != video_generation || due < monotonic_ns() - kVideoLateToleranceNs) return;
                 if (frame && callbacks.frame) callbacks.frame(callbacks.context, frame);
                 event("playing", "Decoded video ready", w, h);
             }, [this](const char *text) { log(text); }

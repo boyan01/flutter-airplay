@@ -5,6 +5,7 @@
 #include "video_fixtures.h"
 #include "resume_fixtures.h"
 #include "hevc_fixtures.h"
+#include "ffmpeg_colors_test.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -281,6 +282,7 @@ void check_hevc() {
 int main(int argc, char **argv) {
     try {
         check(argc == 2, "Usage: linux_video_tests <generated-fixture-directory>");
+        airplay_test::ffmpeg_colors_test();
         check_hevc();
         check_configuration_rotation_and_reset();
         check_malformed_and_bounds(argv[1]);

@@ -3,28 +3,48 @@
 #include "windows_media.h"
 #include "windows_pixels.h"
 #include "windows_video.h"
+#include "windows_gpu.h"
 #include "ffmpeg_video.h"
 #include <codecapi.h>
 #include <deque>
+#include <cstdio>
 
 namespace airplay {
 class WindowsVideo final : public VideoOutput {
 public:
-    explicit WindowsVideo(VideoCallbacks callbacks) : callbacks_(std::move(callbacks)),
-        ffmpeg_(make_ffmpeg_video_output(callbacks_)), hevc_mft_(bool(make_decoder(true))) {}
+    explicit WindowsVideo(VideoCallbacks callbacks, const WindowsVideoOptions *options) : callbacks_(std::move(callbacks)),
+        ffmpeg_(make_ffmpeg_video_output(callbacks_, options)), hevc_mft_(bool(make_decoder(true))) {
+        if (options) { adapter_ = options->adapter; gpu_requested_ = options->gpu; }
+    }
     bool supports_hevc() const override { return hevc_mft_ || ffmpeg_->supports_hevc(); }
     void size(int, int) override {} // Decode dimensions and orientation come from the SPS.
     void reset() override {
         if (decoder_) decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
-        decoder_.Reset(); pending_.clear(); width_ = height_ = stride_ = 0;
+        decoder_.Reset(); pending_.clear(); width_ = height_ = stride_ = 0; gpu_decoder_ = false;
         vps_.clear(); sps_.clear(); pps_.clear();
         ffmpeg_->reset(); using_ffmpeg_ = false; hevc_ = false;
     }
     void drain() override {
         if (using_ffmpeg_) ffmpeg_->drain();
-        else if (decoder_ && !output()) reset();
+        else {
+            if (decoder_ && !output()) {
+                if (gpu_decoder_ && gpu_failed_) retire_gpu_decoder();
+                else reset();
+            }
+            report();
+        }
     }
     bool decode(const VideoPacket &packet) override {
+        const bool accepted = decode_packet(packet);
+        if (!accepted && gpu_decoder_ && gpu_failed_) {
+            // Shared core treats a failed decode as a terminal receiver error.
+            // Handle GPU recovery here, preserving parameter sets until IDR.
+            retire_gpu_decoder();
+            return true;
+        }
+        return accepted;
+    }
+    bool decode_packet(const VideoPacket &packet) {
         if (packet.hevc != hevc_) {
             reset(); hevc_ = packet.hevc;
             using_ffmpeg_ = hevc_ && !hevc_mft_;
@@ -59,7 +79,7 @@ public:
             if (!open()) {
                 if (!hevc_ || !ffmpeg_->supports_hevc()) return false;
                 decoder_.Reset(); pending_.clear(); using_ffmpeg_ = true;
-                callbacks_.log("Windows HEVC MFT unavailable for this stream; using FFmpeg software decoding");
+                callbacks_.log("Windows HEVC MFT unavailable for this stream; trying bundled FFmpeg decoding");
                 auto fallback = packet;
                 fallback.bytes = std::move(input_bytes);
                 fallback.bytes.insert(fallback.bytes.end(), packet.bytes.begin(), packet.bytes.end());
@@ -72,7 +92,7 @@ public:
         if (!sample) return false;
         sample->SetSampleDuration(10000000 / 60);
         const auto hr = decoder_->ProcessInput(0, sample.Get(), 0);
-        if (FAILED(hr)) return false;
+        if (FAILED(hr)) { if (gpu_decoder_) disable_gpu(); return false; }
         pending_.push_back({packet.deadline, packet.generation});
         return output();
     }
@@ -98,12 +118,22 @@ private:
         return result;
     }
     bool open() {
+        if (gpu_requested_ && !gpu_failed_ && gpu_.create(adapter_.Get())) {
+            if (open_decoder(true)) return true;
+            callbacks_.log("Windows D3D11 decoder negotiation failed; retrying CPU decoding");
+        }
+        return open_decoder(false);
+    }
+    bool open_decoder(bool gpu) {
+        gpu_decoder_ = false;
         decoder_ = make_decoder(hevc_);
         if (!decoder_) {
             callbacks_.log(hevc_ ? "Unavailable Windows HEVC MFT" : "Unavailable Windows H.264 decoder; Windows N requires the Media Feature Pack"); return false;
         }
         ComPtr<IMFAttributes> attributes;
         if (SUCCEEDED(decoder_->GetAttributes(&attributes))) attributes->SetUINT32(CODECAPI_AVLowLatencyMode, TRUE);
+        if (gpu && (!attributes || !MFGetAttributeUINT32(attributes.Get(), MF_SA_D3D11_AWARE, FALSE) ||
+            FAILED(decoder_->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, reinterpret_cast<ULONG_PTR>(gpu_.manager()))))) return false;
         ComPtr<IMFMediaType> input;
         if (FAILED(MFCreateMediaType(&input))) return false;
         input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
@@ -116,7 +146,9 @@ private:
         input->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_MixedInterlaceOrProgressive);
         if (FAILED(decoder_->SetInputType(0, input.Get(), 0)) || !select_output()) return false;
         windows_begin_stream(decoder_.Get());
-        callbacks_.log(hevc_ ? "Media Foundation HEVC decoder ready; NV12/P010 converted to Flutter RGBA pixels"
+        gpu_decoder_ = gpu;
+        callbacks_.log(gpu ? "Windows D3D11 decoder ready; GPU color conversion and Flutter shared texture enabled"
+                            : hevc_ ? "Media Foundation HEVC decoder ready; NV12/P010 converted to Flutter RGBA pixels"
                             : "Media Foundation H.264 decoder ready; NV12 converted to Flutter RGBA pixels");
         return true;
     }
@@ -165,8 +197,14 @@ private:
             ComPtr<IMFSample> provided;
             if (result.pSample && result.pSample != sample.Get()) provided.Attach(result.pSample);
             if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) return true;
-            if (hr == MF_E_TRANSFORM_STREAM_CHANGE) { if (!select_output()) return false; continue; }
-            if (FAILED(hr) || !result.pSample || pending_.empty()) return false;
+            if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+                if (!select_output()) { if (gpu_decoder_) disable_gpu(); return false; }
+                continue;
+            }
+            if (FAILED(hr) || !result.pSample || pending_.empty()) {
+                if (gpu_decoder_) disable_gpu();
+                return false;
+            }
             LONGLONG time = 0;
             auto pending = pending_.begin();
             if (SUCCEEDED(result.pSample->GetSampleTime(&time))) {
@@ -174,7 +212,33 @@ private:
                 if (match != pending_.end()) pending = match;
             }
             const auto stamp = *pending; pending_.erase(pending);
+            ++decoded_;
+            // Keep decoding reference pictures, but avoid copying/converting
+            // frames the shared presentation callback would already discard.
+            // This lets a 4K stream catch up after a short output stall.
+            if (stamp.deadline < monotonic_ns() - kVideoLateToleranceNs) { ++late_; continue; }
+            const auto conversion_start = monotonic_ns();
             ComPtr<IMFMediaBuffer> buffer;
+            if (gpu_decoder_ && SUCCEEDED(result.pSample->GetBufferByIndex(0, &buffer))) {
+                ComPtr<IMFDXGIBuffer> dxgi;
+                ComPtr<ID3D11Texture2D> source;
+                UINT slice = 0;
+                if (SUCCEEDED(buffer.As(&dxgi)) && SUCCEEDED(dxgi->GetResource(IID_PPV_ARGS(&source))) &&
+                    SUCCEEDED(dxgi->GetSubresourceIndex(&slice))) {
+                    auto texture = gpu_.convert(source.Get(), slice, UINT(crop_x_), UINT(crop_y_),
+                        UINT(display_width_), UINT(display_height_), bt709_, full_range_);
+                    if (texture) {
+                        const auto cost = monotonic_ns() - conversion_start;
+                        ++gpu_frames_; gpu_ns_ += cost; gpu_max_ns_ = std::max(gpu_max_ns_, cost);
+                        WindowsVideoFrame frame{nullptr, display_width_, display_height_, 0, texture.Get()};
+                        callbacks_.frame(&frame, int(display_width_), int(display_height_), stamp.deadline, stamp.generation);
+                        continue;
+                    }
+                    // Retire the decoder and renegotiate in CPU mode at the
+                    // next keyframe; never publish a half-written GPU surface.
+                    disable_gpu(); return false;
+                }
+            }
             if (FAILED(result.pSample->ConvertToContiguousBuffer(&buffer))) return false;
             ComPtr<IMF2DBuffer> plane;
             bool converted = false;
@@ -191,12 +255,44 @@ private:
                 buffer->Unlock();
             }
             if (!converted) return false;
+            const auto cost = monotonic_ns() - conversion_start;
+            ++converted_; conversion_ns_ += cost; conversion_max_ns_ = std::max(conversion_max_ns_, cost);
             WindowsVideoFrame frame{rgba_.data() + (crop_y_ * width_ + crop_x_) * 4,
                                     display_width_, display_height_, width_ * 4};
             callbacks_.frame(&frame, static_cast<int>(display_width_), static_cast<int>(display_height_), stamp.deadline, stamp.generation);
         }
         return false;
     }
+    void disable_gpu() {
+        gpu_failed_ = true;
+        callbacks_.log("Windows D3D11 output failed; recovering with CPU decoding at the next keyframe");
+    }
+    void retire_gpu_decoder() {
+        decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+        decoder_.Reset(); pending_.clear(); gpu_decoder_ = false;
+    }
+    void report() {
+        const auto now = monotonic_ns();
+        if (now < next_report_) return;
+        next_report_ = now + 5 * kSecond;
+        if (!decoded_ || !callbacks_.log) return;
+        char message[384];
+        std::snprintf(message, sizeof(message),
+            "Windows video output: decoded_total=%llu converted_total=%llu late_before_convert_total=%llu conversion_avg_ms=%.2f conversion_max_ms=%.2f size=%zux%zu gpu_total=%llu gpu_avg_ms=%.2f gpu_max_ms=%.2f",
+            static_cast<unsigned long long>(decoded_), static_cast<unsigned long long>(converted_),
+            static_cast<unsigned long long>(late_), converted_ ? double(conversion_ns_) / converted_ / 1000000 : 0,
+            double(conversion_max_ns_) / 1000000, display_width_, display_height_,
+            static_cast<unsigned long long>(gpu_frames_), gpu_frames_ ? double(gpu_ns_) / gpu_frames_ / 1000000 : 0,
+            double(gpu_max_ns_) / 1000000);
+        callbacks_.log(message);
+    }
+    uint64_t decoded_ = 0, converted_ = 0, late_ = 0;
+    int64_t conversion_ns_ = 0, conversion_max_ns_ = 0, next_report_ = monotonic_ns() + 5 * kSecond;
+    uint64_t gpu_frames_ = 0;
+    int64_t gpu_ns_ = 0, gpu_max_ns_ = 0;
+    WindowsGpuVideo gpu_;
+    ComPtr<IDXGIAdapter> adapter_;
+    bool gpu_requested_ = false, gpu_failed_ = false, gpu_decoder_ = false;
     struct Stamp { int64_t deadline; uint64_t generation; };
     VideoCallbacks callbacks_;
     std::unique_ptr<VideoOutput> ffmpeg_;
@@ -209,7 +305,7 @@ private:
     bool bt709_ = true, full_range_ = false;
     bool hevc_ = false, using_ffmpeg_ = false, p010_ = false;
 };
-std::unique_ptr<VideoOutput> make_video_output(void *, const char *, const char *, VideoCallbacks callbacks) {
-    return std::make_unique<WindowsVideo>(std::move(callbacks));
+std::unique_ptr<VideoOutput> make_video_output(void *options, const char *, const char *, VideoCallbacks callbacks) {
+    return std::make_unique<WindowsVideo>(std::move(callbacks), static_cast<const WindowsVideoOptions *>(options));
 }
 } // namespace airplay

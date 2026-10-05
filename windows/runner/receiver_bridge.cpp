@@ -4,6 +4,7 @@
 #include "player.h"
 #include "../../native/player/video_quality.h"
 #include "windows_video.h"
+#include "gpu_video_texture.h"
 #include <flutter/event_channel.h>
 #include <flutter/event_stream_handler_functions.h>
 #include <flutter/method_channel.h>
@@ -86,6 +87,11 @@ struct ReceiverBridge::Impl {
     std::shared_ptr<Pixels> pixels = std::make_shared<Pixels>();
     std::shared_ptr<flutter::TextureVariant> texture;
     int64_t texture_id = -1;
+    std::shared_ptr<GpuFrames> gpu_frames = std::make_shared<GpuFrames>();
+    std::shared_ptr<flutter::TextureVariant> gpu_texture;
+    int64_t gpu_texture_id = -1, pixel_texture_id = -1;
+    std::atomic<int64_t> submitted_texture_id{-1};
+    Microsoft::WRL::ComPtr<IDXGIAdapter> graphics_adapter;
     std::unique_ptr<flutter::MethodChannel<Value>> methods;
     std::function<void(const Map &)> on_snapshot;
     std::unique_ptr<flutter::EventChannel<Value>> events;
@@ -111,12 +117,21 @@ struct ReceiverBridge::Impl {
     bool keep_in_tray = true, show_on_connect = true, fullscreen_on_connect = false;
     bool always_on_top = false, launch_at_login = false;
 
-    Impl(HWND target, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *registrar, std::function<void(const Map &)> callback)
+    Impl(HWND target, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *registrar, std::function<void(const Map &)> callback, IDXGIAdapter *adapter)
         : window(target), textures(registrar), on_snapshot(std::move(callback)) {
         pixels->clear();
+        graphics_adapter = adapter;
         texture = std::make_shared<flutter::TextureVariant>(flutter::PixelBufferTexture(
             [state = pixels](size_t, size_t) { return state->copy(); }));
         texture_id = textures->RegisterTexture(texture.get());
+        pixel_texture_id = texture_id;
+        submitted_texture_id = texture_id;
+        if (graphics_adapter) {
+            gpu_texture = std::make_shared<flutter::TextureVariant>(flutter::GpuSurfaceTexture(
+                kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle,
+                [state = gpu_frames](size_t, size_t) { return state->copy(); }));
+            gpu_texture_id = textures->RegisterTexture(gpu_texture.get());
+        }
         methods = std::make_unique<flutter::MethodChannel<Value>>(messenger, "org.airplayreceiver/control", &flutter::StandardMethodCodec::GetInstance());
         events = std::make_unique<flutter::EventChannel<Value>>(messenger, "org.airplayreceiver/events", &flutter::StandardMethodCodec::GetInstance());
         events->SetStreamHandler(std::make_unique<flutter::StreamHandlerFunctions<Value>>(
@@ -146,7 +161,8 @@ struct ReceiverBridge::Impl {
         { std::lock_guard<std::mutex> guard(command_lock); closing = true; commands.clear(); }
         wake.notify_all(); if (worker.joinable()) worker.join();
         // Keep the registrar callback alive until Flutter confirms unregistration.
-        if (texture_id >= 0) textures->UnregisterTexture(texture_id, [keep = texture] {});
+        if (pixel_texture_id >= 0) textures->UnregisterTexture(pixel_texture_id, [keep = texture] {});
+        if (gpu_texture_id >= 0) textures->UnregisterTexture(gpu_texture_id, [keep = gpu_texture] {});
     }
     void enqueue(std::function<void()> task) {
         { std::lock_guard<std::mutex> guard(command_lock); if (closing) return; commands.push_back(std::move(task)); }
@@ -329,7 +345,9 @@ struct ReceiverBridge::Impl {
         return "";
     }
 
-    void clear_video() { pixels->clear(); textures->MarkTextureFrameAvailable(texture_id); width = height = 0;
+    void clear_video() { pixels->clear(); gpu_frames->clear(); texture_id = pixel_texture_id;
+        submitted_texture_id = texture_id;
+        textures->MarkTextureFrameAvailable(texture_id); width = height = 0;
         emit(Map{{Value("type"), Value("video")}, {Value("textureId"), Value(texture_id)}, {Value("videoWidth"), Value(0)}, {Value("videoHeight"), Value(0)}}); }
     void media() { emit(Map{{Value("type"), Value("media")}, {Value("audioPlaying"), Value(audio)}, {Value("videoPaused"), Value(paused)}}); }
     void receive(const std::string &event, const std::string &detail, int w, int h) {
@@ -371,10 +389,24 @@ struct ReceiverBridge::Impl {
         callbacks.frame = [](void *opaque, void *frame) {
             auto *callback = static_cast<Context *>(opaque);
             if (!frame || callback->generation != callback->host->generation) return;
-            callback->host->pixels->receive(*static_cast<airplay::WindowsVideoFrame *>(frame));
-            callback->host->textures->MarkTextureFrameAvailable(callback->host->texture_id);
+            auto *host = callback->host;
+            const auto &image = *static_cast<airplay::WindowsVideoFrame *>(frame);
+            int64_t id = host->pixel_texture_id;
+            if (image.texture && host->gpu_texture_id >= 0 && host->gpu_frames->receive(image)) id = host->gpu_texture_id;
+            else if (image.pixels) host->pixels->receive(image);
+            else return;
+            host->textures->MarkTextureFrameAvailable(id);
+            if (host->submitted_texture_id.exchange(id) == id) return;
+            const auto token = callback->generation;
+            host->enqueue([host, token, id] {
+                if (token != host->generation || host->texture_id == id) return;
+                host->texture_id = id;
+                if (host->width) host->emit(Map{{Value("type"), Value("video")}, {Value("textureId"), Value(id)},
+                    {Value("videoWidth"), Value(host->width)}, {Value("videoHeight"), Value(host->height)}});
+            });
         };
-        player = airplay_player_create(callbacks, nullptr, nullptr, nullptr);
+        airplay::WindowsVideoOptions video_options{graphics_adapter.Get(), gpu_texture_id >= 0};
+        player = airplay_player_create(callbacks, &video_options, nullptr, nullptr);
         if (!player) { context.reset(); state("error", "无法初始化原生播放库。"); return message; }
         char error[512]{};
         const auto key = utf8((directory / L"airplay-pairing.pem").wstring());
@@ -424,7 +456,7 @@ struct ReceiverBridge::Impl {
     }
 };
 ReceiverBridge::ReceiverBridge(HWND window, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *textures,
-                               std::function<void(const flutter::EncodableMap &)> on_snapshot)
-    : impl_(std::make_unique<Impl>(window, messenger, textures, std::move(on_snapshot))) {}
+                               std::function<void(const flutter::EncodableMap &)> on_snapshot, IDXGIAdapter *adapter)
+    : impl_(std::make_unique<Impl>(window, messenger, textures, std::move(on_snapshot), adapter)) {}
 ReceiverBridge::~ReceiverBridge() = default;
 void ReceiverBridge::Dispatch() { impl_->dispatch(); }

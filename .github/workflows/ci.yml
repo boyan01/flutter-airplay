@@ -193,15 +193,21 @@ jobs:
         env:
           AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
           AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
-        run: ./windows/scripts/build_native.ps1 -Tests
+        run: |
+          ./windows/scripts/build_native.ps1 -Tests
+          cmake --build build/windows/x64 --config Debug --target windows_texture_test
       - name: Run native tests
         shell: bash
-        run: ./scripts/test_native.sh windows all
+        run: |
+          ./scripts/test_native.sh windows all
+          ./scripts/test_native.sh windows texture
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: windows-test-logs
-          path: build/windows-native/Testing/Temporary/
+          path: |
+            build/windows-native/Testing/Temporary/
+            build/windows/x64/Testing/Temporary/
           retention-days: 7
 
   android:
