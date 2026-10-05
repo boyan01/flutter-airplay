@@ -31,6 +31,8 @@ public class TestActivity extends Activity {
                     runOnUiThread(() -> label.setText(audioResult));
                     return;
                 }
+                boolean fullMatrix = getIntent().getBooleanExtra("fullMatrix", false);
+                Log.i("PlayerRegression", "Profile: " + (fullMatrix ? "full decoder matrix" : "selected decoders"));
                 PlaybackProgress progress = new PlaybackProgress();
                 if (progress.update(0xfffffffe) != 4294967294L || progress.update(3) != 4294967299L)
                     throw new IllegalStateException("Playback head wrap failed");
@@ -40,18 +42,20 @@ public class TestActivity extends Activity {
                 String decoder = new MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format);
                 if (decoder == null) throw new IllegalStateException("No AVC decoder");
                 String hardware = null, software = null, lowLatency = null;
-                for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
-                    if (info.isEncoder()) continue;
-                    if (Build.VERSION.SDK_INT>=29 && info.isSoftwareOnly()) {
-                        for (String type : info.getSupportedTypes()) if (type.equalsIgnoreCase("video/avc")) software=info.getName();
-                        continue;
-                    }
-                    if(hardware==null)for (String type : info.getSupportedTypes()) if (type.equalsIgnoreCase("video/avc")) { hardware=info.getName(); break; }
-                    if (Build.VERSION.SDK_INT >= 30 && lowLatency == null) {
-                        for (String type : info.getSupportedTypes()) {
-                            if (type.equalsIgnoreCase("video/avc") && info.getCapabilitiesForType(type)
-                                    .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)) {
-                                lowLatency = info.getName(); break;
+                if (fullMatrix) {
+                    for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
+                        if (info.isEncoder()) continue;
+                        if (Build.VERSION.SDK_INT>=29 && info.isSoftwareOnly()) {
+                            for (String type : info.getSupportedTypes()) if (type.equalsIgnoreCase("video/avc")) software=info.getName();
+                            continue;
+                        }
+                        if(hardware==null)for (String type : info.getSupportedTypes()) if (type.equalsIgnoreCase("video/avc")) { hardware=info.getName(); break; }
+                        if (Build.VERSION.SDK_INT >= 30 && lowLatency == null) {
+                            for (String type : info.getSupportedTypes()) {
+                                if (type.equalsIgnoreCase("video/avc") && info.getCapabilitiesForType(type)
+                                        .isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)) {
+                                    lowLatency = info.getName(); break;
+                                }
                             }
                         }
                     }
@@ -65,7 +69,7 @@ public class TestActivity extends Activity {
                         if (!switched.startsWith("PASS:")) throw new IllegalStateException(switched);
                         Log.i("PlayerRegression", selected + " " + switched.substring(6));
                     }
-                    PacingTest.check(selected);
+                    PacingTest.check(selected, false, fullMatrix ? new int[]{1, 3, 9} : new int[]{9});
                 }
                 for (String selected : decoders) {
                     if (selected.startsWith("c2.qti.") || selected.startsWith("OMX.qcom.")) ReorderTest.check(selected);
@@ -80,7 +84,7 @@ public class TestActivity extends Activity {
                 } else {
                     LinkedHashSet<String> hevcDecoders = new LinkedHashSet<>();
                     hevcDecoders.add(hevcDecoder);
-                    if (Build.VERSION.SDK_INT >= 30) {
+                    if (fullMatrix && Build.VERSION.SDK_INT >= 30) {
                         for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
                             if (info.isEncoder() || !info.isHardwareAccelerated()) continue;
                             for (String type : info.getSupportedTypes())
@@ -93,7 +97,7 @@ public class TestActivity extends Activity {
                         MediaCodecInfo info = java.util.Arrays.stream(new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos())
                                 .filter(value -> value.getName().equals(selected)).findFirst().orElseThrow();
                         MediaCodecInfo.CodecCapabilities caps = info.getCapabilitiesForType("video/hevc");
-                        for (int variant = 0; variant < 4; ++variant) {
+                        for (int variant = 0; variant < (fullMatrix ? 4 : 2); ++variant) {
                             int w = variant == 1 ? 360 : variant == 2 ? 3840 : 640;
                             int h = variant == 1 ? 640 : variant == 2 ? 2160 : 360;
                             MediaFormat fixtureFormat = MediaFormat.createVideoFormat("video/hevc",w,h);
@@ -129,7 +133,8 @@ public class TestActivity extends Activity {
                         consumer.checkBluePixels();
                     }
                 }
-                result = "PASS: available HEVC Surface fixtures, reset and codec switch, H.264 decoder buffering/B-frame ordering, regular/burst frame pacing, landscape/portrait Surface pixels, NDK decoder/reset, sender pause/resume blue pixels, continuous audio clock, shared audio PCM, AAudio/AudioTrack silent consumption/restart, open/timeout fallback, forced/sticky selection, stop races, short writes/write errors, route reopen, playback head wrap/restart";
+                result = "PASS: " + (fullMatrix ? "full decoder matrix" : "selected decoder regression")
+                    + ", available HEVC Surface fixtures, reset and codec switch, applicable H.264 decoder buffering/B-frame ordering, frame pacing, landscape/portrait Surface pixels, sender pause/resume, shared audio PCM, silent output recovery and playback head wrap/restart";
             } catch (Throwable error) { result="FAIL: "+error; }
             Log.i("PlayerRegression", "COMPLETE: " + result);
             final String text=result; runOnUiThread(() -> label.setText(text));

@@ -5,11 +5,8 @@ Android、macOS、Windows、Linux 和 iPhone／iPad 共用象牙白色的屏幕�
 
 `receiver_mark.png` 是使用 Codex 内置 imagegen 工具生成的透明原图。
 平台导出由 macOS 自带的 Swift、AppKit 和 ImageIO 完成，不需要额外依赖，
-也不需要重新调用图像生成服务。在仓库根目录运行：
-
-```sh
-swift scripts/generate_icons.swift
-```
+也不需要重新调用图像生成服务。导出命令统一见
+[开发指南](../../DEVELOPMENT.md#资源与内部脚本)。
 
 脚本输出：
 

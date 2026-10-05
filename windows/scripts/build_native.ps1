@@ -90,6 +90,6 @@ try {
         "-DFFMPEG_PREFIX=$($cache.Replace('\', '/'))/ffmpeg-aac" `
         "-DAIRPLAY_WINDOWS_BUILD_TESTS=$($Tests.IsPresent)" }
     Invoke-Checked { cmake --build $native --config Release --parallel }
-    if ($Tests) { Invoke-Checked { ctest --test-dir $native -C Release --output-on-failure } }
 } finally { Pop-Location }
-Write-Host 'Windows native player built. Run the pinned Flutter SDK: flutter pub get; flutter build windows --release.'
+Write-Host 'Windows native player built. Run the pinned Flutter SDK: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
+if ($Tests) { Write-Host 'Native fixtures built. Run them with: bash scripts/test_native.sh windows' }

@@ -24,6 +24,20 @@ Android 还提供 TV 布局与遥控器方向键操作。macOS 始终在同一�
 | Windows | Windows 10+ x64；H.264、HEVC、ALAC、AAC-LC、有限 AAC-ELD；HEVC 优先系统解码，包内 FFmpeg 提供软件备用路径 |
 | Linux 桌面 | GTK 3、FFmpeg 6+、PulseAudio 兼容音频服务和 Avahi 等系统依赖；H.264、HEVC 软件解码，AAC-LC、有限 AAC-ELD、ALAC 实现 |
 
+Windows 的 H.264 播放在 Windows N 上需要 Media Feature Pack。HEVC 软件备用路径
+无需额外安装系统 HEVC 扩展，但流畅度取决于 CPU，不保证 4K 60 FPS。
+Windows 与 Linux 的 Main10 画面输出为八位 RGBA，目前不提供 HDR tone mapping。
+两者的 AAC-ELD 支持常见 480/512 样本帧，不支持 LD-SBR 和部分 ER 工具；
+音频输出为 44.1 kHz 双声道。持续播放、音频设备变化和音画同步仍需按目标设备验证。
+
+iPad 音频中断或输出路由变化会结束当前连接并重建接收，需要发送端重新连接。
+Linux 需要正常运行的 Avahi、系统 D-Bus 和 PulseAudio/PipeWire 音频服务。
+发现服务发布失败时显示错误；音频输出不可用时在音频会话开始后报告失败。
+
+Linux 托盘需要支持 AppIndicator 的桌面环境。没有托盘宿主时，关闭窗口会退出；
+托盘宿主消失且窗口隐藏时，应用重新显示窗口。Linux 不提供登录启动，
+Wayland 对窗口激活、位置、比例和置顶的限制取决于 compositor。
+
 ## 使用
 
 1. 将 iPhone 与接收设备连接到同一局域网。
@@ -88,9 +102,8 @@ macOS 位于 `~/Library/Application Support/tech.soit.flutterairplay/logs/`；
 Android 位于应用外部文件目录 `Android/data/tech.soit.flutterairplay/files/logs/`。
 文件包含 Flutter、接收核心和播放诊断，重启后保留。日志页“清空”只清空当前显示。
 
-开发环境、构建与测试命令见 [AGENTS.md](AGENTS.md)。
-实验性宿主的构建和限制见 [iPad](ios/README.md)、[Windows](windows/README.md)
-与 [Linux](linux/README.md)。
+各平台的开发环境、运行、构建、测试与打包命令统一见 [开发指南](DEVELOPMENT.md)。
+项目开发约定见 [AGENTS.md](AGENTS.md)。
 
 ## 分发与许可
 

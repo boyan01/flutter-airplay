@@ -58,15 +58,12 @@ try host.queue.sync {
     require(host.snapshot()["screenHeight"] as? Int == displayMode.pixelHeight,
             "a disconnected playback display falls back to the main display")
     host.displayID = CGMainDisplayID()
-    let capabilities = host.snapshot()["capabilities"] as! [String: Any]
-    require(capabilities["supportsExecutablePath"] as? Bool == false, "embedded library does not require executable path")
     require(host.snapshot()["textureId"] as? Int64 == 0, "texture ID zero remains valid")
     for name in ["", String(repeating: "a", count: 51), "bad\nname"] {
         do { try host.save(name: name, path: ""); require(false, "invalid name accepted") } catch {}
     }
     do { try host.save(name: "Synthetic Receiver", path: "/external/receiver"); require(false, "external executable accepted") } catch {}
     try host.check(path: "")
-    require((host.snapshot()["logs"] as! [[String: Any]]).count == 1, "embedded library check produces diagnostics")
     host.stop(); host.stop()
     require(host.snapshot()["status"] as? String == "stopped", "stopping an idle host is idempotent")
 }

@@ -1,162 +1,95 @@
-# Flutter AirPlay development
+# Flutter AirPlay
 
-## Working conventions
+## Application structure
 
-- Reply in Chinese. Keep code, comments and commit messages in English; follow
-  the existing language when editing documents.
-- Explain the outcome first, using short, direct sentences. Distinguish current
-  behavior, code dependencies and design requirements.
-- Confirm that new logic is necessary before adding it. Prefer existing
-  abstractions and keep the change small.
-- Show an ASCII UI sketch when changing UI or UX.
-- Keep commit messages, PR titles and branch names free of `[codex]` or `codex/`
-  prefixes.
-- In code reviews, include every actionable finding in selectable Markdown in
-  the final response: priority, file and line, failure scenario, and safe remedy.
-  Inline comments may supplement this list.
+One Flutter application serves macOS, Android phones/TV, iPad, Windows and Linux,
+with `lib/main.dart` as its entry point. Platform support and runtime limitations
+are described in [README.md](README.md); iPad, Windows and Linux are experimental.
+
+- `lib/ui/`: shared screens, widgets, layout and input handling.
+- `lib/receiver/receiver_model.dart`: shared receiver state and application actions.
+- `lib/receiver/receiver_repository.dart`: receiver control and event contract with
+  native hosts. Extend this contract consistently across hosts when needed.
+- `native/player/`: shared C++ playback, timing and receiver lifecycle.
+- Platform hosts: discovery, codecs/output, video surfaces, windows and OS lifecycle.
+- `vendor/UxPlay/`: shared receive protocol core. Edit it directly, preserve GPL
+  notices and record upstream updates in `vendor/UxPlay/UPSTREAM.md`.
+
+Extend these existing boundaries. Keep receiver behavior in the shared model/core;
+widgets own presentation and transient UI state. Keep OS integration in the host
+or its adapter. Introduce a new layer or state-management package only when the
+existing structure cannot reasonably support the feature.
+
+Playback stays inside the application. Preserve the receive/playback boundary;
+keep this a Flutter/C++ product without a separate player application or Go service.
+
+## Cross-platform development
+
+- Implement a new or changed feature across all applicable platforms in the same
+  task, including experimental hosts. Share its state, settings, validation and
+  user-visible behavior; check platform adapters for missing implementations.
+- Platform capability and lifecycle constraints can require different behavior
+  (for example, iPad foreground reception or desktop tray integration). Make
+  unsupported actions explicit and explain any feature gap. An existing missing
+  implementation is not a reason to skip a platform.
+- Keep native commands, snapshots and events consistent with the Dart contract.
+  Propagate failures into receiver state so every UI can show them. Preserve
+  cleanup and recovery when stopping, reconnecting or changing app lifecycle.
+
+## Flutter UI
+
+- Reuse shared pages and widgets across targets. Keep terminology, settings,
+  status/error states and action outcomes consistent. Adapt presentation and
+  input to the target without creating independent copies of the same feature.
+- Base responsive layout on available space: use `LayoutBuilder` for local
+  constraints and `MediaQuery.sizeOf` for the app window. Platform identity alone
+  does not determine layout. Handle resizing, portrait/landscape, safe areas,
+  the on-screen keyboard and larger text without clipping controls.
+- Reuse `ThemeData`, `ColorScheme`, text styles and component themes from
+  `lib/main.dart`. Preserve system light/dark appearance and the TV dark theme.
+  Add shared styles where repeated values need to stay consistent.
+- Support touch, mouse and keyboard. TV controls need visible focus, D-pad access,
+  activation and predictable Back behavior. Reuse `lib/ui/tv_focus.dart`; restore
+  useful focus after dialogs, navigation and playback transitions. Essential
+  actions must remain available without hover or touch.
+- Add user-facing strings to both `lib/l10n/app_en.arb` and `app_zh.arb`, consume
+  `AppLocalizations`, and regenerate with `flutter gen-l10n`. Edit ARB sources
+  rather than generated localization classes. Keep native diagnostic text intact.
+- Keep rendering free of receiver side effects. Dispose owned subscriptions,
+  timers and focus nodes; guard UI updates after asynchronous work with `mounted`.
+
+For layout changes, consult Flutter's [adaptive design guide](https://docs.flutter.dev/ui/adaptive-responsive).
+For changes to state or layer boundaries, consult the [architecture guide](https://docs.flutter.dev/app-architecture/guide)
+and apply it to the existing model/repository structure rather than restructuring
+unrelated code.
+
+## Development workflow
+
+Use [DEVELOPMENT.md](DEVELOPMENT.md) when setting up a host, running the app,
+selecting tests or packaging. It is the single reference for commands and their
+prerequisites across platforms.
+
+Use `flutter test` for Dart tests and `scripts/test_native.sh` for native tests.
+Extend the relevant suite in that entry point instead of adding a test runner
+per fixture or platform. Keep the default suite small and select extended host,
+codec or device matrices explicitly. Run a shared fixture once per build
+configuration; retain platform backend and recovery coverage. Keep fixture
+generators with their test sources.
+
+Prefer the `flutter run` development loop and checks scoped to the change.
+Validate at useful checkpoints; reuse passing results while relevant inputs are
+unchanged. Report actual coverage and unavailable targets. Delegate checks to CI
+only when configured jobs cover the submitted revision.
 
 ## Documentation
 
-Keep `README.md` focused on the product: purpose, current features, usage and
-platform/runtime constraints. Commit descriptions, task history, per-task test
-or acceptance results and user-confirmation records belong in task reports,
-not in the README.
+- `README.md`: product features, usage and runtime/platform limitations.
+- `DEVELOPMENT.md`: environment, run/build/test/package commands and test scope.
+- `AGENTS.md`: project-specific code boundaries and development conventions.
+- License notices and `vendor/*/UPSTREAM.md`: third-party licensing and provenance.
+- `assets/app_icon/README.md`: asset provenance and platform export details.
 
-## Source and product boundaries
-
-- Maintain one root Flutter application for macOS, Android phones and TV, with
-  `lib/main.dart` as its entry point. Keep shared UI and receiver state in `lib/`;
-  `native/player/` owns shared playback and receiver lifecycle; platform hosts
-  adapt textures, discovery and application lifecycle.
-- Maintain macOS playback inside the application. Do not add a standalone-window
-  product mode or a Go component.
-- Edit the shared receive core directly in `vendor/UxPlay/`. Both platforms build
-  this source; preserve the receive/playback boundary and GPL notices. Record
-  upstream updates in `vendor/UxPlay/UPSTREAM.md`.
-- Keep generated build products in ignored output directories and local evidence
-  in `artifacts/`. Keep logs, screenshots, binaries, credentials and device or
-  network identifiers out of public source.
-
-## Build and run
-
-Run commands from the repository root. Use the Flutter version pinned in
-`.fvmrc`; replace `flutter` with `fvm flutter` when using FVM.
-Run `flutter pub get` before building either platform.
-
-### macOS
-
-Requires Xcode's macOS SDK, CMake, Python 3 and Perl on Apple Silicon.
-The script fetches verified sources from `android/dependencies.lock.json`.
-Intel has not been validated.
-
-```sh
-brew install cmake
-./scripts/build_receiver.sh
-flutter run -d macos
-# Build and launch the Release application:
-flutter build macos --release
-open "build/macos/Build/Products/Release/Flutter AirPlay.app"
-```
-
-The native script builds the shared C++ player in `build/macos-native/`, with
-static OpenSSL and libplist. Xcode links and bundles this library;
-VideoToolbox, AudioConverter, CoreAudio and Bonjour are system dependencies. Build native code
-before building Flutter. For an audited ad-hoc signed application and ZIP:
-
-```sh
-./scripts/package_macos.sh
-```
-
-The package has no Homebrew runtime dependency. Developer ID signing and
-notarization are separate distribution steps.
-
-### Android
-
-The native build script currently targets a macOS development host. Install the
-Android SDK, NDK 28.2.13676358 and SDK CMake 3.22.1. The product packages
-arm64-v8a only and requires Android API 26 or newer.
-
-```sh
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-./android/scripts/build_native.sh
-flutter build apk --release --target-platform android-arm64
-```
-
-The script fetches and verifies dependencies from `android/dependencies.lock.json`
-and builds OpenSSL and the JNI player. Caches live in ignored `android/.cache/`;
-native output lives in `build/android-native-arm64/` and is copied into
-`android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so`.
-APK packaging rejects a missing JNI library; build native code first.
-
-The APK is `build/app/outputs/flutter-apk/app-release.apk`. Local Release builds
-use debug signing. When installing an authorized device update, use
-`adb install -r` with the same application ID and signing key to retain data.
-
-## Validation
-
-Run checks that match the changed code. Shared receive-core changes require both
-macOS and Android builds and the relevant native regressions. Rebuild the native
-receiver/player before packaging an application that uses changed native code.
-Documentation-only changes require link and diff checks; they do not require
-application builds.
-
-Flutter checks:
-
-```sh
-flutter analyze
-flutter test
-```
-
-macOS native regressions, after building the shared player:
-
-```sh
-./scripts/test_player.sh
-./scripts/test_native.sh
-./scripts/test_frames.sh
-./scripts/test_rtp.sh
-```
-
-These use synthetic audio/video and loopback protocol inputs. The former
-GStreamer and Kotlin/EGL playback fixtures were replaced with tests of the
-current C++ player and direct Flutter texture adapter.
-
-The standalone Android ALAC decoder also has a host regression for bit-exact
-PCM, malformed packets and recovery: `ALAC_SANITIZE=ON ./scripts/test_alac.sh`.
-
-For macOS window changes, build the Debug application and run
-`./scripts/test_window.sh` in a logged-in macOS GUI session.
-
-Android receive-core host regressions require CMake and native OpenSSL:
-
-```sh
-HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" ./android/scripts/test_host.sh
-HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" HOST_SANITIZE=ON ./android/scripts/test_host.sh
-```
-
-These fixtures exercise the shared receive core and DNS/TXT adapter with
-synthetic inputs; they are not the Android product's JNI playback host.
-The platform playback regression builds a separate fixture app linked to the
-packaged player. It requires an authorized arm64 device, JDK 17+, SDK build-tools
-36.0.0 and the `android` CLI:
-
-```sh
-./scripts/test_android_player.sh
-```
-
-It decodes synthetic H.264 into a GPU SurfaceTexture, checks pixel data and
-orientation, decodes synthetic AAC/ALAC/AAC-ELD, and opens/restarts silent Oboe
-output. It uses a separate application ID and preserves the receiver app.
-For Kotlin state-adapter changes, use the configured Gradle executable and JDK:
-
-```sh
-"$GRADLE_BIN" -p android :app:testDebugUnitTest -Ptarget-platform=android-arm64
-```
-
-Report the exact checks completed, their input and remaining gaps. Synthetic
-results, build success and receiver state events do not establish real iPhone
-image, audible sound, synchronization or Android-device support. Tie results to
-the tested build and report them in the final response and PR description when
-creating a PR. Follow the documentation scope above when editing `README.md`.
-
-When updating dependencies or preparing distribution, read
-`THIRD_PARTY_NOTICES.md` and preserve the bundled license assets.
+Update the existing authoritative document instead of adding platform READMEs
+or another command guide. Keep per-task reports, logs, screenshots and device
+identifiers in ignored `artifacts/`; generated products and caches belong in
+ignored output directories.
