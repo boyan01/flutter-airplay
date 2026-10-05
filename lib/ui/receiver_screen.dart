@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_logging.dart';
 import '../receiver/receiver_model.dart';
 import 'receiver_strings.dart';
 import 'home_page.dart';
@@ -31,11 +32,17 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   bool _connected = false;
   String _homeAction = '';
   String _presentationMode = '';
+  double _displayRefreshRate = 60;
+  late final FlutterFrameDiagnostics _frameDiagnostics;
   ReceiverModel get model => widget.model;
 
   @override
   void initState() {
     super.initState();
+    _frameDiagnostics = FlutterFrameDiagnostics(
+      isPlaying: () => mounted && model.hasVideo && !model.videoPaused,
+      refreshRate: () => _displayRefreshRate,
+    );
     _window.setMethodCallHandler((call) async {
       if (!mounted) return;
       if (call.method == 'openSettings') {
@@ -74,6 +81,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _displayRefreshRate = View.of(context).display.refreshRate;
     _setWindowStrings();
   }
 
@@ -210,6 +218,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
 
   @override
   void dispose() {
+    _frameDiagnostics.dispose();
     _window.setMethodCallHandler(null);
     model.removeListener(_changed);
     _homeFocus.dispose();

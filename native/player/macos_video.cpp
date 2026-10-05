@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "platform.h"
+#include "video_scheduler.h"
 #include <VideoToolbox/VideoToolbox.h>
 #include <CoreVideo/CoreVideo.h>
 #include <TargetConditionals.h>
@@ -14,53 +15,23 @@ public:
         return VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC);
     }
     void size(int, int) override {} // SPS and decoded pixel buffers own actual dimensions.
-    int64_t next_deadline() const override {
-        std::lock_guard<std::mutex> guard(pending_lock_);
-        if (pending_.empty()) return 0;
-        return std::min_element(pending_.begin(), pending_.end(),
-            [](const Pending &a, const Pending &b) { return a.due < b.due; })->due;
-    }
+    bool can_decode() const override { return scheduler_.can_decode(); }
+    int64_t next_deadline() const override { return scheduler_.next_deadline(); }
     void drain() override {
-        while (true) {
-            Pending output;
-            {
-                std::lock_guard<std::mutex> guard(pending_lock_);
-                if (pending_.empty()) break;
-                auto next = std::min_element(pending_.begin(), pending_.end(),
-                    [](const Pending &a, const Pending &b) { return a.due < b.due; });
-                if (next->due > monotonic_ns()) break;
-                output = *next; pending_.erase(next);
-            }
-            const auto now = monotonic_ns();
-            max_late_ns_ = std::max(max_late_ns_, now - output.due);
-            if (output.due <= last_presented_due_) ++order_drop_;
-            else if (output.due < now - 150000000) ++late_drop_;
-            else {
-                ++presented_;
-                if (last_release_ns_) max_release_gap_ns_ = std::max(max_release_gap_ns_, now - last_release_ns_);
-                last_release_ns_ = now;
-                if (last_presented_due_) {
-                    const auto gap = output.due - last_presented_due_;
-                    pts_gap_total_ns_ += gap; ++pts_gaps_;
-                    max_pts_gap_ns_ = std::max(max_pts_gap_ns_, gap);
-                }
-                last_presented_due_ = output.due;
-                callbacks_.frame(output.frame, int(CVPixelBufferGetWidth(output.frame)),
-                    int(CVPixelBufferGetHeight(output.frame)), output.due, output.generation);
-            }
-            CVPixelBufferRelease(output.frame);
-        }
+        scheduler_.drain();
+        const auto schedule = scheduler_.diagnostics();
+        if (!schedule.empty() && callbacks_.log) callbacks_.log(schedule.c_str());
         report_stats(false);
     }
     void reset() override {
         close_session(); vps_.clear(); sps_.clear(); pps_.clear(); hevc_ = false;
         report_stats(true);
-        stats_started_ = 0; submitted_ = decoded_ = presented_ = late_drop_ = order_drop_ = overflow_drop_ = 0;
-        pts_gap_total_ns_ = max_pts_gap_ns_ = 0; pts_gaps_ = encoded_bytes_ = 0;
-        peak_pending_ = 0; last_release_ns_ = max_release_gap_ns_ = max_queue_ns_ = max_decode_ns_ = max_late_ns_ = 0;
+        stats_started_ = 0; submitted_ = decoded_ = encoded_bytes_ = 0;
+        max_queue_ns_ = max_decode_ns_ = 0;
     }
     bool decode(const VideoPacket &packet) override {
         if (packet.hevc != hevc_) { reset(); hevc_ = packet.hevc; }
+        scheduler_.begin(packet.generation);
         const auto entered = monotonic_ns();
         if (!stats_started_) stats_started_ = entered;
         if (packet.received_ns) max_queue_ns_ = std::max(max_queue_ns_, entered - packet.received_ns);
@@ -81,7 +52,7 @@ public:
             sample.insert(sample.end(), {uint8_t(length >> 24), uint8_t(length >> 16), uint8_t(length >> 8), uint8_t(length)});
             sample.insert(sample.end(), nal.begin(), nal.end());
         }
-        if (changed) close_session();
+        if (changed) { close_session(); scheduler_.begin(packet.generation); }
         if (!picture) return true;
         if (!session_) {
             if (!keyframe || sps_.empty() || pps_.empty() || (hevc_ && vps_.empty())) return true;
@@ -105,7 +76,6 @@ public:
         return status == noErr;
     }
 private:
-    struct Pending { CVPixelBufferRef frame = nullptr; int64_t due = 0; uint64_t generation = 0; };
     struct Context { MacVideo *video; int64_t deadline; uint64_t generation; int64_t submitted; };
     static void decoded(void *, void *opaque, OSStatus status, VTDecodeInfoFlags, CVImageBufferRef image, CMTime, CMTime) {
         auto *context = static_cast<Context *>(opaque);
@@ -116,15 +86,16 @@ private:
         std::lock_guard<std::mutex> guard(self->pending_lock_);
         ++self->decoded_;
         self->max_decode_ns_ = std::max(self->max_decode_ns_, monotonic_ns() - context->submitted);
-        self->pending_.push_back({CVPixelBufferRetain(image), context->deadline, context->generation});
-        self->peak_pending_ = std::max(self->peak_pending_, self->pending_.size());
-        // Bound retained pixel buffers during overload or far-future input.
-        if (self->pending_.size() > 16) {
-            auto oldest = std::min_element(self->pending_.begin(), self->pending_.end(),
-                [](const Pending &a, const Pending &b) { return a.due < b.due; });
-            CVPixelBufferRelease(oldest->frame); self->pending_.erase(oldest); ++self->overflow_drop_;
-        }
+        auto frame = std::shared_ptr<__CVBuffer>(CVPixelBufferRetain(image),
+            [](CVPixelBufferRef value) { CVPixelBufferRelease(value); });
+        const auto due = context->deadline;
+        const auto generation = context->generation;
+        self->scheduler_.enqueue(due, generation, [self, frame, due, generation](bool show) {
+            if (show && self->callbacks_.frame) self->callbacks_.frame(frame.get(),
+                int(CVPixelBufferGetWidth(frame.get())), int(CVPixelBufferGetHeight(frame.get())), due, generation);
+        });
     }
+
     bool open() {
         if (hevc_) {
             const uint8_t *parameters[] = {vps_.data(), sps_.data(), pps_.data()};
@@ -176,38 +147,30 @@ private:
         if (session_) { VTDecompressionSessionWaitForAsynchronousFrames(session_); VTDecompressionSessionInvalidate(session_); CFRelease(session_); session_ = nullptr; }
         if (format_) { CFRelease(format_); format_ = nullptr; }
         std::lock_guard<std::mutex> guard(pending_lock_);
-        for (const auto &output : pending_) CVPixelBufferRelease(output.frame);
-        pending_.clear(); last_presented_due_ = 0;
+        scheduler_.clear();
     }
     void report_stats(bool final) {
         const auto now = monotonic_ns();
         if (!stats_started_ || (!final && now - stats_started_ < 5 * kSecond)) return;
-        if (!(submitted_ || decoded_ || presented_ || late_drop_ || order_drop_ || overflow_drop_)) return;
+        if (!(submitted_ || decoded_)) return;
         std::lock_guard<std::mutex> guard(pending_lock_);
-        char text[640];
+        char text[384];
         std::snprintf(text, sizeof(text),
-            "Mac video stats: interval_ms=%lld input=%llu decoded=%llu presented=%llu late_drop=%llu order_drop=%llu overflow_drop=%llu pending=%zu peak_pending=%zu max_queue_ms=%.1f max_decode_observed_ms=%.1f max_release_gap_ms=%.1f max_late_ms=%.1f pts_gap_avg_ms=%.1f max_pts_gap_ms=%.1f input_mbps=%.2f%s",
+            "Mac video stats: interval_ms=%lld input=%llu decoded=%llu max_queue_ms=%.1f max_decode_observed_ms=%.1f input_mbps=%.2f%s",
             static_cast<long long>((now - stats_started_) / 1000000),
             static_cast<unsigned long long>(submitted_), static_cast<unsigned long long>(decoded_),
-            static_cast<unsigned long long>(presented_), static_cast<unsigned long long>(late_drop_),
-            static_cast<unsigned long long>(order_drop_), static_cast<unsigned long long>(overflow_drop_),
-            pending_.size(), peak_pending_, max_queue_ns_ / 1000000.0, max_decode_ns_ / 1000000.0,
-            max_release_gap_ns_ / 1000000.0, max_late_ns_ / 1000000.0,
-            pts_gaps_ ? double(pts_gap_total_ns_) / pts_gaps_ / 1e6 : 0.0, max_pts_gap_ns_ / 1e6,
+            max_queue_ns_ / 1e6, max_decode_ns_ / 1e6,
             double(encoded_bytes_) * 8 * 1000 / (now - stats_started_), final ? " final" : "");
         callbacks_.log(text);
-        stats_started_ = now; submitted_ = decoded_ = presented_ = late_drop_ = order_drop_ = overflow_drop_ = 0;
-        pts_gap_total_ns_ = max_pts_gap_ns_ = 0; pts_gaps_ = encoded_bytes_ = 0;
-        peak_pending_ = pending_.size(); max_queue_ns_ = max_decode_ns_ = max_release_gap_ns_ = max_late_ns_ = 0;
+        stats_started_ = now; submitted_ = decoded_ = encoded_bytes_ = 0;
+        max_queue_ns_ = max_decode_ns_ = 0;
     }
     mutable std::mutex pending_lock_;
-    std::vector<Pending> pending_;
-    int64_t stats_started_ = 0, last_presented_due_ = 0, last_release_ns_ = 0;
-    int64_t max_queue_ns_ = 0, max_decode_ns_ = 0, max_release_gap_ns_ = 0, max_late_ns_ = 0;
-    uint64_t submitted_ = 0, decoded_ = 0, presented_ = 0, late_drop_ = 0, order_drop_ = 0, overflow_drop_ = 0;
-    int64_t pts_gap_total_ns_ = 0, max_pts_gap_ns_ = 0;
-    uint64_t pts_gaps_ = 0, encoded_bytes_ = 0;
-    size_t peak_pending_ = 0;
+    // VideoToolbox can callback in decode order; retain the existing reorder
+    // headroom so future reference pictures do not block earlier B-frames.
+    VideoScheduler scheduler_{2000000, 16};
+    int64_t stats_started_ = 0, max_queue_ns_ = 0, max_decode_ns_ = 0;
+    uint64_t submitted_ = 0, decoded_ = 0, encoded_bytes_ = 0;
     VideoCallbacks callbacks_;
     bool hevc_ = false;
     std::vector<uint8_t> vps_, sps_, pps_;

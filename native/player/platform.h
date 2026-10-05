@@ -2,13 +2,13 @@
 #pragma once
 #include "player.h"
 #include "timeline.h"
+#include "video_scheduler.h"
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace airplay {
-constexpr int64_t kVideoLateToleranceNs = 150000000;
 struct VideoPacket {
     std::vector<uint8_t> bytes;
     int64_t deadline = 0;
@@ -29,6 +29,8 @@ public:
     // Absolute monotonic deadline for held output; zero leaves polling to the host.
     // Called only by the playback worker, like decode/drain/reset.
     virtual int64_t next_deadline() const { return 0; }
+    // Backpressure completed pictures without blocking decode callbacks on PTS.
+    virtual bool can_decode() const { return true; }
     // Android can switch between the visible surface and a background consumer.
     // Implementations must serialize this with their decode/reset operations.
     virtual bool set_surface(void *) { return false; }

@@ -58,6 +58,16 @@ int main() {
         check(frames.receive({nullptr, 3840, 2160, 0, next.Get()}), "Reconnect with 4K texture");
         descriptor = frames.copy(); descriptor->release_callback(descriptor->release_context);
         check(descriptor->width == 3840 && descriptor->height == 2160, "4K descriptor after release");
+        descriptor = frames.copy(); descriptor->release_callback(descriptor->release_context);
+        check(frames.receive({nullptr, 640, 360, 0, imported.Get()}), "Receive unacquired frame");
+        check(frames.receive({nullptr, 360, 640, 0, portrait.Get()}), "Overwrite unacquired frame");
+        descriptor = frames.copy(); descriptor->release_callback(descriptor->release_context);
+        check(frames.stats.received == 3 && frames.stats.acquired_new == 2 &&
+              frames.stats.overwritten == 1 && frames.stats.repeated == 1,
+              "Diagnostics distinguish replaced, newly acquired and repeated textures");
+        frames.clear();
+        check(frames.stats.received == 0 && frames.last_acquire_ns == 0,
+              "Clear resets diagnostics without carrying a reconnect gap");
         std::puts("PASS: Windows Flutter GPU descriptor import, release, rotation, clear and reconnect");
         return 0;
     } catch (const std::exception &error) { std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }

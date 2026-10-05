@@ -50,7 +50,9 @@ public:
         }
         if (!rgba_) rgba_ = av_frame_alloc();
         if (!rgba_) return AVERROR(ENOMEM);
-        if (rgba_->width != input.width || rgba_->height != input.height) {
+        // Every pixel will be overwritten; allocate a fresh buffer when a queued
+        // picture retains the old one, instead of copying old pixels first.
+        if (rgba_->width != input.width || rgba_->height != input.height || !av_frame_is_writable(rgba_)) {
             av_frame_unref(rgba_);
             rgba_->format = AV_PIX_FMT_RGBA;
             rgba_->width = input.width; rgba_->height = input.height;

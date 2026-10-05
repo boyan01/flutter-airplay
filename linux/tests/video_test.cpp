@@ -6,6 +6,8 @@
 #include "resume_fixtures.h"
 #include "hevc_fixtures.h"
 #include "ffmpeg_colors_test.h"
+#include "video_scheduler_test.h"
+#include <thread>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -52,6 +54,16 @@ struct Probe {
             frames.push_back(frame);
         }, [this](const char *message) { logs.emplace_back(message); }
     });
+    bool decode(const VideoPacket &packet) {
+        if (!video->decode(packet)) return false;
+        const auto until = monotonic_ns() + 3 * kSecond;
+        do {
+            video->drain();
+            if (!video->next_deadline()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (monotonic_ns() < until);
+        throw std::runtime_error("Timed out presenting decoded fixture");
+    }
 };
 
 std::vector<uint8_t> read_file(const std::filesystem::path &path) {
@@ -90,7 +102,7 @@ template <size_t N> SplitFrame split_frame(const uint8_t (&input)[N], bool hevc 
 void send_parameters(Probe &probe, const SplitFrame &split, bool hevc = false) {
     const auto before = probe.frames.size();
     for (const auto &parameter : split.parameters) {
-        check(probe.video->decode({parameter, -123, 999, 0, hevc}), "accept parameter-only packet");
+        check(probe.decode({parameter, -123, 999, 0, hevc}), "accept parameter-only packet");
         probe.video->drain();
     }
     check(probe.frames.size() == before, "configuration packets do not publish pictures");
@@ -106,23 +118,23 @@ void check_red(const Frame &frame, int width, int height, int64_t deadline, uint
 void check_configuration_rotation_and_reset() {
     Probe probe;
     const auto wide = split_frame(landscape), tall = split_frame(portrait);
-    constexpr int64_t deadline = 1234567890123456;
+    const int64_t deadline = monotonic_ns() + kSecond;
     constexpr uint64_t generation = UINT64_C(0xFEDCBA9876543210);
     probe.video->size(111, 222);
     send_parameters(probe, wide);
     send_parameters(probe, wide); // A repeated configuration must remain bounded.
-    check(probe.video->decode({wide.picture, deadline, generation}), "decode independent headers and IDR");
+    check(probe.decode({wide.picture, deadline, generation}), "decode independent headers and IDR");
     check(probe.frames.size() == 1, "first IDR publishes once");
     check_red(probe.frames.back(), landscape_width, landscape_height, deadline, generation);
     for (int i = 0; i < 10; ++i) probe.video->drain();
     check(probe.frames.size() == 1, "ordinary drain neither finalizes nor duplicates output");
 
     send_parameters(probe, tall);
-    check(probe.video->decode({tall.picture, deadline + 7, generation + 1}), "decode portrait without reset");
+    check(probe.decode({tall.picture, deadline + 7, generation + 1}), "decode portrait without reset");
     check(probe.frames.size() == 2, "portrait frame publishes once");
     check_red(probe.frames.back(), landscape_height, landscape_width, deadline + 7, generation + 1);
     // Reusing a deadline must not reuse the preceding frame's generation.
-    check(probe.video->decode({{std::begin(landscape), std::end(landscape)}, deadline + 7, generation + 2}),
+    check(probe.decode({{std::begin(landscape), std::end(landscape)}, deadline + 7, generation + 2}),
           "decode landscape with repeated timestamp");
     check(probe.frames.size() == 3, "landscape resumes after orientation change");
     check_red(probe.frames.back(), landscape_width, landscape_height, deadline + 7, generation + 2);
@@ -131,23 +143,42 @@ void check_configuration_rotation_and_reset() {
     send_parameters(probe, wide);
     send_parameters(probe, tall);
     send_parameters(probe, wide);
-    check(probe.video->decode({wide.picture, deadline + 9, generation + 3}), "A-B-A parameter updates preserve final order");
+    check(probe.decode({wide.picture, deadline + 9, generation + 3}), "A-B-A parameter updates preserve final order");
     check_red(probe.frames.back(), landscape_width, landscape_height, deadline + 9, generation + 3);
 
     probe.video->reset();
     const auto before = probe.frames.size();
-    check(probe.video->decode({{std::begin(resume_frame_1), std::end(resume_frame_1)}, deadline, generation}),
+    check(probe.decode({{std::begin(resume_frame_1), std::end(resume_frame_1)}, deadline, generation}),
           "after reset, skip inter frames until an IDR");
     probe.video->drain();
     check(probe.frames.size() == before, "reset and skipped inter frame publish no stale picture");
     const auto logs = probe.logs.size();
-    check(!probe.video->decode({wide.picture, deadline, generation}), "reset also discards the old SPS/PPS");
+    check(!probe.decode({wide.picture, deadline, generation}), "reset also discards the old SPS/PPS");
     check(probe.logs.size() > logs, "missing post-reset configuration is logged");
     probe.video->reset();
     send_parameters(probe, tall);
-    check(probe.video->decode({tall.picture, deadline + 11, generation + 4}), "recover with fresh post-reset configuration");
+    check(probe.decode({tall.picture, deadline + 11, generation + 4}), "recover with fresh post-reset configuration");
     check(probe.frames.size() == before + 1, "fresh generation publishes exactly one frame");
     check_red(probe.frames.back(), landscape_height, landscape_width, deadline + 11, generation + 4);
+}
+
+void check_deferred_output() {
+    Probe probe;
+    const auto due = monotonic_ns() + kSecond;
+    for (int i = 0; i < 3; ++i)
+        check(probe.video->decode({{std::begin(landscape), std::end(landscape)}, due + i * 16666667, 12}),
+              "Decode future pictures without presentation waits");
+    check(monotonic_ns() < due && probe.frames.empty(), "Future pictures return promptly and remain held");
+    check(!probe.video->can_decode() && probe.video->next_deadline() == due - 2000000,
+          "Completed pictures provide input backpressure and an exact wakeup");
+    probe.video->drain();
+    check(probe.frames.empty(), "Ordinary drain retains future output");
+    probe.video->reset(); probe.video->drain();
+    check(probe.frames.empty() && probe.video->can_decode() && !probe.video->next_deadline(),
+          "Reset returns held RGBA pictures without publishing old output");
+    const auto next_due = monotonic_ns() + kSecond;
+    check(probe.decode({{std::begin(landscape), std::end(landscape)}, next_due, 13}), "Resume after held-picture reset");
+    check(probe.frames.size() == 1 && probe.frames.back().generation == 13, "Only the new session is displayed");
 }
 
 void check_malformed_and_bounds(const std::filesystem::path &directory) {
@@ -160,16 +191,17 @@ void check_malformed_and_bounds(const std::filesystem::path &directory) {
     for (const auto &packet : malformed) {
         probe.video->reset();
         const auto logs = probe.logs.size();
-        check(!probe.video->decode({packet, 1, 2}), "reject malformed or out-of-bounds video");
+        check(!probe.decode({packet, 1, 2}), "reject malformed or out-of-bounds video");
         check(probe.logs.size() > logs, "decoder failure reaches the application log");
         probe.video->drain();
         check(probe.frames.empty(), "invalid inputs never reach the frame callback");
     }
     probe.video->reset();
-    check(probe.video->decode({{std::begin(landscape), std::end(landscape)}, 123456789, 17}),
+    const auto recovered_due = monotonic_ns() + kSecond;
+    check(probe.decode({{std::begin(landscape), std::end(landscape)}, recovered_due, 17}),
           "decoder recovers after malformed and oversized input");
     check(probe.frames.size() == 1, "recovered decoder publishes exactly one frame");
-    check_red(probe.frames.back(), landscape_width, landscape_height, 123456789, 17);
+    check_red(probe.frames.back(), landscape_width, landscape_height, recovered_due, 17);
 }
 
 void check_b_frame_metadata(const std::filesystem::path &directory) {
@@ -199,17 +231,18 @@ void check_b_frame_metadata(const std::filesystem::path &directory) {
     check(packets.size() == 18 && end == bytes.size() && contains_b && reordered, "fixture really contains reordered B frames");
 
     Probe probe;
-    constexpr int64_t anchor = 1234567890123456, tick = 33333333;
+    const int64_t anchor = monotonic_ns() + kSecond;
+    constexpr int64_t tick = 33333333;
     std::map<int64_t, std::pair<uint64_t, int>> expected;
-    bool delayed_generation = false;
+    bool delayed_pts = false;
     int last_index = -1;
     for (size_t i = 0; i < packets.size(); ++i) {
         const auto &packet = packets[i];
         const int64_t deadline = anchor + packet.index * tick;
-        const uint64_t generation = (UINT64_C(1) << 48) + i * 17;
+        const uint64_t generation = UINT64_C(1) << 48;
         expected.emplace(deadline, std::make_pair(generation, packet.index));
         const auto before = probe.frames.size();
-        check(probe.video->decode({{bytes.begin() + packet.offset, bytes.begin() + packet.offset + packet.size}, deadline, generation}),
+        check(probe.decode({{bytes.begin() + packet.offset, bytes.begin() + packet.offset + packet.size}, deadline, generation}),
               "decode B-frame access unit");
         probe.video->drain();
         for (size_t j = before; j < probe.frames.size(); ++j) {
@@ -220,7 +253,7 @@ void check_b_frame_metadata(const std::filesystem::path &directory) {
             const int index = match->second.second;
             check(index == last_index + 1, "decoded pictures arrive in presentation order");
             last_index = index;
-            delayed_generation |= frame.generation != generation;
+            delayed_pts |= frame.deadline != deadline;
             check(frame.width == 160 && frame.height == 96, "B-frame dimensions");
             const int gray = (16 + index * 4) * 255 / 219;
             for (const auto &pixel : frame.samples) {
@@ -230,7 +263,7 @@ void check_b_frame_metadata(const std::filesystem::path &directory) {
             }
         }
     }
-    check(probe.frames.size() >= 16 && probe.frames.size() < 18 && delayed_generation,
+    check(probe.frames.size() >= 16 && probe.frames.size() < 18 && delayed_pts,
           "real delayed output exercises packet association rather than latest-packet metadata");
     const auto before = probe.frames.size();
     for (int i = 0; i < 10; ++i) probe.video->drain();
@@ -238,10 +271,11 @@ void check_b_frame_metadata(const std::filesystem::path &directory) {
     probe.video->reset();
     probe.video->drain();
     check(probe.frames.size() == before, "reset discards reorder-delayed frames without callbacks");
-    check(probe.video->decode({{std::begin(portrait), std::end(portrait)}, 999999999999, 31}),
+    const auto recovered_due = monotonic_ns() + kSecond;
+    check(probe.decode({{std::begin(portrait), std::end(portrait)}, recovered_due, 31}),
           "fresh stream opens after reset of delayed B frames");
     check(probe.frames.size() == before + 1, "new stream contains no old delayed output");
-    check_red(probe.frames.back(), landscape_height, landscape_width, 999999999999, 31);
+    check_red(probe.frames.back(), landscape_height, landscape_width, recovered_due, 31);
 }
 } // namespace
 
@@ -250,12 +284,13 @@ void check_hevc() {
     check(probe.video->supports_hevc(), "FFmpeg HEVC decoding is advertised when available");
     const auto feed = [&](const uint8_t *data, size_t size, int width, int height, int channel) {
         const auto before = probe.frames.size();
-        check(probe.video->decode({{data, data + size}, 123456789, 77, 0, true}), "HEVC access unit accepted");
+        const auto due = monotonic_ns() + kSecond;
+        check(probe.decode({{data, data + size}, due, 77, 0, true}), "HEVC access unit accepted");
         probe.video->drain();
         check(probe.frames.size() == before + 1, "HEVC publishes one frame");
         const auto &frame = probe.frames.back();
         check(frame.width == width && frame.height == height, "HEVC actual dimensions match the source");
-        check(frame.deadline == 123456789 && frame.generation == 77, "HEVC retains packet timing and generation");
+        check(frame.deadline == due && frame.generation == 77, "HEVC retains packet timing and generation");
         for (const auto &pixel : frame.samples)
             check(pixel[channel] > 200 && pixel[(channel + 1) % 3] < 45 &&
                   pixel[(channel + 2) % 3] < 45 && pixel[3] == 255, "HEVC decoded RGBA color");
@@ -265,26 +300,30 @@ void check_hevc() {
     probe.video->reset();
     const auto wide = split_frame(hevc_fixtures::landscape, true);
     send_parameters(probe, wide, true);
-    check(probe.video->decode({wide.picture, 100, 78, 0, true}), "HEVC split VPS/SPS/PPS and IRAP decode");
-    check_red(probe.frames.back(), 640, 360, 100, 78);
+    const auto split_due = monotonic_ns() + kSecond;
+    check(probe.decode({wide.picture, split_due, 78, 0, true}), "HEVC split VPS/SPS/PPS and IRAP decode");
+    check_red(probe.frames.back(), 640, 360, split_due, 78);
     const auto before = probe.frames.size();
-    check(!probe.video->decode({{0, 0, 1, 0x40}, 101, 78, 0, true}), "truncated HEVC NAL is rejected");
+    check(!probe.decode({{0, 0, 1, 0x40}, 101, 78, 0, true}), "truncated HEVC NAL is rejected");
     probe.video->drain();
     check(probe.frames.size() == before, "malformed HEVC publishes no stale image");
     probe.video->reset();
     feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
     feed(hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 2);
     feed(hevc_fixtures::main10, sizeof(hevc_fixtures::main10), 640, 360, 1);
-    check(probe.video->decode({{std::begin(landscape), std::end(landscape)}, 99, 78}), "HEVC switches back to H.264");
-    check_red(probe.frames.back(), 640, 360, 99, 78);
+    const auto avc_due = monotonic_ns() + kSecond;
+    check(probe.decode({{std::begin(landscape), std::end(landscape)}, avc_due, 78}), "HEVC switches back to H.264");
+    check_red(probe.frames.back(), 640, 360, avc_due, 78);
 }
 
 int main(int argc, char **argv) {
     try {
         check(argc == 2, "Usage: linux_video_tests <generated-fixture-directory>");
+        airplay_test::video_scheduler_test();
         airplay_test::ffmpeg_colors_test();
         check_hevc();
         check_configuration_rotation_and_reset();
+        check_deferred_output();
         check_malformed_and_bounds(argv[1]);
         check_b_frame_metadata(argv[1]);
         std::puts("PASS: FFmpeg HEVC/H.264 RGBA pixels, landscape/portrait/4K/Main10, codec switch, split parameters, exact timing/generation, malformed/bounded input, reset and B-frame reordering");

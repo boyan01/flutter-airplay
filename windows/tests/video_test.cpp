@@ -6,6 +6,7 @@
 #include "video_fixtures.h"
 #include "hevc_fixtures.h"
 #include "ffmpeg_colors_test.h"
+#include "video_scheduler_test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -106,6 +107,7 @@ int main(int argc, char **argv) {
         if (software) airplay_test::ffmpeg_colors_test();
         const bool gpu = argc == 2 && std::strcmp(argv[1], "--gpu") == 0;
         check(argc == 1 || software || gpu, "Usage: windows_video_test [--software|--gpu]");
+        if (argc == 1) airplay_test::video_scheduler_test();
         const bool expect_hevc_gpu = gpu && gpu_conversion();
         std::vector<Frame> frames;
         size_t gpu_frames = 0;
@@ -137,6 +139,9 @@ int main(int argc, char **argv) {
             for (int i = 0; i < 4; ++i)
                 check(video->decode({{data, data + size}, anchor + i * tick, 77, 0, hevc}),
                       "Windows accepts the synthetic video access unit");
+            check(frames.size() == before, "Decoding future pictures returns without waiting or publishing");
+            check(video->next_deadline() && video->next_deadline() <= anchor,
+                  "Completed output wakes the worker before its display deadline");
             const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             while (frames.size() == before && std::chrono::steady_clock::now() < until) {
                 video->drain();
@@ -168,6 +173,12 @@ int main(int argc, char **argv) {
         if (!software) {
             video->reset();
             const auto before = frames.size();
+            for (int i = 0; i < 4; ++i)
+                check(video->decode({{std::begin(landscape), std::end(landscape)},
+                    monotonic_ns() + 2 * kSecond, 88}), "Windows retains future native output");
+            check(frames.size() == before, "Held pictures are not submitted immediately");
+            video->reset(); video->drain();
+            check(frames.size() == before && !video->next_deadline(), "Reset discards held GPU/CPU pictures");
             for (int i = 0; i < 4; ++i)
                 check(video->decode({{std::begin(landscape), std::end(landscape)},
                     monotonic_ns() - kSecond, 77}), "Windows decodes late reference pictures");

@@ -328,6 +328,9 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
   ALAC 接收 fixture 覆盖 RTP burst、32 位时间戳回绕、FLUSH 后新锚点与 NTP 时间戳。
 - H.264/HEVC 素材为合成色块，覆盖横竖屏、4K、Main10、参数变化、格式切换和关键帧恢复。
   HEVC 参数解析测试逐一截断输入并检查空或过大的参数。
+- 共享视频调度 fixture 检查未来帧不阻塞解码、输入背压、B 帧按 PTS 排序、
+  过期/乱序输出丢弃、会话取消和帧资源归还；软件转换检查保留帧不会被下一帧覆盖。
+  各端的 `Video scheduler` 日志统一记录队列深度、提交间隔、迟到和丢帧原因。
 - macOS 检查 60 FPS B-frame 提交顺序、九帧 burst、reset 取消以及单帧延迟 100 ms 后恢复。
   这些回调测量的是提交到纹理适配器的时刻，不是 Flutter 栅格消费或实际屏幕扫描。
 - 会话测试在同一 GOP 内暂停/恢复红到蓝的画面，不依赖新 IDR，并保持音频和时钟。

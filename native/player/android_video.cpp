@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "platform.h"
+#include "video_scheduler.h"
 #include <android/native_window.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
@@ -56,14 +57,11 @@ public:
     void reset() override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
         report_stats(true);
-        stats_started_ = 0; submitted_ = presented_ = late_ = reordered_ = 0;
-        max_pending_ = 0; max_late_ns_ = 0;
-        pending_.clear();
+        stats_started_ = 0; submitted_ = 0;
+        scheduler_.clear();
         inputs_.clear();
-        last_release_ns_ = 0;
-        max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = max_release_gap_ns_ = 0;
+        max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = 0;
         decoded_ = unmatched_ = 0;
-        last_presented_due_ = 0;
         if (codec_) {
             const auto begin = monotonic_ns();
             AMediaCodec_stop(codec_); AMediaCodec_delete(codec_); codec_ = nullptr;
@@ -91,6 +89,7 @@ public:
             } else if (!open(decoder_) && !open(fallback_)) return false;
         }
         generation_ = packet.generation;
+        scheduler_.begin(packet.generation);
         const auto timeout = monotonic_ns() + 200000000;
         do {
             // Held output buffers can backpressure input. Keep presenting while
@@ -117,11 +116,13 @@ public:
         callbacks_.log("MediaCodec input stalled; waiting for a new keyframe");
         return false;
     }
+    bool can_decode() const override {
+        std::lock_guard<std::recursive_mutex> guard(surface_lock_);
+        return scheduler_.can_decode();
+    }
     int64_t next_deadline() const override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
-        if (pending_.empty()) return 0;
-        return std::min_element(pending_.begin(), pending_.end(),
-            [](const PendingOutput &a, const PendingOutput &b) { return a.due < b.due; })->due;
+        return scheduler_.next_deadline();
     }
     void drain() override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
@@ -156,37 +157,20 @@ public:
                 max_decode_ns_ = std::max(max_decode_ns_, monotonic_ns() - input->queued_ns);
                 inputs_.erase(input);
             } else ++unmatched_;
-            pending_.push_back({index, info.presentationTimeUs * 1000});
-            max_pending_ = std::max(max_pending_, pending_.size());
+            const auto due = info.presentationTimeUs * 1000;
+            const auto generation = generation_;
+            const auto w = visible_width_, h = visible_height_;
+            scheduler_.enqueue(due, generation, [this, index, due, generation, w, h](bool show) {
+                if (show) {
+                    AMediaCodec_releaseOutputBufferAtTime(codec_, index, due);
+                    if (callbacks_.frame) callbacks_.frame(nullptr, w, h, due, generation);
+                } else AMediaCodec_releaseOutputBuffer(codec_, index, false);
+            });
         }
-        // Decode-order output can put a future reference frame before its
-        // B-frames. Collect all available output before choosing the earliest
-        // due timestamp; holding the first buffer would block earlier frames.
-        while (!pending_.empty()) {
-            auto next = std::min_element(pending_.begin(), pending_.end(),
-                [](const PendingOutput &a, const PendingOutput &b) { return a.due < b.due; });
-            const auto now = monotonic_ns();
-            if (next->due > now) break;
-            const auto output = *next;
-            pending_.erase(next);
-            // A B-frame decoded after a later picture was already presented
-            // cannot be displayed retroactively, even within the lateness limit.
-            max_late_ns_ = std::max(max_late_ns_, now - output.due);
-            if (output.due <= last_presented_due_ || output.due < now - 150000000) {
-                if (output.due <= last_presented_due_) ++reordered_;
-                else ++late_;
-                AMediaCodec_releaseOutputBuffer(codec_, output.index, false);
-            } else {
-                ++presented_;
-                if (last_release_ns_) max_release_gap_ns_ = std::max(max_release_gap_ns_, now - last_release_ns_);
-                last_release_ns_ = now;
-                // Flutter consumes SurfaceTexture images immediately. Keep
-                // ownership until due; AtTime alone only stamps this surface.
-                AMediaCodec_releaseOutputBufferAtTime(codec_, output.index, output.due);
-                last_presented_due_ = output.due;
-                callbacks_.frame(nullptr, visible_width_, visible_height_, output.due, generation_);
-            }
-        }
+        // Collect decode-order output first, then release by presentation time.
+        scheduler_.drain();
+        const auto schedule = scheduler_.diagnostics();
+        if (!schedule.empty() && callbacks_.log) callbacks_.log(schedule.c_str());
         report_stats(false);
     }
 private:
@@ -195,25 +179,18 @@ private:
         const auto now = monotonic_ns();
         if (!stats_started_) { stats_started_ = now; return; }
         const auto elapsed = now - stats_started_;
-        if ((!final && elapsed < 5000000000LL) ||
-            !(submitted_ || presented_ || late_ || reordered_)) return;
-        char message[640];
-        // Presentation counts buffer submissions, not verified on-screen frames.
+        if ((!final && elapsed < 5000000000LL) || !(submitted_ || decoded_)) return;
+        char message[512];
         std::snprintf(message, sizeof(message),
-            "Android video stats: interval_ms=%lld input=%llu presented=%llu late_drop=%llu order_drop=%llu pending=%zu peak_pending=%zu max_late_ms=%.1f decoded=%llu unmatched_output=%llu max_queue_ms=%.1f max_input_wait_ms=%.1f max_decode_observed_ms=%.1f max_release_gap_ms=%.1f size=%dx%d%s",
+            "Android video stats: interval_ms=%lld input=%llu decoded=%llu unmatched_output=%llu max_queue_ms=%.1f max_input_wait_ms=%.1f max_decode_observed_ms=%.1f size=%dx%d%s",
             static_cast<long long>(elapsed / 1000000),
-            static_cast<unsigned long long>(submitted_), static_cast<unsigned long long>(presented_),
-            static_cast<unsigned long long>(late_), static_cast<unsigned long long>(reordered_),
-            pending_.size(), max_pending_, max_late_ns_ / 1000000.0,
-            static_cast<unsigned long long>(decoded_), static_cast<unsigned long long>(unmatched_),
-            max_queue_ns_ / 1000000.0, max_input_wait_ns_ / 1000000.0,
-            max_decode_ns_ / 1000000.0, max_release_gap_ns_ / 1000000.0,
+            static_cast<unsigned long long>(submitted_), static_cast<unsigned long long>(decoded_),
+            static_cast<unsigned long long>(unmatched_), max_queue_ns_ / 1e6,
+            max_input_wait_ns_ / 1e6, max_decode_ns_ / 1e6,
             visible_width_, visible_height_, final ? " final" : "");
         callbacks_.log(message);
-        stats_started_ = now; submitted_ = presented_ = late_ = reordered_ = 0;
-        max_pending_ = pending_.size(); max_late_ns_ = 0;
-        max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = max_release_gap_ns_ = 0;
-        decoded_ = unmatched_ = 0;
+        stats_started_ = now; submitted_ = decoded_ = unmatched_ = 0;
+        max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = 0;
     }
     bool open(const std::string &name) {
         const auto begin = monotonic_ns();
@@ -253,15 +230,12 @@ private:
     struct InputTiming { int64_t pts_us, queued_ns; };
     std::deque<InputTiming> inputs_;
     int64_t max_queue_ns_ = 0, max_input_wait_ns_ = 0, max_decode_ns_ = 0;
-    int64_t last_release_ns_ = 0, max_release_gap_ns_ = 0;
     uint64_t decoded_ = 0, unmatched_ = 0;
-    struct PendingOutput { ssize_t index; int64_t due; };
-    // Bounded by the codec's output buffer pool; reset returns all ownership.
-    std::vector<PendingOutput> pending_;
-    int64_t last_presented_due_ = 0;
-    int64_t stats_started_ = 0, max_late_ns_ = 0;
-    uint64_t submitted_ = 0, presented_ = 0, late_ = 0, reordered_ = 0;
-    size_t max_pending_ = 0;
+    // Decode-order MediaCodec output needs room for reference pictures and
+    // their B-frames. The codec pool provides the tighter resource bound.
+    VideoScheduler scheduler_{0, 16};
+    int64_t stats_started_ = 0;
+    uint64_t submitted_ = 0;
     std::string decoder_, fallback_;
     std::string hevc_decoder_;
     bool hevc_ = false;

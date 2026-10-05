@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "platform.h"
+#include "video_scheduler_test.h"
 #include "audio_decoder.h"
 #include "audio_clock_tests.h"
 #include <cstdio>
@@ -19,6 +20,7 @@ using namespace airplay;
 void check(bool condition, const char *description) { if (!condition) throw std::runtime_error(description); }
 int main() {
     try {
+        airplay_test::video_scheduler_test();
         check_audio_clock();
         check_audio_decoder();
         Timeline timeline;

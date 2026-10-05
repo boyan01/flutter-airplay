@@ -8,6 +8,7 @@ extern "C" {
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -50,15 +51,21 @@ inline void ffmpeg_colors_test() {
     frame->color_range = AVCOL_RANGE_MPEG;
     require(converter.convert(*frame) == 0 && converter.rgba()->data[0][0] < 3,
             "Range changes update conversion instead of retaining full range");
+    auto *held = av_frame_clone(converter.rgba());
+    require(held != nullptr, "Retain queued RGBA buffer");
+    const auto held_frame = std::shared_ptr<AVFrame>(held, [](AVFrame *value) { av_frame_free(&value); });
     std::memset(frame->data[0], 100, size_t(frame->linesize[0]) * frame->height);
     std::memset(frame->data[1], 80, size_t(frame->linesize[1]) * frame->height / 2);
     std::memset(frame->data[2], 200, size_t(frame->linesize[2]) * frame->height / 2);
     require(converter.convert(*frame) == 0, "Convert BT709 color");
+    require(held_frame->data[0][0] < 3 && held_frame->data[0][3] == 255,
+            "Queued RGBA pixels survive subsequent conversion");
     std::array<uint8_t, 3> bt709{}; std::memcpy(bt709.data(), converter.rgba()->data[0], 3);
     frame->colorspace = AVCOL_SPC_SMPTE170M;
     require(converter.convert(*frame) == 0 && std::memcmp(bt709.data(), converter.rgba()->data[0], 3) != 0,
             "Matrix changes update colors without changing dimensions");
     converter.reset();
+    require(held_frame->data[0][0] < 3, "Retained RGBA picture outlives converter reset");
     require(converter.convert(*frame) == 0, "Color conversion recovers after reset");
     std::puts("PASS: FFmpeg YUVJ cache reuse, full/limited range, color matrix and reset");
 }

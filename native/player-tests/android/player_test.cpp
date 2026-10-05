@@ -4,6 +4,7 @@
 #include <oboe/Oboe.h>
 #include "audio_decoder.h"
 #include "audio_clock_tests.h"
+#include "video_scheduler_test.h"
 #include "audio_fixtures.h"
 #include "audio_decoder_tests.h"
 #include "video_fixtures.h"
@@ -74,7 +75,11 @@ extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regre
 extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regression_TestActivity_decode(
         JNIEnv *env, jobject, jobject surface, jstring decoder, jboolean portrait_mode) {
     using namespace airplay;
-    try { check_audio_clock(); check_audio_decoder(); }
+    try {
+        static std::once_flag shared_tests;
+        std::call_once(shared_tests, airplay_test::video_scheduler_test);
+        check_audio_clock(); check_audio_decoder();
+    }
     catch (const std::exception &error) { return env->NewStringUTF(error.what()); }
     auto *window = ANativeWindow_fromSurface(env, surface);
     const char *name = env->GetStringUTFChars(decoder, nullptr);

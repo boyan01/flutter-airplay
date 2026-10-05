@@ -3,6 +3,7 @@
 // remains the shared C receive core, with its original license notices.
 #include "platform.h"
 #include "audio_decoder.h"
+#include "timing_stats.h"
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
@@ -59,6 +60,11 @@ struct AirplayPlayer {
     int64_t video_report_ns = 0, video_arrival_ns = 0, video_gap_ns = 0;
     uint64_t video_received = 0;
     size_t video_peak_queue = 0;
+    struct VideoStats {
+        uint64_t ready = 0, submitted = 0, late_drop = 0, cancelled = 0, nonpositive_pts_step = 0;
+        TimingSamples queue_wait, ready_late, submit_late, submit_gap, pts_gap, host_call;
+    } video_stats;
+    int64_t last_video_submit = 0, last_video_due = 0, video_stats_started = 0;
     std::atomic<uint64_t> audio_packets{0}, audio_bytes{0}, audio_decode_errors{0}, audio_pcm_packets{0}, audio_timestamp_rejects{0}, audio_timestamp_fallbacks{0};
     std::atomic<int64_t> audio_lead_ms{0};
 
@@ -67,15 +73,32 @@ struct AirplayPlayer {
         output = make_audio_output(pcm);
         video = make_video_output(surface, decoder, fallback, {
             [this](void *frame, int w, int h, int64_t due, uint64_t generation) {
-                // macOS decoding is synchronous on worker; keep waits cancellable.
+                // The shared scheduler releases pictures; never block decoding on PTS here.
                 std::unique_lock<std::mutex> guard(lock);
                 if (closing || video_paused || generation != video_generation) return;
-                const auto delay = due - monotonic_ns();
-                if (delay > 0 && frame) wake.wait_for(guard, std::chrono::nanoseconds(delay), [&] {
-                    return closing || video_paused || generation != video_generation;
-                });
-                if (closing || video_paused || generation != video_generation || due < monotonic_ns() - kVideoLateToleranceNs) return;
-                if (frame && callbacks.frame) callbacks.frame(callbacks.context, frame);
+                const auto ready = monotonic_ns();
+                if (frame) { ++video_stats.ready; video_stats.ready_late.add(ready - due); }
+                const auto submitted = monotonic_ns();
+                if (closing || video_paused || generation != video_generation) {
+                    if (frame) ++video_stats.cancelled;
+                    return;
+                }
+                if (due < submitted - kVideoLateToleranceNs) {
+                    if (frame) ++video_stats.late_drop;
+                    return;
+                }
+                if (frame && callbacks.frame) {
+                    ++video_stats.submitted;
+                    video_stats.submit_late.add(submitted - due);
+                    if (last_video_submit) video_stats.submit_gap.add(submitted - last_video_submit);
+                    if (last_video_due) {
+                        if (due <= last_video_due) ++video_stats.nonpositive_pts_step;
+                        else video_stats.pts_gap.add(due - last_video_due);
+                    }
+                    last_video_submit = submitted; last_video_due = due;
+                    callbacks.frame(callbacks.context, frame);
+                    video_stats.host_call.add(monotonic_ns() - submitted);
+                }
                 event("playing", "Decoded video ready", w, h);
             }, [this](const char *text) { log(text); }
         });
@@ -111,6 +134,9 @@ struct AirplayPlayer {
         { std::lock_guard<std::mutex> guard(lock);
           ++video_generation; packets.clear(); queued_bytes = 0; video_reset = true;
           video_paused = false;
+          video_stats = {}; last_video_submit = last_video_due = video_stats_started = 0;
+          video_report_ns = video_arrival_ns = video_gap_ns = 0;
+          video_received = 0; video_peak_queue = 0;
           audio_playing = false; audio_rtp_anchored = false;
           timeline.reset(); audio.flush();
           event("reset", "Waiting for screen mirroring"); }
@@ -135,12 +161,16 @@ struct AirplayPlayer {
             // of a display refresh. Wake for held output instead of adding 0-5 ms
             // of presentation jitter; new packets and shutdown still wake early.
             const auto deadline = video->next_deadline();
+            const bool can_decode = video->can_decode();
             const auto wait_ns = deadline ? std::clamp<int64_t>(deadline - monotonic_ns(), 0, 5000000) : 5000000;
             { std::unique_lock<std::mutex> guard(lock);
-              wake.wait_for(guard, std::chrono::nanoseconds(wait_ns), [&] { return closing || video_reset || !packets.empty(); });
+              wake.wait_for(guard, std::chrono::nanoseconds(wait_ns), [&] { return closing || video_reset || (can_decode && !packets.empty()); });
               if (closing) break;
               reset = video_reset; video_reset = false; generation = video_generation; w = width; h = height;
-              if (!packets.empty()) { packet = std::move(packets.front()); packets.pop_front(); queued_bytes -= packet.bytes.size(); } }
+              if ((reset || can_decode) && !packets.empty()) { packet = std::move(packets.front()); packets.pop_front(); queued_bytes -= packet.bytes.size();
+                  if (!video_stats_started) video_stats_started = monotonic_ns();
+                  if (packet.received_ns) video_stats.queue_wait.add(monotonic_ns() - packet.received_ns);
+              } }
             if (reset) video->reset();
             video->size(w, h);
             if (!packet.bytes.empty() && packet.generation == generation && !video->decode(packet)) {
@@ -148,6 +178,7 @@ struct AirplayPlayer {
             }
             video->drain();
             const auto now = monotonic_ns();
+            report_video(now);
             if (now >= next_audio_report) {
                 next_audio_report = now + 5 * kSecond;
                 if (connections.load() > 0) {
@@ -165,6 +196,27 @@ struct AirplayPlayer {
             }
         }
         video->reset();
+    }
+    void report_video(int64_t now) {
+        std::string message;
+        {
+            std::lock_guard<std::mutex> guard(lock);
+            if (!video_stats_started || now - video_stats_started < 5 * kSecond) return;
+            char counts[320];
+            std::snprintf(counts, sizeof(counts),
+                "Video submit stats: interval_ms=%lld ready=%llu submitted=%llu late_drop=%llu cancelled=%llu nonpositive_pts_step=%llu queued=%zu",
+                static_cast<long long>((now - video_stats_started) / 1000000),
+                static_cast<unsigned long long>(video_stats.ready), static_cast<unsigned long long>(video_stats.submitted),
+                static_cast<unsigned long long>(video_stats.late_drop), static_cast<unsigned long long>(video_stats.cancelled),
+                static_cast<unsigned long long>(video_stats.nonpositive_pts_step), packets.size());
+            if (video_stats.queue_wait.count || video_stats.ready) {
+                message = std::string(counts) + video_stats.queue_wait.text("queue_wait") + video_stats.ready_late.text("ready_late")
+                    + video_stats.submit_late.text("submit_late") + video_stats.submit_gap.text("submit_gap")
+                    + video_stats.pts_gap.text("pts_gap") + video_stats.host_call.text("host_call");
+            }
+            video_stats = {}; video_stats_started = now;
+        }
+        if (!message.empty()) log(message.c_str());
     }
 };
 

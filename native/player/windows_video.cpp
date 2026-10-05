@@ -5,6 +5,7 @@
 #include "windows_video.h"
 #include "windows_gpu.h"
 #include "ffmpeg_video.h"
+#include "video_scheduler.h"
 #include <codecapi.h>
 #include <deque>
 #include <cstdio>
@@ -17,8 +18,12 @@ public:
         if (options) { adapter_ = options->adapter; gpu_requested_ = options->gpu; }
     }
     bool supports_hevc() const override { return hevc_mft_ || ffmpeg_->supports_hevc(); }
+    ~WindowsVideo() override { reset(); }
+    bool can_decode() const override { return using_ffmpeg_ ? ffmpeg_->can_decode() : scheduler_.can_decode(); }
+    int64_t next_deadline() const override { return using_ffmpeg_ ? ffmpeg_->next_deadline() : scheduler_.next_deadline(); }
     void size(int, int) override {} // Decode dimensions and orientation come from the SPS.
     void reset() override {
+        scheduler_.clear();
         if (decoder_) decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
         decoder_.Reset(); pending_.clear(); width_ = height_ = stride_ = 0; gpu_decoder_ = false;
         vps_.clear(); sps_.clear(); pps_.clear();
@@ -32,6 +37,9 @@ public:
                 else reset();
             }
             report();
+            scheduler_.drain();
+            const auto schedule = scheduler_.diagnostics();
+            if (!schedule.empty() && callbacks_.log) callbacks_.log(schedule.c_str());
         }
     }
     bool decode(const VideoPacket &packet) override {
@@ -50,6 +58,7 @@ public:
             using_ffmpeg_ = hevc_ && !hevc_mft_;
         }
         if (using_ffmpeg_) return ffmpeg_->decode(packet);
+        scheduler_.begin(packet.generation);
         bool picture = false, keyframe = false, changed = false;
         for (const auto &nal : split_nals(packet.bytes.data(), packet.bytes.size())) {
             if (nal.empty()) continue;
@@ -63,6 +72,7 @@ public:
             keyframe |= hevc_ ? type >= 16 && type <= 23 : type == 5;
         }
         if (changed && decoder_) {
+            scheduler_.clear(); scheduler_.begin(packet.generation);
             decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
             decoder_.Reset(); pending_.clear();
         }
@@ -230,8 +240,12 @@ private:
                     if (texture) {
                         const auto cost = monotonic_ns() - conversion_start;
                         ++gpu_frames_; gpu_ns_ += cost; gpu_max_ns_ = std::max(gpu_max_ns_, cost);
-                        WindowsVideoFrame frame{nullptr, display_width_, display_height_, 0, texture.Get()};
-                        callbacks_.frame(&frame, int(display_width_), int(display_height_), stamp.deadline, stamp.generation);
+                        const auto w = display_width_, h = display_height_;
+                        scheduler_.enqueue(stamp.deadline, stamp.generation,
+                            [this, texture, w, h, stamp](bool show) {
+                                WindowsVideoFrame frame{nullptr, w, h, 0, texture.Get()};
+                                if (show && callbacks_.frame) callbacks_.frame(&frame, int(w), int(h), stamp.deadline, stamp.generation);
+                            });
                         continue;
                     }
                     // Retire the decoder and renegotiate in CPU mode at the
@@ -257,9 +271,14 @@ private:
             if (!converted) return false;
             const auto cost = monotonic_ns() - conversion_start;
             ++converted_; conversion_ns_ += cost; conversion_max_ns_ = std::max(conversion_max_ns_, cost);
-            WindowsVideoFrame frame{rgba_.data() + (crop_y_ * width_ + crop_x_) * 4,
-                                    display_width_, display_height_, width_ * 4};
-            callbacks_.frame(&frame, static_cast<int>(display_width_), static_cast<int>(display_height_), stamp.deadline, stamp.generation);
+            auto pixels = std::make_shared<std::vector<uint8_t>>(std::move(rgba_));
+            const auto offset = (crop_y_ * width_ + crop_x_) * 4;
+            const auto w = display_width_, h = display_height_, stride = width_ * 4;
+            scheduler_.enqueue(stamp.deadline, stamp.generation,
+                [this, pixels, offset, w, h, stride, stamp](bool show) {
+                    WindowsVideoFrame frame{pixels->data() + offset, w, h, stride};
+                    if (show && callbacks_.frame) callbacks_.frame(&frame, int(w), int(h), stamp.deadline, stamp.generation);
+                });
         }
         return false;
     }
@@ -268,6 +287,7 @@ private:
         callbacks_.log("Windows D3D11 output failed; recovering with CPU decoding at the next keyframe");
     }
     void retire_gpu_decoder() {
+        scheduler_.clear();
         decoder_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
         decoder_.Reset(); pending_.clear(); gpu_decoder_ = false;
     }
@@ -295,6 +315,7 @@ private:
     bool gpu_requested_ = false, gpu_failed_ = false, gpu_decoder_ = false;
     struct Stamp { int64_t deadline; uint64_t generation; };
     VideoCallbacks callbacks_;
+    VideoScheduler scheduler_;
     std::unique_ptr<VideoOutput> ffmpeg_;
     const bool hevc_mft_;
     ComPtr<IMFTransform> decoder_;

@@ -396,6 +396,15 @@ struct ReceiverBridge::Impl {
             else if (image.pixels) host->pixels->receive(image);
             else return;
             host->textures->MarkTextureFrameAvailable(id);
+            if (id == host->gpu_texture_id) {
+                auto report = host->gpu_frames->diagnostics();
+                if (!report.empty()) {
+                    const auto token = callback->generation;
+                    host->enqueue([host, token, report = std::move(report)] {
+                        if (token == host->generation) host->log(report);
+                    });
+                }
+            }
             if (host->submitted_texture_id.exchange(id) == id) return;
             const auto token = callback->generation;
             host->enqueue([host, token, id] {

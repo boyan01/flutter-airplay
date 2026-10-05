@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "platform.h"
 #include "ffmpeg_video.h"
+#include "video_scheduler.h"
 #include "ffmpeg_colors.h"
+#include "timing_stats.h"
 #ifdef _WIN32
 #include "windows_video.h"
 #include "windows_gpu.h"
@@ -42,6 +44,8 @@ constexpr AVRational kNanoseconds{1, 1000000000};
 struct PacketTiming {
     int64_t deadline;
     uint64_t generation;
+    int64_t received_ns;
+    int64_t decode_started_ns;
 };
 struct Nal {
     const uint8_t *data;
@@ -116,6 +120,8 @@ public:
     // The source's SPS owns the dimensions. A screen-size notification is not
     // a crop request and must not discard references during a rotation.
     void size(int, int) override {}
+    bool can_decode() const override { return scheduler_.can_decode(); }
+    int64_t next_deadline() const override { return scheduler_.next_deadline(); }
 
     void reset() override {
         // Recreate rather than flush: flush retains SPS/PPS from the old sender.
@@ -129,6 +135,7 @@ public:
 
     bool decode(const VideoPacket &input) override {
         if (input.hevc != hevc_) { reset(); hevc_ = input.hevc; }
+        scheduler_.begin(input.generation);
         if (failed_) return false;
         try {
             if (input.bytes.empty() || input.bytes.size() > kMaxPacketBytes)
@@ -184,13 +191,20 @@ public:
             if (keyframe) packet->flags |= AV_PKT_FLAG_KEY;
             packet->opaque_ref = av_buffer_alloc(sizeof(PacketTiming));
             if (!packet->opaque_ref) return fail("Cannot allocate video frame timing");
-            const PacketTiming timing{input.deadline, input.generation};
+            const PacketTiming timing{input.deadline, input.generation, input.received_ns, monotonic_ns()};
             std::memcpy(packet->opaque_ref->data, &timing, sizeof(timing));
 
-            status = avcodec_send_packet(codec_, packet.get());
+            if (!stats_started_) stats_started_ = monotonic_ns();
+            auto send = [&] {
+                const auto start = monotonic_ns();
+                const int result = avcodec_send_packet(codec_, packet.get());
+                send_cost_.add(monotonic_ns() - start);
+                return result;
+            };
+            status = send();
             if (status == AVERROR(EAGAIN)) {
                 if (!receive()) return false;
-                status = avcodec_send_packet(codec_, packet.get());
+                status = send();
             }
             if (status < 0) return fail("video packet rejected", status);
             parameters_.clear();
@@ -206,6 +220,10 @@ public:
         // Called continuously by player.cpp, not an end-of-stream operation.
         // Sending a null packet here would finalize every picture's decoder.
         if (codec_ && !failed_) receive();
+        scheduler_.drain();
+        const auto schedule = scheduler_.diagnostics();
+        if (!schedule.empty() && callbacks_.log) callbacks_.log(schedule.c_str());
+        report_decode();
     }
 
 private:
@@ -278,8 +296,16 @@ private:
 
     bool receive() {
         for (;;) {
+            const auto start = monotonic_ns();
             const int status = avcodec_receive_frame(codec_, frame_);
-            if (status == AVERROR(EAGAIN)) return true;
+            const auto cost = monotonic_ns() - start;
+            if (status == AVERROR(EAGAIN)) {
+                // Polls can vastly outnumber pictures; keep them out of the
+                // successful receive average, but retain expensive empty polls.
+                if (cost > kSecond / 60) empty_receive_cost_.add(cost);
+                return true;
+            }
+            receive_cost_.add(cost);
             if (status < 0) return fail("Video frame decoding failed", status);
             const bool good = render();
             av_frame_unref(frame_);
@@ -297,9 +323,17 @@ private:
             return fail("Video frame has no matching packet timing");
         PacketTiming timing{};
         std::memcpy(&timing, frame_->opaque_ref->data, sizeof(timing));
+        if (output_width_ != width || output_height_ != height) {
+            scheduler_.flush();
+            output_width_ = width; output_height_ = height;
+        }
+        ++decoded_frames_; stats_width_ = width; stats_height_ = height;
+        const auto decoded = monotonic_ns();
+        if (timing.decode_started_ns) decode_observed_.add(decoded - timing.decode_started_ns);
+        if (timing.received_ns) arrival_to_decode_.add(decoded - timing.received_ns);
 
 #ifdef _WIN32
-        if (gpu_requested_ && timing.deadline < monotonic_ns() - kVideoLateToleranceNs) return true;
+        if (gpu_requested_ && timing.deadline < monotonic_ns() - kVideoLateToleranceNs) { ++late_before_convert_; return true; }
         if (frame_->format == AV_PIX_FMT_D3D11) {
             const bool supported_color = frame_->colorspace == AVCOL_SPC_BT709 ||
                 frame_->colorspace == AVCOL_SPC_BT470BG || frame_->colorspace == AVCOL_SPC_SMPTE170M ||
@@ -310,19 +344,16 @@ private:
                 UINT(reinterpret_cast<uintptr_t>(frame_->data[1])), 0, 0, UINT(width), UINT(height),
                 bt709, frame_->color_range == AVCOL_RANGE_JPEG) : ComPtr<ID3D11Texture2D>{};
             if (texture) {
-                ++gpu_frames_; gpu_time_ns_ += monotonic_ns() - begin;
+                ++gpu_frames_; gpu_conversion_.add(monotonic_ns() - begin);
                 if (!gpu_reported_ && callbacks_.log) {
                     callbacks_.log("FFmpeg D3D11 HEVC active: hardware decode -> GPU color conversion -> Flutter shared texture");
                     gpu_reported_ = true;
                 }
-                if (monotonic_ns() >= next_gpu_report_ && callbacks_.log) {
-                    char message[192];
-                    std::snprintf(message, sizeof(message), "FFmpeg D3D11 output: frames=%llu conversion_avg_ms=%.3f size=%dx%d",
-                        static_cast<unsigned long long>(gpu_frames_), double(gpu_time_ns_) / gpu_frames_ / 1000000, width, height);
-                    callbacks_.log(message); next_gpu_report_ = monotonic_ns() + 5 * kSecond;
-                }
-                WindowsVideoFrame output{nullptr, size_t(width), size_t(height), 0, texture.Get()};
-                if (callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
+                scheduler_.enqueue(timing.deadline, timing.generation,
+                    [this, texture, width, height, timing](bool show) {
+                        WindowsVideoFrame output{nullptr, size_t(width), size_t(height), 0, texture.Get()};
+                        if (show && callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
+                    });
                 return true;
             }
             // Preserve playback for a color space/video processor the GPU cannot
@@ -341,34 +372,78 @@ private:
         }
 #endif
 
+        const auto conversion_start = monotonic_ns();
         const int status = colors_.convert(*frame_);
+        cpu_conversion_.add(monotonic_ns() - conversion_start);
         if (status < 0) return fail("Cannot convert video to RGBA", status);
-        const auto *rgba = colors_.rgba();
+        auto *retained = av_frame_clone(colors_.rgba());
+        if (!retained) return fail("Cannot retain converted video frame");
+        const auto rgba = std::shared_ptr<AVFrame>(retained, [](AVFrame *value) { av_frame_free(&value); });
+        scheduler_.enqueue(timing.deadline, timing.generation,
+            [this, rgba, width, height, timing](bool show) {
 #ifdef _WIN32
-        WindowsVideoFrame output{rgba->data[0], size_t(width), size_t(height), size_t(rgba->linesize[0])};
+                WindowsVideoFrame output{rgba->data[0], size_t(width), size_t(height), size_t(rgba->linesize[0])};
 #else
-        AirplayLinuxVideoFrame output{rgba->data[0], rgba->linesize[0], width, height};
+                AirplayLinuxVideoFrame output{rgba->data[0], rgba->linesize[0], width, height};
 #endif
-        if (callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
+                if (show && callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
+            });
         return true;
     }
 
     void release() {
+        scheduler_.clear(); output_width_ = output_height_ = 0;
         avcodec_free_context(&codec_);
         av_frame_free(&frame_);
         colors_.reset();
+        stats_started_ = 0; decoded_frames_ = late_before_convert_ = 0;
+        send_cost_ = {}; receive_cost_ = {}; empty_receive_cost_ = {};
+        decode_observed_ = {}; arrival_to_decode_ = {}; cpu_conversion_ = {};
+#ifdef _WIN32
+        gpu_frames_ = 0; gpu_conversion_ = {};
+#endif
+    }
+
+    void report_decode() {
+        const auto now = monotonic_ns();
+        if (!stats_started_ || now - stats_started_ < 5 * kSecond) return;
+        if (callbacks_.log && (decoded_frames_ || send_cost_.count)) {
+            char counts[240];
+            std::snprintf(counts, sizeof(counts),
+                "FFmpeg video stats: interval_ms=%lld decoded=%llu late_before_convert=%llu cpu_converted=%llu size=%dx%d",
+                static_cast<long long>((now - stats_started_) / 1000000), static_cast<unsigned long long>(decoded_frames_),
+                static_cast<unsigned long long>(late_before_convert_), static_cast<unsigned long long>(cpu_conversion_.count),
+                stats_width_, stats_height_);
+            auto message = std::string(counts) + send_cost_.text("send") + receive_cost_.text("receive")
+                + empty_receive_cost_.text("slow_empty_receive") + decode_observed_.text("decode_observed")
+                + arrival_to_decode_.text("arrival_to_decode") + cpu_conversion_.text("cpu_conversion");
+#ifdef _WIN32
+            message += " gpu_converted=" + std::to_string(gpu_frames_) + gpu_conversion_.text("gpu_conversion");
+            gpu_frames_ = 0; gpu_conversion_ = {};
+#endif
+            callbacks_.log(message.c_str());
+        }
+        stats_started_ = now; decoded_frames_ = late_before_convert_ = 0;
+        send_cost_ = {}; receive_cost_ = {}; empty_receive_cost_ = {};
+        decode_observed_ = {}; arrival_to_decode_ = {}; cpu_conversion_ = {};
     }
 
     VideoCallbacks callbacks_;
+    VideoScheduler scheduler_;
+    int output_width_ = 0, output_height_ = 0;
     AVCodecContext *codec_ = nullptr;
     AVFrame *frame_ = nullptr;
     FFmpegColors colors_;
+    TimingSamples send_cost_, receive_cost_, empty_receive_cost_, decode_observed_, arrival_to_decode_, cpu_conversion_;
+    int64_t stats_started_ = 0;
+    uint64_t decoded_frames_ = 0, late_before_convert_ = 0;
+    int stats_width_ = 0, stats_height_ = 0;
 #ifdef _WIN32
     WindowsGpuVideo gpu_;
     ComPtr<IDXGIAdapter> adapter_;
     bool gpu_requested_ = false, gpu_reported_ = false, cpu_reported_ = false;
     uint64_t gpu_frames_ = 0;
-    int64_t gpu_time_ns_ = 0, next_gpu_report_ = 0;
+    TimingSamples gpu_conversion_;
 #endif
     std::vector<std::vector<uint8_t>> parameters_;
     size_t parameter_bytes_ = 0;
