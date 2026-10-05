@@ -99,10 +99,12 @@ void WindowTest() {
     const int width = std::min(int(work.width * .8), int(work.height * .8 * 16 / 9));
     Mode(messenger, 1920, 1080); CheckSize(window, width, int(width * 9.0 / 16));
     Mode(messenger, 1080, 1920);
-    SpinUntil([&] {
-      int w, h; gtk_window_get_size(window, &w, &h);
-      return std::abs(double(w) / h - 9.0 / 16) < .005;
-    });
+    const int portrait_width = std::min(int(work.width * .8), int(work.height * .8 * 9 / 16));
+    CheckSize(window, portrait_width, int(portrait_width * 16.0 / 9));
+    for (int rotation = 0; rotation < 3; ++rotation) {
+      Mode(messenger, 1920, 1080); CheckSize(window, width, int(width * 9.0 / 16));
+      Mode(messenger, 1080, 1920); CheckSize(window, portrait_width, int(portrait_width * 16.0 / 9));
+    }
     Mode(messenger, 0, 0); CheckSize(window, 440, 560);
     GdkEventWindowState state{};
     state.type = GDK_WINDOW_STATE;
@@ -161,7 +163,7 @@ void TrayTest() {
     fl_value_set_string_take(snapshot, "keepInMenuBar", fl_value_new_bool(true));
     channel.UpdateSnapshot(snapshot);
     g_autoptr(FlValue) strings = fl_value_new_map();
-    for (const char* key : {"openApp", "receive", "settings", "logs", "quitApp"})
+    for (const char* key : {"openApp", "receive", "settings", "logs", "quitApp", "actualSize", "fitScreen"})
       fl_value_set_string_take(strings, key, fl_value_new_string(key));
     Command(messenger, "setStrings", strings);
     SpinUntil([&] { return !item_owner.empty() && channel.HideOnClose(); });
@@ -186,6 +188,16 @@ void TrayTest() {
     fl_value_set_string_take(snapshot, "videoHeight", fl_value_new_int(1080));
     channel.UpdateSnapshot(snapshot);
     g_assert_true(gtk_widget_get_visible(GTK_WIDGET(window)));  // showOnConnect defaults on.
+    Mode(messenger, 640, 360);
+    TrayAction(bus, menu.c_str(), "actualSize");
+    const int scale = gtk_widget_get_scale_factor(GTK_WIDGET(window));
+    CheckSize(window, 640 / scale, 360 / scale);
+    TrayAction(bus, menu.c_str(), "fitScreen");
+    auto* monitor = gdk_display_get_monitor_at_window(gtk_widget_get_display(GTK_WIDGET(window)),
+        gtk_widget_get_window(GTK_WIDGET(window)));
+    GdkRectangle work; gdk_monitor_get_workarea(monitor, &work);
+    const int fitted_width = std::min(int(work.width * .8), int(work.height * .8 * 16 / 9));
+    CheckSize(window, fitted_width, int(fitted_width * 9.0 / 16));
     fl_value_set_string_take(snapshot, "videoWidth", fl_value_new_int(0));
     fl_value_set_string_take(snapshot, "videoHeight", fl_value_new_int(0));
     channel.UpdateSnapshot(snapshot);

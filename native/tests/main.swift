@@ -40,6 +40,24 @@ try host.queue.sync {
     let size = host.requestedVideoSize()
     require(size.height == min(2160, max(480, displayMode.pixelHeight)) / 2 * 2,
             "auto quality uses display-mode pixels with a bounded even size")
+    var displays = [CGDirectDisplayID](repeating: 0, count: 16)
+    var displayCount: UInt32 = 0
+    require(CGGetActiveDisplayList(UInt32(displays.count), &displays, &displayCount) == .success,
+            "active displays can be enumerated")
+    for display in displays.prefix(Int(displayCount)) {
+        host.displayID = display
+        let mode = CGDisplayCopyDisplayMode(display)!
+        let snapshot = host.snapshot()
+        require(snapshot["screenWidth"] as? Int == mode.pixelWidth &&
+                snapshot["screenHeight"] as? Int == mode.pixelHeight,
+                "screen size follows the selected playback display")
+        require(host.requestedVideoSize().height == min(2160, max(480, mode.pixelHeight)) / 2 * 2,
+                "auto quality follows the selected playback display")
+    }
+    host.displayID = UInt32.max
+    require(host.snapshot()["screenHeight"] as? Int == displayMode.pixelHeight,
+            "a disconnected playback display falls back to the main display")
+    host.displayID = CGMainDisplayID()
     let capabilities = host.snapshot()["capabilities"] as! [String: Any]
     require(capabilities["supportsExecutablePath"] as? Bool == false, "embedded library does not require executable path")
     require(host.snapshot()["textureId"] as? Int64 == 0, "texture ID zero remains valid")

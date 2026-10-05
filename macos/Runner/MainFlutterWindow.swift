@@ -28,6 +28,7 @@ class MainFlutterWindow: NSWindow {
     center()
     RegisterGeneratedPlugins(registry: controller)
     (NSApp.delegate as? AppDelegate)?.receiver.install(on: controller.engine.binaryMessenger, textures: controller.engine)
+    updateReceiverDisplay()
     presentation = FlutterMethodChannel(name: "tech.soit.flutterairplay/window", binaryMessenger: controller.engine.binaryMessenger)
     presentation?.setMethodCallHandler { [weak self] call, result in
       if call.method == "toggleFullscreen", let self = self {
@@ -47,10 +48,8 @@ class MainFlutterWindow: NSWindow {
          let arguments = call.arguments as? [String: Any] {
         let width = arguments["width"] as? Int ?? 0
         let height = arguments["height"] as? Int ?? 0
-        let wasPlaying = self.playerDimensions != nil
-        self.playerDimensions = arguments["mode"] as? String == "player" && width > 0 && height > 0
-          ? NSSize(width: width, height: height) : nil
-        self.applyMode(preserveArea: wasPlaying)
+        self.setMode(arguments["mode"] as? String == "player" && width > 0 && height > 0
+          ? NSSize(width: width, height: height) : nil)
         result(nil)
         return
       }
@@ -68,6 +67,9 @@ class MainFlutterWindow: NSWindow {
       result(nil)
     }
     let center = NotificationCenter.default
+    presentationObservers.append(center.addObserver(forName: NSWindow.didChangeScreenNotification, object: self, queue: .main) { [weak self] _ in
+      self?.updateReceiverDisplay()
+    })
     for notification in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
       presentationObservers.append(center.addObserver(forName: notification, object: self, queue: .main) { [weak self] _ in
         self?.fullscreenTransition = true
@@ -94,7 +96,17 @@ class MainFlutterWindow: NSWindow {
     }
   }
 
-  private func applyMode(preserveArea: Bool = false) {
+  private func updateReceiverDisplay() {
+    let display = (screen ?? NSScreen.main)?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    (NSApp.delegate as? AppDelegate)?.receiver.setDisplay(display?.uint32Value ?? CGMainDisplayID())
+  }
+
+  private func setMode(_ dimensions: NSSize?) {
+    playerDimensions = dimensions
+    applyMode()
+  }
+
+  private func applyMode() {
     configureContentWindow()
     guard !fullscreenTransition, !styleMask.contains(.fullScreen) else { return }
     let visible = (screen ?? NSScreen.main)?.visibleFrame ?? frame
@@ -104,9 +116,7 @@ class MainFlutterWindow: NSWindow {
       let ratio = dimensions.width / dimensions.height
       let maxWidth = visible.width * 0.8
       let maxHeight = visible.height * 0.8
-      let oldContent = contentRect(forFrameRect: frame).size
-      let targetWidth = preserveArea ? sqrt(oldContent.width * oldContent.height * ratio) : maxWidth
-      let width = min(targetWidth, min(maxWidth, maxHeight * ratio))
+      let width = min(maxWidth, maxHeight * ratio)
       size = NSSize(width: width, height: width / ratio)
       minSize = NSSize(width: 160, height: 160)
       contentAspectRatio = dimensions
@@ -132,9 +142,12 @@ class MainFlutterWindow: NSWindow {
     guard let dimensions = playerDimensions, !styleMask.contains(.fullScreen) else { return }
     if !actualSize { applyMode(); return }
     let visible = (screen ?? NSScreen.main)?.visibleFrame ?? frame
-    let scale = min(1, min(visible.width * 0.8 / dimensions.width, visible.height * 0.8 / dimensions.height))
-    var target = frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: dimensions.width * scale, height: dimensions.height * scale)))
-    target.origin = NSPoint(x: frame.midX - target.width / 2, y: frame.midY - target.height / 2)
+    let points = NSSize(width: dimensions.width / backingScaleFactor, height: dimensions.height / backingScaleFactor)
+    let scale = min(1, min(visible.width * 0.8 / points.width, visible.height * 0.8 / points.height))
+    var target = frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: points.width * scale, height: points.height * scale)))
+    target.origin = NSPoint(
+      x: max(visible.minX, min(frame.midX - target.width / 2, visible.maxX - target.width)),
+      y: max(visible.minY, min(frame.midY - target.height / 2, visible.maxY - target.height)))
     setFrame(target, display: true, animate: true)
   }
 

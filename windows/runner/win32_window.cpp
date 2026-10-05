@@ -183,7 +183,7 @@ void Win32Window::SetFullscreen(bool enabled) {
     SetWindowPlacement(window_handle_, &windowed_placement_);
     SetWindowPos(window_handle_, nullptr, 0, 0, 0, 0,
         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
-    ResizeContent(true);
+    ResizeContent();
   }
 }
 
@@ -193,13 +193,12 @@ void Win32Window::ToggleMaximize() {
 }
 
 void Win32Window::SetMode(int width, int height) {
-  const bool preserve = player_width_ > 0;
   if (player_width_ == width && player_height_ == height) return;
   player_width_ = width; player_height_ = height;
-  ResizeContent(preserve);
+  ResizeContent();
 }
 
-void Win32Window::ResizeContent(bool preserve_area) {
+void Win32Window::ResizeContent() {
   if (fullscreen_ || IsZoomed(window_handle_)) return;
   MONITORINFO monitor{sizeof(MONITORINFO)};
   if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
@@ -211,8 +210,7 @@ void Win32Window::ResizeContent(bool preserve_area) {
     const double ratio = double(player_width_) / player_height_;
     const double max_width = (work.right - work.left) * 0.8;
     const double max_height = (work.bottom - work.top) * 0.8;
-    width = preserve_area ? std::sqrt(double(previous.right - previous.left) * (previous.bottom - previous.top) * ratio) : max_width;
-    width = std::min(width, std::min(max_width, max_height * ratio));
+    width = std::min(max_width, max_height * ratio);
     height = width / ratio;
   }
   const int w = std::min(static_cast<int>(std::round(width)), int(work.right - work.left));
@@ -223,7 +221,7 @@ void Win32Window::ResizeContent(bool preserve_area) {
 }
 
 void Win32Window::ResizePlayer(bool actual_size) {
-  if (!actual_size) { ResizeContent(false); return; }
+  if (!actual_size) { ResizeContent(); return; }
   if (fullscreen_ || player_width_ <= 0 || player_height_ <= 0) return;
   if (IsZoomed(window_handle_)) ShowWindow(window_handle_, SW_RESTORE);
   MONITORINFO monitor{sizeof(MONITORINFO)};

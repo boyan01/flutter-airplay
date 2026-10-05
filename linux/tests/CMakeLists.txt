@@ -59,6 +59,9 @@ if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
     add_test(NAME linux_window_tray_lifecycle COMMAND ${DBUS_RUN_SESSION} --
       ${XVFB_RUN} -a $<TARGET_FILE:linux_window_tests>)
     set_tests_properties(linux_window_tray_lifecycle PROPERTIES TIMEOUT 30)
+    add_test(NAME linux_window_tray_hidpi COMMAND ${DBUS_RUN_SESSION} --
+      ${XVFB_RUN} -a $<TARGET_FILE:linux_window_tests>)
+    set_tests_properties(linux_window_tray_hidpi PROPERTIES TIMEOUT 30 ENVIRONMENT "GDK_SCALE=2")
   else()
     message(STATUS "Window/tray runtime tests need xvfb-run and dbus-run-session")
   endif()

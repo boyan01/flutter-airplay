@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "window_channel.h"
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 
 namespace {
@@ -40,7 +39,7 @@ WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window, bo
         const bool constrained = self->fullscreen_ || self->maximized_;
         self->fullscreen_ = (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) != 0;
         self->maximized_ = (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
-        if (constrained && !self->fullscreen_ && !self->maximized_) self->ApplyMode(true);
+        if (constrained && !self->fullscreen_ && !self->maximized_) self->ApplyMode();
         g_autoptr(FlValue) state = fl_value_new_map();
         fl_value_set_string_take(state, "fullscreen", fl_value_new_bool(self->fullscreen_));
         fl_value_set_string_take(state, "maximized", fl_value_new_bool(self->maximized_));
@@ -127,7 +126,7 @@ bool WindowChannel::HideOnClose() {
 void WindowChannel::SetFullscreen(bool target) {
   if (target) gtk_window_fullscreen(window_); else gtk_window_unfullscreen(window_);
 }
-void WindowChannel::ApplyMode(bool preserve_area, bool actual_size) {
+void WindowChannel::ApplyMode(bool actual_size) {
   if (fullscreen_ || maximized_) return;
   GdkRectangle work{0, 0, 1280, 800};
   auto* surface = gtk_widget_get_window(GTK_WIDGET(window_));
@@ -145,8 +144,7 @@ void WindowChannel::ApplyMode(bool preserve_area, bool actual_size) {
   if (width_ > 0 && height_ > 0) {
     const double ratio = double(width_) / height_;
     const double max_width = work.width * .8, max_height = work.height * .8;
-    const double target = actual_size ? width_ : preserve_area
-        ? std::sqrt(double(old_width) * old_height * ratio) : max_width;
+    const double target = actual_size ? double(width_) / gtk_widget_get_scale_factor(GTK_WIDGET(window_)) : max_width;
     width = std::max(1, int(std::min(target, std::min(max_width, max_height * ratio))));
     height = std::max(1, int(width / ratio));
     geometry.min_width = 160; geometry.min_height = 160;
@@ -202,7 +200,7 @@ void WindowChannel::AddItem(const std::string& label, const char* method, bool e
       if (!std::strcmp(command, "openApp")) self->Show();
       else if (!std::strcmp(command, "quitApp")) { self->quit_requested_ = true; CloseLater(self->window_); }
       else if (!std::strcmp(command, "toggleFullscreen")) self->SetFullscreen(!self->fullscreen_);
-      else if (!std::strcmp(command, "actualSize")) self->ApplyMode(false, true);
+      else if (!std::strcmp(command, "actualSize")) self->ApplyMode(true);
       else if (!std::strcmp(command, "fitScreen")) self->ApplyMode();
       else {
         if (!std::strcmp(command, "openSettings") || !std::strcmp(command, "openLogs")) self->Show();
@@ -258,10 +256,9 @@ void WindowChannel::Handle(FlMethodCall* call) {
   const char* method = fl_method_call_get_name(call);
   auto* args = fl_method_call_get_args(call);
   if (!std::strcmp(method, "setMode")) {
-    const bool was_playing = width_ > 0 && height_ > 0;
     width_ = String(args, "mode") == "player" ? Integer(args, "width") : 0;
     height_ = String(args, "mode") == "player" ? Integer(args, "height") : 0;
-    ApplyMode(was_playing);
+    ApplyMode();
   } else if (!std::strcmp(method, "setStrings")) {
     if (args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
       for (size_t i = 0; i < fl_value_get_length(args); ++i) {

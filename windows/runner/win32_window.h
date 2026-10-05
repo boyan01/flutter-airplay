@@ -99,7 +99,7 @@ class Win32Window {
   static LRESULT CALLBACK ChildProc(HWND window, UINT message, WPARAM wparam,
                                     LPARAM lparam, UINT_PTR id, DWORD_PTR context);
   LRESULT HitTest(LPARAM position) const;
-  void ResizeContent(bool preserve_area);
+  void ResizeContent();
 
   bool fullscreen_ = false;
   int player_width_ = 0, player_height_ = 0;

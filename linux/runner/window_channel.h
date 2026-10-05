@@ -20,7 +20,7 @@ class WindowChannel {
   void Handle(FlMethodCall* call);
   void Invoke(const char* method, FlValue* args = nullptr);
   void SetFullscreen(bool target);
-  void ApplyMode(bool preserve_area = false, bool actual_size = false);
+  void ApplyMode(bool actual_size = false);
   void UpdateTray();
   void CancelAutoHide();
   void AddItem(const std::string& label, const char* method, bool enabled = true,

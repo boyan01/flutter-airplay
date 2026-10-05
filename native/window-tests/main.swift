@@ -7,6 +7,7 @@ import FlutterMacOS
 final class TestReceiver {
   func dispose() {}
   func install(on: FlutterBinaryMessenger, textures: FlutterTextureRegistry) {}
+  func setDisplay(_ display: CGDirectDisplayID) {}
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
   let receiver = TestReceiver()
@@ -18,8 +19,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {}
 
 extension MainFlutterWindow {
   func setTestMode(_ dimensions: NSSize?) {
-    playerDimensions = dimensions
-    applyMode()
+    setMode(dimensions)
   }
   func completeTestTransition() {
     fullscreenTransition = false
@@ -91,6 +91,24 @@ window.setTestMode(cases[0].input)
 window.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+  window.setTestMode(landscape)
+  let initialSize = window.contentRect(forFrameRect: window.frame).size
+  for _ in 0..<3 {
+    window.setTestMode(portrait)
+    window.setTestMode(landscape)
+    let restored = window.contentRect(forFrameRect: window.frame).size
+    require(abs(restored.width - initialSize.width) < 2 && abs(restored.height - initialSize.height) < 2,
+      "rotation round trip must restore the fitted playback size")
+  }
+  print("PASS: repeated rotation restores fitted playback size")
+  window.setTestMode(NSSize(width: 640, height: 360))
+  window.resizePlayer(actualSize: true)
+  RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+  let actualSize = window.contentRect(forFrameRect: window.frame).size
+  require(abs(actualSize.width * window.backingScaleFactor - 640) < 2 &&
+    abs(actualSize.height * window.backingScaleFactor - 360) < 2,
+    "actual size must map one video pixel to one backing pixel")
+  print("PASS: actual size uses backing pixels")
   var longest: UInt64 = 0
   for dimensions in [portrait, landscape] {
     let start = DispatchTime.now().uptimeNanoseconds

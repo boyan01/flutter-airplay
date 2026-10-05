@@ -75,6 +75,17 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler {
         }
     }
 
+    func setDisplay(_ display: CGDirectDisplayID) {
+        host.queue.async {
+            self.host.displayID = display
+            let snapshot = self.host.snapshot()
+            DispatchQueue.main.async {
+                self.eventSink?(["type": "snapshot", "data": snapshot])
+                self.onSnapshot?(snapshot)
+            }
+        }
+    }
+
     func nativeAction(_ action: @escaping (ReceiverHost) throws -> Void) {
         host.queue.async {
             do { try action(self.host) }

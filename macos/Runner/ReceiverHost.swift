@@ -23,6 +23,7 @@ final class ReceiverHost {
     let queue = DispatchQueue(label: "org.airplayreceiver.host")
     var videoOutput: ReceiverVideoOutput?
     var onEvent: (([String: Any]) -> Void)?
+    var displayID = CGMainDisplayID()
     private final class CallbackContext {
         weak var host: ReceiverHost?
         let video: ReceiverVideoOutput
@@ -60,11 +61,11 @@ final class ReceiverHost {
     private let videoQualities = ["auto", "720", "1080", "1440", "2160"]
 
     private func screenSize() -> (width: Int, height: Int) {
-        let display = CGMainDisplayID()
         // CGDisplayPixelsWide/High return logical dimensions in Retina modes.
-        let mode = CGDisplayCopyDisplayMode(display)
-        return (mode?.pixelWidth ?? CGDisplayPixelsWide(display),
-                mode?.pixelHeight ?? CGDisplayPixelsHigh(display))
+        let selectedMode = CGDisplayIsActive(displayID) != 0 ? CGDisplayCopyDisplayMode(displayID) : nil
+        let mode = selectedMode ?? CGDisplayCopyDisplayMode(CGMainDisplayID())
+        return (mode?.pixelWidth ?? CGDisplayPixelsWide(CGMainDisplayID()),
+                mode?.pixelHeight ?? CGDisplayPixelsHigh(CGMainDisplayID()))
     }
 
     func requestedVideoSize() -> (width: Int, height: Int) {
