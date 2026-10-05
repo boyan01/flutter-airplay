@@ -10,12 +10,14 @@ import 'app_logging.dart';
 import 'receiver/receiver_model.dart';
 import 'receiver/receiver_repository.dart';
 import 'ui/receiver_screen.dart';
+import 'ui/system_fonts.dart';
 import 'l10n/generated/app_localizations.dart';
 
 void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     await initializeLogging();
+    final systemFonts = await SystemFonts.initialize();
     LicenseRegistry.addLicense(() async* {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
       for (final path in manifest.listAssets().where(
@@ -25,13 +27,23 @@ void main() {
         yield LicenseEntryWithLineBreaks([path.split('/').last], text);
       }
     });
-    runApp(ReceiverApp(model: ReceiverModel(NativeReceiverRepository())));
+    runApp(
+      ReceiverApp(
+        model: ReceiverModel(NativeReceiverRepository()),
+        systemFonts: systemFonts,
+      ),
+    );
   }, (error, stack) => e('Uncaught application error', error, stack));
 }
 
 class ReceiverApp extends StatelessWidget {
-  const ReceiverApp({super.key, required this.model});
+  const ReceiverApp({
+    super.key,
+    required this.model,
+    this.systemFonts = const SystemFonts(),
+  });
   final ReceiverModel model;
+  final SystemFonts systemFonts;
 
   ThemeData _theme(Brightness brightness) {
     final television = model.isTelevision;
@@ -52,7 +64,8 @@ class ReceiverApp extends StatelessWidget {
         seedColor: const Color(0xff23786e),
         brightness: brightness,
       ),
-      fontFamily: model.platform == 'macos' ? '.AppleSystemUIFont' : null,
+      fontFamily: systemFonts.familyFor(model.platform),
+      fontFamilyFallback: systemFonts.fallbacksFor(model.platform),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: Size(64, television ? 56 : 44),
