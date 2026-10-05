@@ -15,6 +15,12 @@ for name in ('openssl', 'libplist', 'oboe'):
         subprocess.run(['git', 'clone', '--depth', '1', '--branch', entry['tag'], entry['repository'], str(target)], check=True)
     commit = subprocess.check_output(['git', '-C', str(target), 'rev-parse', 'HEAD'], text=True).strip()
     dirty = subprocess.check_output(['git', '-C', str(target), 'status', '--porcelain'], text=True).strip()
-    if commit != entry['commit'] or dirty:
+    if dirty:
         raise SystemExit(f'{name}: unexpected commit or uncommitted changes')
+    if commit != entry['commit']:
+        subprocess.run(['git', '-C', str(target), 'fetch', '--depth', '1', 'origin', entry['commit']], check=True)
+        subprocess.run(['git', '-C', str(target), 'checkout', '--detach', entry['commit']], check=True)
+        commit = subprocess.check_output(['git', '-C', str(target), 'rev-parse', 'HEAD'], text=True).strip()
+        if commit != entry['commit']:
+            raise SystemExit(f'{name}: source differs from dependencies.lock.json')
     print(f'{name}: pinned source ready')

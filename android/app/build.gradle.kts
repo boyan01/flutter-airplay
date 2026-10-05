@@ -60,15 +60,14 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-// A Flutter APK without the separately built JNI library would compile but
-// crash at launch. Fail packaging with the exact recovery command instead.
-tasks.configureEach {
-    if (name in listOf("packageDebug", "packageProfile", "packageRelease")) {
-        doFirst {
-            check(file("src/main/jniLibs/arm64-v8a/libairplay_player.so").isFile) {
-                "Missing Android receiver/player library. From repository root, run " +
-                    "./android/scripts/build_native.sh."
-            }
-        }
-    }
+val prepareNativePlayer by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir.parentFile)
+    environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)
+    commandLine(if (System.getProperty("os.name").startsWith("Windows")) "python" else "python3",
+        "scripts/ensure_native.py", "android")
+}
+
+// Run before JNI merge tasks, including their input snapshots, in every variant.
+tasks.named("preBuild") {
+    dependsOn(prepareNativePlayer)
 }

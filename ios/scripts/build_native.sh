@@ -3,6 +3,7 @@
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 [[ "$(uname -m)" == arm64 ]] || { echo 'The iOS build currently requires an Apple Silicon Mac.' >&2; exit 1; }
+python3 "$repo/scripts/ensure_native.py" ios --prepare-dependencies
 python3 "$repo/android/scripts/fetch_deps.py"
 deps="$repo/android/.cache/deps"
 mkdir -p "$repo/artifacts/ios" "$repo/build/ios-native"

@@ -3,6 +3,7 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$(uname -m)" == arm64 ]] || { echo 'The distributable macOS build currently targets Apple Silicon.' >&2; exit 1; }
 command -v cmake >/dev/null || { echo 'Install CMake before building the native player.' >&2; exit 1; }
+python3 "$project_root/scripts/ensure_native.py" macos --prepare-dependencies
 python3 "$project_root/android/scripts/fetch_deps.py"
 deps="$project_root/android/.cache/deps"
 crypto="$project_root/build/macos-crypto"

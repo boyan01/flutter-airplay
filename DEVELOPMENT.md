@@ -22,7 +22,7 @@ flutter pub get
 flutter devices
 ```
 
-首次运行先完成下节对应平台的原生准备，再启动：
+安装下节对应平台的工具链后，直接运行；Flutter 平台构建会自动准备原生产物：
 
 | 目标 | 日常运行 |
 | --- | --- |
@@ -33,7 +33,10 @@ flutter devices
 | Linux | `flutter run -d linux` |
 
 `<device-id>` 替换为 `flutter devices` 列出的目标。默认使用 Debug，Dart UI 改动优先热重载。
-原生产物的输入没有变化时直接复用；原生源码、依赖或构建配置变化后，重建受影响平台并重启应用。
+原生源码、依赖和构建配置未变且产物完整时直接复用；变化或产物缺失时自动重建。
+原生代码变化后重新执行 `flutter run`；热重载只更新 Dart。首次构建需要联网下载固定依赖。
+macOS / iPad 使用 Xcode scheme 预构建，Android 使用 Gradle `preBuild`，Windows 使用 CMake，
+Linux 继续使用已有 CMake 构建。以下独立脚本保留用于原生调试和构建测试 fixture，无需在日常运行前手动执行。
 当前独立原生构建脚本使用优化配置；这不要求 Flutter 应用也使用 Release。
 
 日常迭代只检查受影响流程或运行针对性测试。不要每次小改都构建所有平台、执行全部回归。
@@ -90,14 +93,16 @@ NDK 版本统一由 `android/gradle.properties` 的 `airplay.ndkVersion` 指定�
 
 ### Windows
 
-在 Windows x64 的 Visual Studio 2022 Native Tools 环境中运行。安装 C++ 桌面开发、
-Windows 10/11 SDK、Visual Studio Clang tools、CMake、Git、Perl，以及 MSYS2 Bash / GNU Make
+Windows x64 构建自动加载 Visual Studio 2022 x64 工具环境。安装 C++ 桌面开发、
+Windows 10/11 SDK、Visual Studio Clang tools、CMake、Git、Python 3.10+、Perl，以及 MSYS2 Bash / GNU Make
 （MSYS2 中使用 `pacman -S make`）。工具必须能从当前终端访问。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build_native.ps1 -Bash C:/msys64/usr/bin/bash.exe -Make C:/msys64/usr/bin/make.exe
 ```
 
+默认检测 `C:/msys64/usr/bin`，也可通过 `AIRPLAY_BASH` / `AIRPLAY_MAKE` 环境变量指定路径，
+供 `flutter run` 自动构建使用；独立脚本仍支持 `-Bash` / `-Make`。Python 必须可通过 `python` 执行。
 路径按本机安装位置调整。FFmpeg 要求支持 POSIX 路径的 MSYS2/Cygwin GNU Make，
 Strawberry Perl 附带的原生 Windows Make 不适用。
 脚本使用 ClangCL、固定版本的 OpenSSL / libplist / FFmpeg 源码和共享接收核心，
@@ -155,6 +160,7 @@ Dart 使用 Flutter 自带命令，无需额外脚本。Native 入口默认运�
 完整宿主、额外 codec、设备、模拟器和 GUI 检查需通过参数显式选择。
 查看全部参数使用 `./scripts/test_native.sh --help`。构建、打包和资源生成属于其他操作，
 使用前文和后文的对应命令。
+原生自动构建入口的缓存、源码/依赖变化、产物缺失与失败恢复检查使用 `./scripts/test_native.sh build`。
 
 ### GitHub Actions
 
@@ -164,7 +170,7 @@ Flutter 版本读取 `.fvmrc`，依赖安装校验 `pubspec.lock`，应用编译
 
 | 任务 | 覆盖 |
 | --- | --- |
-| Format, analyze and Dart tests | workflow 的 actionlint、Dart format 检查、`flutter analyze --fatal-infos`、完整 `flutter test` |
+| Format, analyze and Dart tests | workflow 的 actionlint、原生构建入口回归、Dart format 检查、`flutter analyze --fatal-infos`、完整 `flutter test` |
 | macOS | 原生构建、Debug 应用编译、player/host/texture/RTP 回归 |
 | Linux | Debug 应用编译、完整 native suite、Xvfb 中的 GTK/托盘及真实标题拖动、独立 ALAC decoder |
 | Windows | 原生及 Debug 应用编译、像素、兼容层、HTTP 生命周期、音频恢复、平台及 FFmpeg 视频回归 |
@@ -350,7 +356,7 @@ Android 的 `PacingTest` 另有 `--phase-sweep` 诊断选项，在 decoder 参�
 
 ## 打包与分发
 
-原生代码变化后先构建最新原生产物。依赖、许可与对应源码要求见
+Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应源码要求见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。保留许可证资产和分发包中的运行时依赖。
 
 | 平台 | 命令 | 输出 / 注意事项 |
@@ -382,6 +388,7 @@ swift scripts/generate_icons.swift
 
 | 脚本 | 调用方 / 用途 |
 | --- | --- |
+| `scripts/ensure_native.py` | Gradle / Xcode scheme / Windows CMake；准备原生播放器，校验构建输入与产物并复用缓存，要求 Python 3.9+ |
 | `android/scripts/fetch_deps.py` | macOS、Android、iPad 原生构建；按 lock 文件获取并校验共享依赖 |
 | `windows/scripts/build_ffmpeg.sh` | Windows 原生构建；构建包内 FFmpeg |
 | `scripts/embed_player.sh` | macOS Xcode 构建；嵌入播放器库 |

@@ -17,6 +17,7 @@ ndk="$sdk/ndk/$ndk_version"
 toolchain="$ndk/toolchains/llvm/prebuilt/$ndk_host/bin"
 cmake="$sdk/cmake/3.22.1/bin/cmake"
 [[ -x "$toolchain/clang" && -x "$cmake" ]] || { echo 'Install the project NDK and CMake 3.22.1 with sdkmanager first.' >&2; exit 1; }
+python3 "$repo/scripts/ensure_native.py" android --prepare-dependencies
 python3 "$app/scripts/fetch_deps.py"
 export ANDROID_NDK_ROOT="$ndk"
 export PATH="$toolchain:$PATH"

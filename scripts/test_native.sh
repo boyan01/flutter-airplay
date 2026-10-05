@@ -29,6 +29,8 @@ Without a target, run the current OS's basic native suite.
       Standalone decoder (ALAC_SANITIZE=ON optional).
   ffmpeg
       Shared video adapter (FFMPEG_SANITIZE=ON optional).
+  build
+      Native preparation cache, invalidation and failed-build recovery.
 
 Reuse current native output; see DEVELOPMENT.md for prerequisites.
 HELP
@@ -340,6 +342,13 @@ fi
 
 case "$target" in
     --help|-h) usage ;;
+    build)
+        [[ $# -eq 0 ]] || fail 'build does not accept extra arguments.'
+        case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) python "$project_root/scripts/tests/test_native_preparation.py" ;;
+            *) python3 "$project_root/scripts/tests/test_native_preparation.py" ;;
+        esac
+        ;;
     macos) macos_tests "$@" ;;
     linux)
         if [[ "${1:-}" == window ]]; then

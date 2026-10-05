@@ -1,6 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 get_filename_component(AIRPLAY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(AIRPLAY_WINDOWS_PLAYER_DIR "${AIRPLAY_ROOT}/build/windows-native" CACHE PATH "Prebuilt ClangCL player directory")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(AIRPLAY_WINDOWS_PLAYER_DIR STREQUAL "${AIRPLAY_ROOT}/build/windows-native")
+  # Runtime DLL names must be available while configuring installation rules.
+  execute_process(COMMAND "${Python3_EXECUTABLE}" "${AIRPLAY_ROOT}/scripts/ensure_native.py" windows
+    RESULT_VARIABLE native_result)
+  if(NOT native_result EQUAL 0)
+    message(FATAL_ERROR "Windows native preparation failed; see the build output and DEVELOPMENT.md for toolchain requirements.")
+  endif()
+  # Check again on ordinary builds, when CMake configuration is already current.
+  add_custom_target(prepare_native_player
+    COMMAND "${Python3_EXECUTABLE}" "${AIRPLAY_ROOT}/scripts/ensure_native.py" windows
+    VERBATIM)
+  add_dependencies(${BINARY_NAME} prepare_native_player)
+endif()
 if(NOT EXISTS "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" OR
    NOT EXISTS "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.lib")
   message(FATAL_ERROR "Windows native player is missing. Run powershell -File windows/scripts/build_native.ps1 from the repository root first.")
