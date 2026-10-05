@@ -10,7 +10,7 @@ android {
     buildFeatures { buildConfig = true }
     namespace = "tech.soit.flutterairplay"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = providers.gradleProperty("airplay.ndkVersion").get()
 
     sourceSets.getByName("main").java.srcDir("../../native/player/android")
 

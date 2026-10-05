@@ -56,17 +56,23 @@ AudioConverter、CoreAudio 和 Bonjour。
 
 ### Android 手机与 TV
 
-当前原生脚本运行在 macOS 开发机，要求 Android SDK、NDK `28.2.13676358`、
-SDK CMake `3.22.1`、Python 3 和 Perl。应用最低 API 26，只打包 arm64-v8a；
+原生脚本支持 macOS 和 Linux x86_64，要求 Android SDK、SDK CMake `3.22.1`、
+Python 3、Perl 和 Make。Linux 可用 `sudo apt-get install build-essential cmake ninja-build perl python3 libssl-dev`
+准备构建与 host 测试依赖。应用最低 API 26，只打包 arm64-v8a；
 运行目标应为 arm64 设备。
 
 ```sh
 export ANDROID_HOME="$HOME/Library/Android/sdk"
+# On Linux, use the SDK installation path, typically $HOME/Android/Sdk.
+sdkmanager "ndk;$(sed -n 's/^airplay\.ndkVersion=//p' android/gradle.properties)" 'cmake;3.22.1'
 ./android/scripts/build_native.sh
 ```
 
-SDK 安装在其他位置时修改 `ANDROID_HOME`。依赖缓存位于 `android/.cache/`，
-原生输出位于 `build/android-native-arm64/`，JNI 库复制到
+SDK 安装在其他位置时修改 `ANDROID_HOME`，也兼容已有 `ANDROID_SDK_ROOT` 配置。
+NDK 版本统一由 `android/gradle.properties` 的 `airplay.ndkVersion` 指定，Gradle、原生脚本和 CI
+共用它。当前基线与 Flutter 3.47.2 的默认 NDK 一致；升级 NDK 时修改这一项并验证原生构建与播放。
+原生与 OpenSSL 构建目录按 NDK 版本隔离，避免升级后复用旧工具链产物。
+依赖缓存位于 `android/.cache/`，原生输出位于 `build/android-native-arm64-<ndk-version>/`，JNI 库复制到
 `android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so`。缺失 JNI 库时应用打包会失败。
 
 ### iPad
@@ -130,8 +136,8 @@ sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev \
 
 共享功能完成时检查各平台实现是否同步，在可用目标上验证相关流程。
 通过的检查可复用，后续改动影响其输入、出现失败或仍有风险时再补跑。
-已配置的 CI 可以承担当前提交的编译与自动化回归；按改动路径触发，较广的检查和 sanitizer
-可定期运行。当前仓库没有 CI 工作流，不能把尚未配置的检查算作已交给 CI。
+[GitHub Actions](.github/workflows/ci.yml) 承担提交后的格式、静态检查、Dart 测试及相关平台
+编译与自动化回归。日常开发复用仍有效的本地结果，并查看当前提交的 CI 结果。
 
 报告实际执行的检查、测试输入和剩余缺口。合成媒体、编译成功与接收状态事件不能证明
 真实 iPhone 发现、画面、可听声音或音画同步。相关改动仍需要真实设备验证。
@@ -149,6 +155,34 @@ Dart 使用 Flutter 自带命令，无需额外脚本。Native 入口默认运�
 完整宿主、额外 codec、设备、模拟器和 GUI 检查需通过参数显式选择。
 查看全部参数使用 `./scripts/test_native.sh --help`。构建、打包和资源生成属于其他操作，
 使用前文和后文的对应命令。
+
+### GitHub Actions
+
+`CI` 在 PR 和推送到 `main` 时运行，也可在 Actions 页面手动启动全部平台任务。
+Flutter 版本读取 `.fvmrc`，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
+独立原生脚本仍使用自身的优化配置。
+
+| 任务 | 覆盖 |
+| --- | --- |
+| Format, analyze and Dart tests | workflow 的 actionlint、Dart format 检查、`flutter analyze --fatal-infos`、完整 `flutter test` |
+| macOS | 原生构建、Debug 应用编译、player/host/texture/RTP 回归 |
+| Linux | Debug 应用编译、完整 native suite、Xvfb 中的 GTK/托盘及真实标题拖动、独立 ALAC decoder |
+| Windows | 原生及 Debug 应用编译、像素、兼容层、HTTP 生命周期、音频恢复、平台及 FFmpeg 视频回归 |
+| Android | arm64 JNI 与 Debug APK 编译、host 协议测试、Kotlin 单元测试 |
+| iPad | 设备/模拟器原生归档、模拟器 Debug 应用、iPad 模拟器 XCTest |
+
+轻量检查每次运行。共享代码、依赖、资源或 workflow 变化会触发全部平台；
+平台专用目录变化触发对应平台任务；其他平台也引用的 Android C++ 和依赖配置按共享代码处理。
+纯 Markdown 文档改动只跑轻量检查。
+平台任务在轻量检查通过后开始，同一 PR/分支的新运行会取消旧运行。
+失败时保存已有测试日志或 XCTest 结果，保留 7 天。
+
+macOS 和 iPad 使用 Apple Silicon runner，Android 编译及 host/Kotlin 测试使用 Ubuntu x86_64 runner。
+Linux 的窗口测试在隔离 X11 显示和 session bus 中运行。
+Windows Server runner 会检查并启用 Media Foundation，软件解码使用项目构建的 FFmpeg。
+Android 播放器 fixture 与应用集成测试要求 arm64 设备，目前不在托管 CI 中运行；
+macOS 全屏窗口测试、真实投屏发现、设备音频/视频输出及音画同步仍需目标设备验证。
+CI 的编译与合成媒体结果不能替代这些检查。
 
 ### Dart
 
@@ -175,8 +209,8 @@ Kotlin 状态适配层属于 Android native 检查，使用已配置的 `GRADLE_
 | RTP / 协议边界 | `./scripts/test_native.sh macos rtp` | 已构建 macOS 原生输出；参数解析和畸形输入 |
 | 独立 ALAC decoder | `./scripts/test_native.sh alac` | Clang/Clang++；bit-exact PCM、坏包与恢复；可加 `ALAC_SANITIZE=ON` |
 | FFmpeg 视频适配 | `./scripts/test_native.sh ffmpeg` | FFmpeg 6+ 开发库、pkg-config、ffmpeg/ffprobe、Python 3；H.264/HEVC、重排与恢复；可加 `FFMPEG_SANITIZE=ON` |
-| Android 接收核心 host | `HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" ./scripts/test_native.sh android host` | CMake、原生 OpenSSL；loopback 协议与 DNS/TXT 适配；可加 `HOST_SANITIZE=ON` |
-| RTP 的另一 host 配置 | `HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)" ./scripts/test_native.sh android rtp` | 与 macOS RTP 复用同一测试源；用于对应 host/sanitizer 配置，按需选择 |
+| Android 接收核心 host | `./scripts/test_native.sh android host` | CMake、系统 OpenSSL 开发包；macOS Homebrew 可加 `HOST_CRYPTO_PREFIX="$(brew --prefix openssl@3)"`；loopback 协议与 DNS/TXT 适配；可加 `HOST_SANITIZE=ON` |
+| RTP 的另一 host 配置 | `./scripts/test_native.sh android rtp` | 与 Android host 使用相同环境、与 macOS RTP 复用同一测试源；用于对应 host/sanitizer 配置，按需选择 |
 | Android 播放器 | `./scripts/test_native.sh android player` | 最新 JNI 库、授权 arm64 设备、JDK 17+、SDK build-tools 36.0.0、`android` CLI；默认选定 decoder 回归，`--full` 运行完整矩阵；独立 fixture app 保留接收应用 |
 | iPad 播放器 | `./scripts/test_native.sh ios` | 原生 XCFramework、通过 `flutter run` 准备的模拟器 Debug 产物与已有 iPad 模拟器；结果写入 `artifacts/ios/` |
 | Windows 基础 | `bash scripts/test_native.sh windows` | 已使用 `build_native.ps1 -Tests` 构建 fixture；像素、socket/thread、HTTP 生命周期与音频恢复 |

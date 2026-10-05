@@ -1,0 +1,281 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, analyze and Dart tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      shared: ${{ steps.changes.outputs.shared }}
+      macos: ${{ steps.changes.outputs.macos }}
+      linux: ${{ steps.changes.outputs.linux }}
+      windows: ${{ steps.changes.outputs.windows }}
+      android: ${{ steps.changes.outputs.android }}
+      ios: ${{ steps.changes.outputs.ios }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        id: changes
+        with:
+          base: ${{ github.event.before || github.event.repository.default_branch }}
+          predicate-quantifier: some-with-excludes
+          filters: |
+            shared:
+              - '.github/**'
+              - '.fvmrc'
+              - 'pubspec.*'
+              - 'lib/**'
+              - 'assets/**'
+              - 'native/**'
+              - 'vendor/**'
+              - 'scripts/**'
+              - 'android/dependencies.lock.json'
+              - 'android/scripts/fetch_deps.py'
+              - 'android/app/src/main/cpp/**'
+              - 'android/app/src/main/assets/**'
+              - '!**/*.md'
+            macos:
+              - 'macos/**'
+              - '!**/*.md'
+            linux:
+              - 'linux/**'
+              - '!**/*.md'
+            windows:
+              - 'windows/**'
+              - '!**/*.md'
+            android:
+              - 'android/**'
+              - '!**/*.md'
+            ios:
+              - 'ios/**'
+              - '!**/*.md'
+      - name: Lint GitHub Actions
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Check Dart format
+        run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver
+      - name: Analyze Dart
+        run: flutter analyze --fatal-infos
+      - name: Run Dart tests
+        run: flutter test
+
+  macos:
+    name: macOS native and Debug app
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.macos == 'true'
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build native player
+        run: ./scripts/build_receiver.sh
+      - name: Compile Debug app
+        run: flutter build macos --debug
+      - name: Run player, host, texture and RTP tests
+        run: ./scripts/test_native.sh macos all
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: macos-test-logs
+          path: |
+            artifacts/macos/
+            build/macos-native/Testing/Temporary/
+          retention-days: 7
+
+  linux:
+    name: Linux native, GTK and Debug app
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.linux == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install native and virtual desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+            libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            libpulse-dev libavahi-client-dev libayatana-appindicator3-dev \
+            libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
+            xvfb dbus-x11 openbox xdotool
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Compile Debug app and prepare Flutter engine
+        run: flutter build linux --debug
+      - name: Run player, video, host and GTK tests
+        run: ./scripts/test_native.sh linux all
+      - name: Run caption drag and close test
+        run: ./scripts/test_native.sh linux window
+      - name: Run standalone ALAC decoder tests
+        run: ./scripts/test_native.sh alac
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: linux-test-logs
+          path: build/linux-native/Testing/Temporary/
+          retention-days: 7
+
+  windows:
+    name: Windows native and Debug app
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.windows == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Preserve shell script line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Ensure Media Foundation is available
+        shell: powershell
+        run: |
+          if (-not (Get-WindowsFeature Server-Media-Foundation).Installed) {
+            $result = Install-WindowsFeature Server-Media-Foundation
+            if (-not $result.Success -or $result.RestartNeeded -eq 'Yes') {
+              throw 'Media Foundation could not be enabled without restarting the runner.'
+            }
+          }
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        id: msys2
+        with:
+          msystem: MSYS
+          install: make diffutils
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build native fixtures
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vsInstall = & $vswhere -latest -version '[17.0,18.0)' -products '*' `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsInstall) { throw 'Visual Studio 2022 C++ tools are unavailable.' }
+          & "$vsInstall/Common7/Tools/Launch-VsDevShell.ps1" `
+            -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          ./windows/scripts/build_native.ps1 -Tests `
+            -Bash "$env:MSYS2_ROOT/usr/bin/bash.exe" `
+            -Make "$env:MSYS2_ROOT/usr/bin/make.exe"
+      - name: Run native tests
+        shell: bash
+        run: ./scripts/test_native.sh windows all
+      - name: Compile Debug app
+        run: flutter build windows --debug
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: windows-test-logs
+          path: build/windows-native/Testing/Temporary/
+          retention-days: 7
+
+  android:
+    name: Android JNI, host, Kotlin and Debug app
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.android == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build perl python3 libssl-dev
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Install project Android native toolchain
+        run: |
+          ndk_version=$(sed -n 's/^airplay\.ndkVersion=//p' android/gradle.properties)
+          sdkmanager "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build JNI player
+        run: ./android/scripts/build_native.sh
+      - name: Compile Debug app and prepare Gradle wrapper
+        run: flutter build apk --debug --target-platform android-arm64
+      - name: Run host protocol tests
+        run: ./scripts/test_native.sh android host
+      - name: Run Kotlin unit tests
+        run: GRADLE_BIN="$PWD/android/gradlew" ./scripts/test_native.sh android kotlin
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: android-test-logs
+          path: |
+            artifacts/android/
+            build/app/reports/tests/
+            build/app/test-results/
+          retention-days: 7
+
+  ios:
+    name: iPad simulator XCTest
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.ios == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build device and simulator native archives
+        run: ./ios/scripts/build_native.sh
+      - name: Prepare simulator Debug app
+        run: flutter build ios --simulator --debug --no-codesign
+      - name: Run XCTest on an available iPad simulator
+        run: ./scripts/test_native.sh ios
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: ios-test-results
+          path: artifacts/ios/
+          retention-days: 7

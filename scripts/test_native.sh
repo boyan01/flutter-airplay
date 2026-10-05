@@ -134,13 +134,12 @@ ffmpeg_tests() (
 )
 
 android_host() (
-    : "${HOST_CRYPTO_PREFIX:?Set HOST_CRYPTO_PREFIX to native OpenSSL installation}"
     python3 "$project_root/android/scripts/fetch_deps.py"
     mkdir -p "$project_root/artifacts/android"
     cmake -S "$project_root/android/tests" -B "$project_root/build/android-core-host" -DCMAKE_BUILD_TYPE=Debug \
         -DHOST_SANITIZE="${HOST_SANITIZE:-OFF}" \
         -DUXPLAY_SOURCE="$project_root/vendor/UxPlay" \
-        -DPLIST_SOURCE="$project_root/android/.cache/deps/libplist" -DCRYPTO_PREFIX="$HOST_CRYPTO_PREFIX"
+        -DPLIST_SOURCE="$project_root/android/.cache/deps/libplist" -DCRYPTO_PREFIX="${HOST_CRYPTO_PREFIX:-}"
     if [[ "${1:-host}" == rtp ]]; then
         cmake --build "$project_root/build/android-core-host" --target rtp_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1
         "$project_root/build/android-core-host/rtp_test" | tee "$project_root/artifacts/android/rtp-test.log"
@@ -151,12 +150,23 @@ android_host() (
 )
 
 android_player() (
-    sdk=${ANDROID_HOME:-$HOME/Library/Android/sdk}
-    ndk="$sdk/ndk/28.2.13676358"
+    case "$(uname -s)" in
+        Darwin) ndk_host=darwin-x86_64; default_sdk="$HOME/Library/Android/sdk" ;;
+        Linux)
+            [[ "$(uname -m)" == x86_64 ]] || fail 'The Linux NDK host tools require x86_64.'
+            ndk_host=linux-x86_64; default_sdk="$HOME/Android/Sdk"
+            ;;
+        *) fail 'Build Android fixtures on macOS or Linux x86_64.' ;;
+    esac
+    sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$default_sdk}}
+    ndk_version=$(sed -n 's/^airplay\.ndkVersion=//p' "$project_root/android/gradle.properties")
+    [[ "$ndk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'Set airplay.ndkVersion in android/gradle.properties.'
+    ndk="$sdk/ndk/$ndk_version"
+    toolchain="$ndk/toolchains/llvm/prebuilt/$ndk_host/bin"
     tools="$sdk/build-tools/36.0.0"
     output="$project_root/build/android-player-tests"
     mkdir -p "$output/classes" "$output/lib/arm64-v8a" "$project_root/artifacts/android"
-    "$ndk/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang++" \
+    "$toolchain/clang++" --target=aarch64-linux-android26 \
         -std=c++17 -shared -fPIC -static-libstdc++ -Wl,-z,max-page-size=16384 \
         -I "$project_root/native/player" -I "$project_root/native/player-tests" \
         -I "$project_root/vendor/UxPlay/lib" \
