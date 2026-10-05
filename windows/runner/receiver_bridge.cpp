@@ -19,6 +19,7 @@
 #include <fstream>
 #include <functional>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -183,6 +184,8 @@ struct ReceiverBridge::Impl {
         return Map{{Value("status"), Value(status)}, {Value("message"), Value(message)}, {Value("name"), Value(name)},
             {Value("buildTime"), Value(AIRPLAY_BUILD_TIME)},
             {Value("receivingName"), Value(receiving_name)},
+            {Value("defaultName"), Value(default_name())},
+            {Value("activeSettings"), Value(Map{{Value("name"), Value(receiving_name)}, {Value("path"), Value("")}})},
             {Value("path"), Value("")}, {Value("autoStart"), Value(auto_start)},
             {Value("keepInMenuBar"), Value(keep_in_tray)}, {Value("showOnConnect"), Value(show_on_connect)},
             {Value("fullscreenOnConnect"), Value(fullscreen_on_connect)}, {Value("alwaysOnTop"), Value(always_on_top)},
@@ -193,13 +196,24 @@ struct ReceiverBridge::Impl {
             {Value("capabilities"), Value(Map{{Value("platform"), Value("windows")}, {Value("supportsExecutablePath"), Value(false)},
                 {Value("supportsLaunchAtLogin"), Value(true)}, {Value("supportsAacEld"), Value(true)}})}};
     }
-    void load() {
+    static std::string default_name() {
         wchar_t computer[MAX_COMPUTERNAME_LENGTH + 1]{};
         DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
         if (GetComputerNameW(computer, &size)) {
             const auto device_name = utf8(std::wstring(computer, size));
-            if (valid_name(device_name)) name = device_name;
+            if (valid_name(device_name)) return device_name;
         }
+        return "Flutter AirPlay";
+    }
+    bool apply_settings() {
+        if (status != "waiting" || !player || !airplay_player_prepare_restart(player)) return false;
+        stop();
+        const auto error = start();
+        if (!error.empty()) { state("error", error); throw std::runtime_error(error); }
+        return true;
+    }
+    void load() {
+        name = default_name();
         PWSTR support = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &support))) {
             directory = std::filesystem::path(support) / L"FlutterAirPlay"; CoTaskMemFree(support);
@@ -356,6 +370,16 @@ struct ReceiverBridge::Impl {
     void command(const std::string &method, const Map &args, const std::shared_ptr<Result> &reply) {
         std::string error;
         if (method == "snapshot") { auto value = snapshot(); post([reply, value] { reply->Success(Value(value)); }); return; }
+        if (method == "applySettings") {
+            try {
+                const bool applied = apply_settings();
+                post([reply, applied] { reply->Success(Value(applied)); });
+            } catch (const std::exception &failure) {
+                const std::string detail = failure.what();
+                post([reply, detail] { reply->Error("receiver_error", detail); });
+            }
+            return;
+        }
         if (method == "save" || method == "start") {
             error = save(args);
             if (error.empty() && method == "start") error = start();

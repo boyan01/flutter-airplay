@@ -119,7 +119,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get name => 'Device name';
 
   @override
-  String get randomName => 'Generate a random name';
+  String get randomName => 'Random name';
+
+  @override
+  String get reset => 'Reset';
+
+  @override
+  String get settingsApplyHelp =>
+      'Applies automatically while waiting, or after the current connection ends.';
 
   @override
   String get nameHelp => 'Shown in iPhone Screen Mirroring';
@@ -129,10 +136,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get autoStart => 'Receive automatically on launch';
-
-  @override
-  String get restartHelp =>
-      'Changing the name restarts the receiver and ends the current session.';
 
   @override
   String get advanced => 'Advanced';
@@ -396,10 +399,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get saveRestart => 'Save and restart';
 
   @override
-  String get qualityRestartHelp =>
-      'Changing the name or quality restarts the receiver and ends the current session.';
-
-  @override
   String get shareLogs => 'Share log file';
 
   @override
@@ -437,20 +436,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get audioOutputTrack => 'Compatible';
 
   @override
-  String get audioOutputRestartHelp =>
-      'Stop and restart the receiver to apply changes.';
-
-  @override
   String get buildVersion => 'Version';
 
   @override
   String get buildTime => 'Built at';
-
-  @override
-  String get settingsNextStart =>
-      'Device name, quality and audio output changes apply the next time the receiver starts.';
-
-  @override
-  String get nextStartHelp =>
-      'Changes apply the next time the receiver starts.';
 }

@@ -24,6 +24,9 @@ try host.queue.sync {
     require(host.snapshot()["screenWidth"] as? Int == displayMode.pixelWidth &&
             host.snapshot()["screenHeight"] as? Int == displayMode.pixelHeight,
             "screen size uses display-mode pixels on Retina")
+    let defaultName = host.snapshot()["defaultName"] as? String
+    require(defaultName == host.snapshot()["name"] as? String, "default name matches initial system name")
+    require(try !host.applySettings(), "applying settings does not start a stopped receiver")
     require(host.snapshot()["autoStart"] as? Bool == true, "auto receive defaults on")
     try host.save(name: "Synthetic Receiver", path: "", autoStart: false)
     require(host.snapshot()["autoStart"] as? Bool == false, "auto receive preference persists")
@@ -64,6 +67,13 @@ try host.queue.sync {
     }
     do { try host.save(name: "Synthetic Receiver", path: "/external/receiver"); require(false, "external executable accepted") } catch {}
     try host.check(path: "")
+    require(host.snapshot()["defaultName"] as? String == defaultName, "saving a custom name preserves the reset target")
+    try host.start(name: "Synthetic Receiver", path: "")
+    try host.save(name: "Renamed Receiver", path: "", videoQuality: "720")
+    require(host.snapshot()["receivingName"] as? String == "Synthetic Receiver", "saved settings do not pretend to be advertised")
+    require(try host.applySettings(), "idle receiver applies saved settings")
+    require(host.snapshot()["receivingName"] as? String == "Renamed Receiver", "idle restart updates advertised name")
+    require((host.snapshot()["activeSettings"] as? [String: String])?["videoQuality"] == "720", "idle restart applies quality with the name")
     host.stop(); host.stop()
     require(host.snapshot()["status"] as? String == "stopped", "stopping an idle host is idempotent")
 }

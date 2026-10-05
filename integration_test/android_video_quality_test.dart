@@ -19,7 +19,10 @@ void main() {
 
     Future<void> waitFor(String status) async {
       final deadline = DateTime.now().add(const Duration(seconds: 15));
-      while ((!model.loaded || model.busy || model.status != status) &&
+      while ((!model.loaded ||
+              model.busy ||
+              model.settingsPending ||
+              model.status != status) &&
           DateTime.now().isBefore(deadline)) {
         await tester.pump(const Duration(milliseconds: 100));
       }
@@ -44,6 +47,7 @@ void main() {
         await waitFor('waiting');
         var saved = await repository.snapshot();
         expect(saved['videoQuality'], quality);
+        expect((saved['activeSettings'] as Map)['videoQuality'], quality);
         expect(
           saved['videoWidth'],
           0,
@@ -56,7 +60,12 @@ void main() {
         await waitFor('waiting');
         saved = await repository.snapshot();
         expect(saved['videoQuality'], quality);
-        expect(saved['textureId'], greaterThanOrEqualTo(0));
+        expect((saved['activeSettings'] as Map)['videoQuality'], quality);
+        expect(
+          saved['textureId'],
+          -1,
+          reason: 'Android uses a native SurfaceView',
+        );
       }
     } finally {
       await repository.stop();

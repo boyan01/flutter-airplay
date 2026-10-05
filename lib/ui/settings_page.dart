@@ -208,6 +208,7 @@ class _SettingsPageState extends State<SettingsPage> {
         else
           ReceiverNameField(
             controller: _name,
+            defaultName: model.defaultName,
             autofocus: widget.editName,
             enabled: model.loaded,
             error: _error,
@@ -431,7 +432,7 @@ class _SettingsPageState extends State<SettingsPage> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Text(
-              l10n(context).settingsNextStart,
+              l10n(context).settingsApplyHelp,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -574,13 +575,14 @@ class _TvNamePageState extends State<_TvNamePage> {
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: Text(l10n(context).name)),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(48),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ReceiverNameField(
                 controller: _name,
+                defaultName: widget.model.defaultName,
                 television: true,
                 enabled: widget.model.loaded,
                 error: _error,
@@ -588,7 +590,7 @@ class _TvNamePageState extends State<_TvNamePage> {
                 onSubmitted: _save,
               ),
               const SizedBox(height: 24),
-              Text(l10n(context).nextStartHelp),
+              Text(l10n(context).settingsApplyHelp),
             ],
           ),
         ),
@@ -710,7 +712,7 @@ class _VideoQualityPageState extends State<_VideoQualityPage> {
                           const SizedBox(height: 16),
                           Text(l10n(context).qualityHelp),
                           const SizedBox(height: 8),
-                          Text(l10n(context).nextStartHelp),
+                          Text(l10n(context).settingsApplyHelp),
                           if (model.commandError != null)
                             Text(
                               localizedMessage(context, model.commandError!),
@@ -833,7 +835,7 @@ class _AudioOutputPageState extends State<_AudioOutputPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        Text(l10n(context).audioOutputRestartHelp),
+                        Text(l10n(context).settingsApplyHelp),
                         if (model.commandError != null)
                           Text(
                             localizedMessage(context, model.commandError!),

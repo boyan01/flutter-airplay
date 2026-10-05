@@ -36,11 +36,12 @@
   "fullscreen": "Toggle fullscreen (⌃⌘F)",
   "videoLabel": "iPhone mirror display",
   "name": "Device name",
-  "randomName": "Generate a random name",
+  "randomName": "Random name",
+  "reset": "Reset",
+  "settingsApplyHelp": "Applies automatically while waiting, or after the current connection ends.",
   "nameHelp": "Shown in iPhone Screen Mirroring",
   "confirm": "Confirm",
   "autoStart": "Receive automatically on launch",
-  "restartHelp": "Changing the name restarts the receiver and ends the current session.",
   "advanced": "Advanced",
   "path": "UxPlay path",
   "pathHelp": "Leave empty to use the bundled receiver",
@@ -151,7 +152,6 @@
   "receivedSize": "Received video",
   "noReceivedVideo": "Waiting for video",
   "saveRestart": "Save and restart",
-  "qualityRestartHelp": "Changing the name or quality restarts the receiver and ends the current session.",
   "shareLogs": "Share log file",
   "exportingLogs": "Preparing logs…",
   "shareLogsFailed": "Could not export or share logs. Please try again.",
@@ -163,9 +163,6 @@
   "audioOutputAutoHelp": "Prefer low latency; switch to compatible output on failure",
   "audioOutputAAudio": "Low latency",
   "audioOutputTrack": "Compatible",
-  "audioOutputRestartHelp": "Stop and restart the receiver to apply changes.",
   "buildVersion": "Version",
-  "buildTime": "Built at",
-  "settingsNextStart": "Device name, quality and audio output changes apply the next time the receiver starts.",
-  "nextStartHelp": "Changes apply the next time the receiver starts."
+  "buildTime": "Built at"
 }

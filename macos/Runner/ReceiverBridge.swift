@@ -41,6 +41,7 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler {
                     var value: Any?
                     switch call.method {
                     case "snapshot": value = self.host.snapshot()
+                    case "applySettings": value = try self.host.applySettings()
                     case "save":
                         if let requested = args["launchAtLogin"] as? Bool {
                             if #available(macOS 13.0, *) {

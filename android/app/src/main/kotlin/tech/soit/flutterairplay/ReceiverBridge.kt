@@ -78,6 +78,8 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         return state.snapshot(name(), if (isActive) Process.myPid() else 0, television) +
             mapOf("autoStart" to preferences.getBoolean("autoStart", true),
+                "defaultName" to defaultName(),
+                "activeSettings" to host.activeSettings,
                 "receivingName" to (host.receivingName ?: pendingStart?.first ?: name())) + host.videoSettings()
     }
 
@@ -226,6 +228,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         try {
             when (call.method) {
                 "snapshot" -> result.success(snapshot())
+                "applySettings" -> applySettings(result)
                 "save" -> {
                     requireEmbeddedPath(call)
                     val nextName = requestedName(call)
@@ -238,7 +241,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                         "Invalid audio output selection"
                     }
                     if (audioOutput != null) preferences.edit().putString("audioOutput", audioOutput).apply()
-                    // Persist the next run without changing the active receiver.
+                    // Shared ReceiverModel applies saved receiver settings when idle.
                     saveName(nextName)
                     if (quality != null) preferences.edit().putString("videoQuality", quality).apply()
                     call.argument<Boolean>("autoStart")?.let {
@@ -273,6 +276,39 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         } catch (error: Exception) {
             result.error("receiver_error", error.message ?: "原生接收器操作失败", null)
         }
+    }
+
+    private fun applySettings(result: MethodChannel.Result) {
+        if (state.status != "waiting" || !host.isActive || pendingStart != null || !host.prepareRestart()) {
+            result.success(false)
+            return
+        }
+        // Retain the foreground Service across an idle restart, including when
+        // the Activity is in the background. A user stop cancels this request.
+        val restart = object : MethodChannel.Result {
+            override fun success(value: Any?) { result.success(true) }
+            override fun error(code: String, message: String?, details: Any?) {
+                result.error(code, message, details)
+            }
+            override fun notImplemented() { result.notImplemented() }
+        }
+        pendingStart = name() to restart
+        state.stopRequested()
+        host.stop(object : MethodChannel.Result {
+            override fun success(value: Any?) {
+                if (closed || pendingStart == null) return
+                state.startRequested()
+                startPending()
+            }
+            override fun error(code: String, message: String?, details: Any?) {
+                pendingStart = null
+                state.error(message ?: "原生接收器操作失败")
+                publish()
+                result.error(code, message, details)
+            }
+            override fun notImplemented() { pendingStart = null; result.notImplemented() }
+        })
+        publish()
     }
 
     private fun completion(result: MethodChannel.Result, starting: Boolean) = object : MethodChannel.Result {

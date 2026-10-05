@@ -36,11 +36,12 @@
   "fullscreen": "切换全屏（⌃⌘F）",
   "videoLabel": "iPhone 投屏画面",
   "name": "设备名",
-  "randomName": "生成随机名称",
+  "randomName": "随机名称",
+  "reset": "重置",
+  "settingsApplyHelp": "等待连接时自动生效；已有连接时，结束后自动生效。",
   "nameHelp": "显示在 iPhone「屏幕镜像」列表中",
   "confirm": "确认",
   "autoStart": "打开应用时自动接收",
-  "restartHelp": "修改设备名后会重新启动接收，当前投屏将结束。",
   "advanced": "高级",
   "path": "UxPlay 路径",
   "pathHelp": "留空使用应用内置接收器",
@@ -144,7 +145,6 @@
   "receivedSize": "实际接收",
   "noReceivedVideo": "等待画面",
   "saveRestart": "保存并重启",
-  "qualityRestartHelp": "修改设备名或清晰度后会重新启动接收，当前投屏将结束。",
   "shareLogs": "分享日志文件",
   "exportingLogs": "正在打包日志…",
   "shareLogsFailed": "日志导出或分享失败，请重试。",
@@ -156,9 +156,6 @@
   "audioOutputAutoHelp": "优先低延迟，失败时切换兼容输出",
   "audioOutputAAudio": "低延迟",
   "audioOutputTrack": "兼容",
-  "audioOutputRestartHelp": "停止并重新打开接收后生效。",
   "buildVersion": "版本",
-  "buildTime": "构建时间",
-  "settingsNextStart": "设备名、清晰度和音频输出在下次开启接收时生效。",
-  "nextStartHelp": "下次开启接收时生效。"
+  "buildTime": "构建时间"
 }

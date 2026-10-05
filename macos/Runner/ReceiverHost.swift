@@ -40,6 +40,7 @@ final class ReceiverHost {
     private var callbackContext: CallbackContext?
     private var player: OpaquePointer?
     private var receivingName = ""
+    private var activeSettings = [String: String]()
     private var clientName = ""
     private var videoWidth = 0, videoHeight = 0
     private var audioPlaying = false, videoPaused = false
@@ -52,15 +53,33 @@ final class ReceiverHost {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if defaults.string(forKey: "receiverName") == nil {
-            let deviceName = (Host.current().localizedName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            var clean = ""
-            for scalar in deviceName.unicodeScalars where !CharacterSet.controlCharacters.contains(scalar) {
-                let character = String(scalar)
-                if clean.utf8.count + character.utf8.count > 50 { break }
-                clean += character
-            }
-            clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
-            defaults.set(clean.isEmpty ? "Flutter AirPlay" : clean, forKey: "receiverName")
+            defaults.set(defaultName(), forKey: "receiverName")
+        }
+    }
+
+    private func defaultName() -> String {
+        let deviceName = (Host.current().localizedName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var clean = ""
+        for scalar in deviceName.unicodeScalars where !CharacterSet.controlCharacters.contains(scalar) {
+            let character = String(scalar)
+            if clean.utf8.count + character.utf8.count > 50 { break }
+            clean += character
+        }
+        clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "Flutter AirPlay" : clean
+    }
+
+    func applySettings() throws -> Bool {
+        guard status == "waiting", let native = player,
+              airplay_player_prepare_restart(native) else { return false }
+        let name = defaults.string(forKey: "receiverName") ?? defaultName()
+        stop()
+        do {
+            try start(name: name, path: "")
+            return true
+        } catch {
+            state("error", error.localizedDescription)
+            throw error
         }
     }
 
@@ -94,6 +113,8 @@ final class ReceiverHost {
             data[key] = defaults.object(forKey: key) as? Bool ?? fallback
         }
         data["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
+        data["defaultName"] = defaultName()
+        data["activeSettings"] = activeSettings
         data["receivingName"] = receivingName
         data["buildTime"] = Self.buildTime
         data["videoQualities"] = videoQualities
@@ -183,6 +204,8 @@ final class ReceiverHost {
             throw ReceiverFailure(message: message)
         }
         receivingName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeSettings = ["name": receivingName, "path": ""]
+        activeSettings["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
         player = native
         let size = requestedVideoSize()
         let screen = screenSize()

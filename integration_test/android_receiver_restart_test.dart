@@ -18,7 +18,10 @@ void main() {
 
     Future<void> waitFor(String status) async {
       final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while ((!model.loaded || model.busy || model.status != status) &&
+      while ((!model.loaded ||
+              model.busy ||
+              model.settingsPending ||
+              model.status != status) &&
           DateTime.now().isBefore(deadline)) {
         await tester.pump(const Duration(milliseconds: 100));
       }
@@ -29,7 +32,11 @@ void main() {
       expect(snapshot['status'], status);
       if (status == 'waiting') {
         expect(snapshot['pid'], greaterThan(0));
-        expect(snapshot['textureId'], greaterThanOrEqualTo(0));
+        expect(
+          snapshot['textureId'],
+          -1,
+          reason: 'Android uses a native SurfaceView',
+        );
       }
     }
 
@@ -41,6 +48,9 @@ void main() {
         await model.save('Rename Regression $cycle', '');
         await waitFor('waiting');
         expect(model.name, 'Rename Regression $cycle');
+        final applied = await repository.snapshot();
+        expect((applied['activeSettings'] as Map)['name'], model.name);
+        expect(applied['receivingName'], contains(model.name));
 
         await model.stop();
         await waitFor('stopped');

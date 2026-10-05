@@ -181,6 +181,32 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
         0600, &error)) throw Failure("Cannot save receiver settings: ", error);
   }
 
+  static std::string DefaultName() {
+    const auto hostname = SafeText(g_get_host_name());
+    std::string clean;
+    for (const char* p = hostname.c_str(); *p; p = g_utf8_next_char(p)) {
+      if (g_unichar_iscntrl(g_utf8_get_char(p))) continue;
+      const size_t bytes = g_utf8_next_char(p) - p;
+      if (clean.size() + bytes > 50) break;
+      clean.append(p, bytes);
+    }
+    clean = Trim(clean);
+    return ValidName(clean) ? clean : "Flutter AirPlay";
+  }
+
+  bool ApplySettings() {
+    if (status != "waiting" || !player || !airplay_player_prepare_restart(player)) return false;
+    auto args = Own(fl_value_new_map());
+    String(args.get(), "name", name);
+    Stop();
+    try { Start(args.get()); }
+    catch (const std::exception& error) {
+      if (status != "error") Fail(error.what());
+      throw;
+    }
+    return true;
+  }
+
   void Load() {
     const char* base = g_get_user_config_dir();
     if (!base || !g_path_is_absolute(base))
@@ -201,16 +227,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       if (!ValidName(saved_name)) throw std::runtime_error("The saved receiver name is invalid.");
       name = saved_name;
     } else {
-      const auto hostname = SafeText(g_get_host_name());
-      std::string clean;
-      for (const char* p = hostname.c_str(); *p; p = g_utf8_next_char(p)) {
-        if (g_unichar_iscntrl(g_utf8_get_char(p))) continue;
-        const size_t bytes = g_utf8_next_char(p) - p;
-        if (clean.size() + bytes > 50) break;
-        clean.append(p, bytes);
-      }
-      clean = Trim(clean);
-      if (ValidName(clean)) name = clean;
+      name = DefaultName();
     }
     if (g_key_file_has_key(preferences, "Receiver", "autoStart", nullptr))
       auto_start = g_key_file_get_boolean(preferences, "Receiver", "autoStart", nullptr);
@@ -263,6 +280,11 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     String(data.get(), "message", message);
     String(data.get(), "name", name);
     String(data.get(), "receivingName", receiving_name);
+    String(data.get(), "defaultName", DefaultName());
+    auto active_settings = Own(fl_value_new_map());
+    String(active_settings.get(), "name", receiving_name);
+    String(active_settings.get(), "path", "");
+    fl_value_set_string(data.get(), "activeSettings", active_settings.get());
     String(data.get(), "path", "");
     String(data.get(), "clientName", client_name);
     Integer(data.get(), "pid", player ? getpid() : 0);
@@ -555,7 +577,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   void Handle(FlMethodCall* call) {
     const std::string method = fl_method_call_get_name(call);
     if (method != "snapshot" && method != "save" && method != "start" &&
-        method != "stop" && method != "check") {
+        method != "stop" && method != "check" && method != "applySettings") {
       fl_method_call_respond_not_implemented(call, nullptr);
       return;
     }
@@ -575,6 +597,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       std::string error;
       try {
         if (method == "snapshot") result = Snapshot();
+        else if (method == "applySettings") result = Own(fl_value_new_bool(ApplySettings()));
         else if (method == "save") { Save(args.get()); EmitSnapshot(); }
         else if (method == "start") Start(args.get());
         else if (method == "stop") Stop();

@@ -30,6 +30,21 @@ class ReceiverModel extends ChangeNotifier {
   String status = 'stopped';
   String message = 'off';
   String name = 'Flutter AirPlay';
+  String defaultName = 'Flutter AirPlay';
+  Map<String, dynamic> _activeSettings = {};
+  bool _applyQueued = false;
+  // Add future receiver-run settings here. Immediate application/window
+  // preferences do not require a receiver restart.
+  Map<String, dynamic> get _receiverSettings => {
+    'name': name,
+    'path': path,
+    if (supportsVideoQuality) 'videoQuality': videoQuality,
+    if (platform == 'android') 'audioOutput': audioOutput,
+  };
+  bool get settingsPending =>
+      active &&
+      _activeSettings.isNotEmpty &&
+      !mapEquals(_activeSettings, _receiverSettings);
   String? _receivingName;
   String get receivingName => active ? _receivingName ?? name : name;
   String path = '';
@@ -122,6 +137,7 @@ class ReceiverModel extends ChangeNotifier {
     message = data['message'] as String;
     pid = data['pid'] as int? ?? 0;
     name = data['name'] as String;
+    defaultName = data['defaultName'] as String? ?? defaultName;
     final receivingName = (data['receivingName'] as String?)?.trim();
     if (receivingName?.isNotEmpty ?? false) _receivingName = receivingName;
     path = data['path'] as String? ?? '';
@@ -134,6 +150,10 @@ class ReceiverModel extends ChangeNotifier {
         (data['videoQualities'] as List?)?.cast<String>() ?? videoQualities;
     screenWidth = data['screenWidth'] as int? ?? screenWidth;
     screenHeight = data['screenHeight'] as int? ?? screenHeight;
+    final activeSettings = data['activeSettings'];
+    if (activeSettings is Map) {
+      _activeSettings = Map<String, dynamic>.from(activeSettings);
+    }
     clientName = (data['clientName'] as String?)?.trim();
     if (clientName?.isEmpty ?? false) clientName = null;
     for (final key in desktopOptions.keys.toList()) {
@@ -163,6 +183,7 @@ class ReceiverModel extends ChangeNotifier {
     loaded = true;
     _trim();
     _notify();
+    _scheduleSettingsApply();
   }
 
   void _event(Map<String, dynamic> event) {
@@ -182,6 +203,7 @@ class ReceiverModel extends ChangeNotifier {
           videoPaused = false;
         }
         _notify();
+        _scheduleSettingsApply();
       case 'client':
         clientName = (event['name'] as String?)?.trim();
         if (clientName?.isEmpty ?? false) clientName = null;
@@ -248,6 +270,7 @@ class ReceiverModel extends ChangeNotifier {
     } finally {
       busy = false;
       _notify();
+      _scheduleSettingsApply();
     }
   }
 
@@ -273,6 +296,24 @@ class ReceiverModel extends ChangeNotifier {
       await repository.stop();
       changed();
       await stopped.future.timeout(const Duration(seconds: 8));
+    } finally {
+      removeListener(changed);
+    }
+  }
+
+  Future<void> _waitUntilReady() async {
+    final ready = Completer<void>();
+    void changed() {
+      if (status != 'starting' && !ready.isCompleted) ready.complete();
+    }
+
+    addListener(changed);
+    try {
+      changed();
+      await ready.future.timeout(const Duration(seconds: 8));
+      if (status != 'waiting' && status != 'streaming') {
+        throw PlatformException(code: 'receiver_error', message: message);
+      }
     } finally {
       removeListener(changed);
     }
@@ -327,6 +368,7 @@ class ReceiverModel extends ChangeNotifier {
     await _command(() async {
       await _stopAndWait();
       _receivingName = name;
+      _activeSettings = _receiverSettings;
       await repository.start(name, path);
     });
   }
@@ -341,6 +383,11 @@ class ReceiverModel extends ChangeNotifier {
     }
     await _command(() async {
       _receivingName = nextName.trim();
+      _activeSettings = {
+        ..._receiverSettings,
+        'name': nextName.trim(),
+        'path': nextPath.trim(),
+      };
       await repository.start(nextName.trim(), nextPath.trim());
       name = nextName.trim();
       _receivingName = name;
@@ -368,7 +415,36 @@ class ReceiverModel extends ChangeNotifier {
 
   String get logText => _logs.map((entry) => entry.display).join('\n');
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  void _scheduleSettingsApply() {
+    if (_disposed ||
+        !settingsPending ||
+        status != 'waiting' ||
+        busy ||
+        _applyQueued) {
+      return;
+    }
+    _applyQueued = true;
+    _pendingSave = _pendingSave.then((_) async {
+      try {
+        if (_disposed || status != 'waiting' || !settingsPending) return;
+        await _command(() async {
+          final applied = await repository.applySettings();
+          // Read the host's actual runtime settings, including deferred updates
+          // and discovery name changes, rather than assuming the restart won.
+          _snapshot(await repository.snapshot());
+          if (applied && status == 'starting') {
+            await _waitUntilReady();
+            _snapshot(await repository.snapshot());
+          }
+        });
+      } finally {
+        _applyQueued = false;
+      }
+    });
   }
 
   @override

@@ -39,6 +39,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
         let name = snapshot["name"] as? String
         XCTAssertEqual(name, defaults.string(forKey: "receiverName"))
+        XCTAssertEqual(name, snapshot["defaultName"] as? String)
         XCTAssertFalse(name?.isEmpty ?? true)
         XCTAssertLessThanOrEqual(name?.utf8.count ?? 0, 50)
         XCTAssertEqual(snapshot["path"] as? String, "")
@@ -55,11 +56,14 @@ final class RunnerTests: XCTestCase {
     }
 
     func testSaveTrimsNameAndPersistsPreferencesWithoutStarting() throws {
+        let defaultName = host.queue.sync { host.snapshot()["defaultName"] as? String }
+        XCTAssertFalse(try host.queue.sync { try host.applySettings() })
         try host.queue.sync {
             try host.save(name: "  Test iPad \n", path: " \n", autoStart: false)
         }
         let snapshot = host.queue.sync { host.snapshot() }
         XCTAssertEqual(snapshot["name"] as? String, "Test iPad")
+        XCTAssertEqual(snapshot["defaultName"] as? String, defaultName)
         XCTAssertEqual(snapshot["autoStart"] as? Bool, false)
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)

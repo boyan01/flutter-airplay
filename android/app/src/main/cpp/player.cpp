@@ -131,6 +131,11 @@ extern "C" JNIEXPORT void JNICALL Java_tech_soit_flutterairplay_PlaybackHost_sto
     std::lock_guard<std::mutex> guard(lifecycle); active.reset();
 }
 
+extern "C" JNIEXPORT jboolean JNICALL Java_tech_soit_flutterairplay_PlaybackHost_prepareRestartNative(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> guard(lifecycle);
+    return active && airplay_player_prepare_restart(active->player) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL Java_tech_soit_flutterairplay_PlaybackHost_setSurfaceNative(
         JNIEnv *env, jobject, jobject surface) {
     std::lock_guard<std::mutex> guard(lifecycle);

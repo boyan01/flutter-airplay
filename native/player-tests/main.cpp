@@ -153,6 +153,7 @@ int main() {
                 body_length = std::stoul(response.substr(length + strlen("Content-Length: ")));
                 if (response.size() >= header_end + 4 + body_length) break;
             }
+            check(!airplay_player_prepare_restart(player), "idle update preserves a connected sender before any frames");
             close(client);
             check(response.find("200 OK") < header_end, "receive real RTSP response");
             const auto data = CFDataCreate(nullptr, reinterpret_cast<const UInt8 *>(response.data() + header_end + 4), body_length);
@@ -177,6 +178,12 @@ int main() {
                   "receiver advertises selected quality, including unchanged default");
             check(number(CFSTR("maxFPS")) == 60, "quality retains 60 FPS capability");
             CFRelease(info);
+            bool reserved = false;
+            for (int attempt = 0; attempt < 100 && !reserved; ++attempt) {
+                reserved = airplay_player_prepare_restart(player);
+                if (!reserved) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            check(reserved, "idle update becomes available after the sender disconnects");
             airplay_player_destroy(player);
         }
         std::filesystem::remove_all(directory);

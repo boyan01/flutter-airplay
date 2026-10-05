@@ -31,6 +31,19 @@ class FakeReceiver implements ReceiverRepository {
     sync: true,
   );
   int starts = 0, stops = 0;
+  String currentStatus = 'stopped';
+  Map<String, dynamic> activeSettings = {};
+  bool connectBeforeApply = false;
+  bool completesBeforeReady = false;
+  @override
+  Future<bool> applySettings() async {
+    if (connectBeforeApply) state('streaming');
+    if (currentStatus != 'waiting') return false;
+    await stop();
+    await start(savedName ?? startedName!, '');
+    return true;
+  }
+
   String? startedName, savedName, failure;
   String? savedVideoQuality, savedAudioOutput;
   Map<String, bool> savedOptions = {};
@@ -44,7 +57,10 @@ class FakeReceiver implements ReceiverRepository {
   @override
   Future<Map<String, dynamic>> snapshot() async => {
     'autoStart': autoStart,
-    'status': 'stopped',
+    'status': currentStatus,
+    'defaultName': 'System Device',
+    'activeSettings': activeSettings,
+    'receivingName': startedName ?? '',
     'message': '接收器未启动',
     'pid': 0,
     'name': savedName ?? 'Flutter AirPlay',
@@ -63,21 +79,40 @@ class FakeReceiver implements ReceiverRepository {
     if (buildVersion != null) 'buildVersion': buildVersion,
     if (capabilities != null) 'capabilities': capabilities,
   };
-  void state(String status, [int pid = 42]) => controller.add({
-    'type': 'state',
-    'status': status,
-    'message': status,
-    'pid': pid,
-  });
+  void state(String status, [int pid = 42]) {
+    currentStatus = status;
+    controller.add({
+      'type': 'state',
+      'status': status,
+      'message': status,
+      'pid': pid,
+    });
+  }
+
   @override
   Future<void> start(String name, String path) async {
     starts++;
     startedName = name;
+    activeSettings = {
+      'name': name,
+      'path': path,
+      if (capabilities?['platform'] == 'android' || macVideoQuality)
+        'videoQuality': savedVideoQuality ?? 'auto',
+      if (capabilities?['platform'] == 'android')
+        'audioOutput': savedAudioOutput ?? 'auto',
+    };
     if (failure != null) {
+      state('error');
       throw PlatformException(code: 'receiver_error', message: failure);
     }
     state('starting');
-    if (startup != null) await startup!.future;
+    if (startup != null) {
+      if (completesBeforeReady) {
+        unawaited(startup!.future.then((_) => state('waiting')));
+        return;
+      }
+      await startup!.future;
+    }
     state('waiting');
   }
 
@@ -607,9 +642,7 @@ void main() {
     expect(find.text('查看日志'), findsOneWidget);
   });
 
-  testWidgets('Rename saves during reception without restarting it', (
-    tester,
-  ) async {
+  testWidgets('Rename applies automatically while waiting', (tester) async {
     final backend = await launch(tester);
     await tester.tap(find.byKey(const Key('openSettings')));
     await tester.pumpAndSettle();
@@ -620,9 +653,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(backend.savedName, 'Living Room');
-    expect(backend.startedName, 'Flutter AirPlay');
-    expect(backend.starts, 1);
-    expect(backend.stops, 0);
+    expect(backend.startedName, 'Living Room');
+    expect(backend.starts, 2);
+    expect(backend.stops, 1);
   });
 
   for (final locale in ['en', 'zh']) {
@@ -639,7 +672,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
       expect(backend.savedName, name);
-      expect(backend.stops, 0);
+      expect(backend.stops, 1);
     });
   }
 
@@ -662,7 +695,7 @@ void main() {
         .controller!
         .text;
     expect(backend.savedName, name);
-    expect(backend.stops, 0);
+    expect(backend.stops, 1);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('tvName')), findsOneWidget);
@@ -877,8 +910,8 @@ void main() {
       await tester.tap(find.byKey(const Key('quality2160')));
       await tester.pumpAndSettle();
       expect(backend.savedVideoQuality, '2160');
-      expect(backend.stops, 0);
-      expect(backend.starts, 1);
+      expect(backend.stops, 1);
+      expect(backend.starts, 2);
       expect(find.text('完成'), findsNothing);
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
@@ -924,7 +957,7 @@ void main() {
       await tester.tap(find.byKey(const Key('audioOutputaudiotrack')));
       await tester.pumpAndSettle();
       expect(backend.savedAudioOutput, 'audiotrack');
-      expect(backend.stops, 0);
+      expect(backend.stops, 1);
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       expect(find.text('兼容'), findsOneWidget);
@@ -932,34 +965,174 @@ void main() {
     });
   }
 
-  testWidgets(
-    'Saved name does not replace the advertised name until reception restarts',
-    (tester) async {
-      final backend = await launch(tester, platform: 'android');
-      await tester.tap(find.byKey(const Key('openSettings')));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('receiverName')), 'Office');
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(BackButton));
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<Text>(find.byKey(const Key('homeDeviceName'))).data,
-        'Flutter AirPlay',
-      );
-      expect(find.text('选择「Flutter AirPlay」'), findsOneWidget);
-      expect(backend.savedName, 'Office');
-      await tester.tap(find.byKey(const Key('receiveSwitch')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('receiveSwitch')));
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<Text>(find.byKey(const Key('homeDeviceName'))).data,
-        'Office',
-      );
-      expect(find.text('选择「Office」'), findsOneWidget);
+  testWidgets('Home shows the new advertised name after an idle update', (
+    tester,
+  ) async {
+    final backend = await launch(tester, platform: 'android');
+    await tester.tap(find.byKey(const Key('openSettings')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('receiverName')), 'Office');
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('homeDeviceName'))).data,
+      'Office',
+    );
+    expect(find.text('选择「Office」'), findsOneWidget);
+    expect(backend.savedName, 'Office');
+    expect(backend.stops, 1);
+  });
+
+  test('Receiver settings apply together after the connection ends', () async {
+    final backend = FakeReceiver(capabilities: {'platform': 'android'});
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    backend.state('streaming');
+    await model.save('Office', '', videoQuality: '720');
+    await model.save('Office', '', audioOutput: 'audiotrack');
+    expect(backend.stops, 0);
+    expect(model.receivingName, 'Flutter AirPlay');
+    backend.state('waiting');
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.stops, 1);
+    expect(backend.startedName, 'Office');
+    expect(backend.activeSettings['videoQuality'], '720');
+    expect(backend.activeSettings['audioOutput'], 'audiotrack');
+    model.dispose();
+    await backend.controller.close();
+  });
+
+  for (final platform in ['macos', 'ios', 'android', 'windows', 'linux']) {
+    test('$platform saved receiver settings update only while idle', () async {
+      final backend = FakeReceiver(capabilities: {'platform': platform});
+      final model = ReceiverModel(backend);
+      await model.initialize();
+      backend.connectBeforeApply = true;
+      await model.save('Office', '');
+      await Future<void>.delayed(Duration.zero);
+      expect(backend.stops, 0);
+      expect(model.settingsPending, isTrue);
+      expect(model.receivingName, 'Flutter AirPlay');
+      backend.connectBeforeApply = false;
+      backend.state('waiting');
+      await Future<void>.delayed(Duration.zero);
+      expect(backend.stops, 1);
+      expect(model.settingsPending, isFalse);
+      expect(model.receivingName, 'Office');
+      await model.stop();
+      await model.save('Bedroom', '');
+      await Future<void>.delayed(Duration.zero);
+      expect(backend.starts, 2);
+      expect(model.status, 'stopped');
+      model.dispose();
+      await backend.controller.close();
+    });
+  }
+
+  test(
+    'Queued edits survive asynchronous discovery during an idle update',
+    () async {
+      final backend = FakeReceiver();
+      final model = ReceiverModel(backend);
+      await model.initialize();
+      backend.completesBeforeReady = true;
+      backend.startup = Completer<void>();
+      await model.save('First', '');
+      await Future<void>.delayed(Duration.zero);
+      expect(model.status, 'starting');
+      expect(model.busy, isTrue);
+      final second = model.save('Second', '');
+      backend.startup!.complete();
+      await second;
+      await Future<void>.delayed(Duration.zero);
+      expect(backend.savedName, 'Second');
+      expect(model.receivingName, 'Second');
+      expect(model.settingsPending, isFalse);
+      model.dispose();
+      await backend.controller.close();
     },
   );
+
+  test('Reverting session edits cancels the pending receiver update', () async {
+    final backend = FakeReceiver(capabilities: {'platform': 'android'});
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    backend.state('streaming');
+    await model.save('Office', '', videoQuality: '720');
+    expect(model.settingsPending, isTrue);
+    await model.save('Flutter AirPlay', '', videoQuality: 'auto');
+    expect(model.settingsPending, isFalse);
+    backend.state('waiting');
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.stops, 0);
+    model.dispose();
+    await backend.controller.close();
+  });
+
+  test('An apply failure preserves saved settings for recovery', () async {
+    final backend = FakeReceiver();
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    backend.failure = 'Port is unavailable';
+    await model.save('Office', '');
+    await Future<void>.delayed(Duration.zero);
+    expect(model.commandError, 'Port is unavailable');
+    expect(model.name, 'Office');
+    expect(backend.savedName, 'Office');
+    expect(model.status, 'error');
+    backend.failure = null;
+    await model.start(model.name, model.path);
+    expect(model.receivingName, 'Office');
+    expect(model.commandError, isNull);
+    model.dispose();
+    await backend.controller.close();
+  });
+
+  for (final tv in [false, true]) {
+    testWidgets('Name actions are below the field and reset saves (TV=$tv)', (
+      tester,
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: 'android',
+        tv: tv,
+        size: tv ? const Size(960, 540) : const Size(390, 700),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      if (tv) {
+        await tester.tap(find.byKey(const Key('tvName')));
+        await tester.pumpAndSettle();
+      }
+      final field = find.byKey(const Key('receiverName'));
+      final random = find.byKey(const Key('randomReceiverName'));
+      final reset = find.byKey(const Key('resetReceiverName'));
+      expect(
+        tester.getTopLeft(random).dy,
+        greaterThan(tester.getBottomLeft(field).dy),
+      );
+      expect(
+        tester.getTopLeft(reset).dy,
+        greaterThan(tester.getBottomLeft(field).dy),
+      );
+      expect(find.text('System Device'), findsNothing);
+      if (tv) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      } else {
+        await tester.tap(reset);
+      }
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpAndSettle();
+      expect(backend.savedName, 'System Device');
+      expect(backend.startedName, 'System Device');
+      expect(backend.stops, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   test('Rapid saves are serialized and keep the last edit', () async {
     final backend = FakeReceiver()..saving = Completer<void>();
@@ -974,7 +1147,8 @@ void main() {
     expect(backend.saves, 2);
     expect(backend.savedName, 'Second');
     expect(model.name, 'Second');
-    expect(backend.stops, 0);
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.stops, 1);
     model.dispose();
     await backend.controller.close();
   });
@@ -997,7 +1171,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.savedVideoQuality, '720');
       expect(find.text('Could not save settings'), findsNothing);
-      expect(backend.stops, 0);
+      expect(backend.stops, 1);
     },
   );
 
@@ -1006,6 +1180,7 @@ void main() {
     final model = ReceiverModel(backend);
     await model.initialize();
     expect(model.active, isTrue);
+    backend.state('streaming');
     final starts = backend.starts;
     await model.save(model.name, model.path, audioOutput: 'audiotrack');
     expect(backend.savedAudioOutput, 'audiotrack');
@@ -1026,6 +1201,7 @@ void main() {
       final backend = FakeReceiver(capabilities: {'platform': 'android'});
       final model = ReceiverModel(backend);
       await model.initialize();
+      backend.state('streaming');
       await model.save(model.name, model.path, videoQuality: 'auto');
       expect(backend.stops, 0);
       await model.save(model.name, model.path, videoQuality: '720');
@@ -1060,7 +1236,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pumpAndSettle();
       expect(backend.savedVideoQuality, '720');
-      expect(backend.stops, 0);
+      expect(backend.stops, 1);
       expect(find.text('完成'), findsNothing);
       tester.platformDispatcher.textScaleFactorTestValue = 1.5;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -1201,6 +1377,7 @@ void main() {
       expect(backend.starts, 1);
       backend.startup!.complete();
       await first;
+      backend.state('streaming');
       await model.save('Room', '');
       expect(backend.stops, 0);
       expect(backend.savedName, 'Room');
@@ -1322,7 +1499,7 @@ void main() {
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(backend.savedName, 'Living Room');
-    expect(backend.stops, 0);
+    expect(backend.stops, 1);
     expect(find.byKey(const Key('tvName')), findsOneWidget);
   });
 

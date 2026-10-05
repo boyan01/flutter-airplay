@@ -11,6 +11,7 @@ class ReceiverNameField extends StatelessWidget {
     super.key,
     required this.controller,
     required this.enabled,
+    required this.defaultName,
     required this.onGenerated,
     required this.onSubmitted,
     this.autofocus = false,
@@ -19,6 +20,7 @@ class ReceiverNameField extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final String defaultName;
   final bool enabled, autofocus, television;
   final String? error;
   final VoidCallback onGenerated, onSubmitted;
@@ -66,28 +68,57 @@ class ReceiverNameField extends StatelessWidget {
     onGenerated();
   }
 
+  void _reset() {
+    controller.value = TextEditingValue(
+      text: defaultName,
+      selection: TextSelection.collapsed(offset: defaultName.length),
+    );
+    onGenerated();
+  }
+
   @override
-  Widget build(BuildContext context) => TextField(
-    key: const Key('receiverName'),
-    controller: controller,
-    autofocus: autofocus,
-    enabled: enabled,
-    onSubmitted: (_) => onSubmitted(),
-    decoration: InputDecoration(
-      labelText: l10n(context).name,
-      helperText: l10n(context).nameHelp,
-      helperMaxLines: 2,
-      errorText: error == null ? null : localizedMessage(context, error!),
-      suffixIcon: TvFocus(
-        outline: television,
-        child: IconButton(
-          key: const Key('randomReceiverName'),
-          autofocus: television,
-          tooltip: l10n(context).randomName,
-          onPressed: enabled ? () => _generate(context) : null,
-          icon: const Icon(Icons.casino_outlined),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      TextField(
+        key: const Key('receiverName'),
+        controller: controller,
+        autofocus: autofocus,
+        enabled: enabled,
+        onSubmitted: (_) => onSubmitted(),
+        decoration: InputDecoration(
+          labelText: l10n(context).name,
+          helperText: l10n(context).nameHelp,
+          helperMaxLines: 2,
+          errorText: error == null ? null : localizedMessage(context, error!),
         ),
       ),
-    ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          TvFocus(
+            outline: television,
+            child: TextButton.icon(
+              key: const Key('randomReceiverName'),
+              autofocus: television,
+              onPressed: enabled ? () => _generate(context) : null,
+              icon: const Icon(Icons.casino_outlined),
+              label: Text(l10n(context).randomName),
+            ),
+          ),
+          TvFocus(
+            outline: television,
+            child: TextButton.icon(
+              key: const Key('resetReceiverName'),
+              onPressed: enabled ? _reset : null,
+              icon: const Icon(Icons.restart_alt),
+              label: Text(l10n(context).reset),
+            ),
+          ),
+        ],
+      ),
+    ],
   );
 }

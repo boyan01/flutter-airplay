@@ -317,8 +317,20 @@ abstract class AppLocalizations {
   /// No description provided for @randomName.
   ///
   /// In en, this message translates to:
-  /// **'Generate a random name'**
+  /// **'Random name'**
   String get randomName;
+
+  /// No description provided for @reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get reset;
+
+  /// No description provided for @settingsApplyHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies automatically while waiting, or after the current connection ends.'**
+  String get settingsApplyHelp;
 
   /// No description provided for @nameHelp.
   ///
@@ -337,12 +349,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Receive automatically on launch'**
   String get autoStart;
-
-  /// No description provided for @restartHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Changing the name restarts the receiver and ends the current session.'**
-  String get restartHelp;
 
   /// No description provided for @advanced.
   ///
@@ -836,12 +842,6 @@ abstract class AppLocalizations {
   /// **'Save and restart'**
   String get saveRestart;
 
-  /// No description provided for @qualityRestartHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Changing the name or quality restarts the receiver and ends the current session.'**
-  String get qualityRestartHelp;
-
   /// No description provided for @shareLogs.
   ///
   /// In en, this message translates to:
@@ -908,12 +908,6 @@ abstract class AppLocalizations {
   /// **'Compatible'**
   String get audioOutputTrack;
 
-  /// No description provided for @audioOutputRestartHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Stop and restart the receiver to apply changes.'**
-  String get audioOutputRestartHelp;
-
   /// No description provided for @buildVersion.
   ///
   /// In en, this message translates to:
@@ -925,18 +919,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Built at'**
   String get buildTime;
-
-  /// No description provided for @settingsNextStart.
-  ///
-  /// In en, this message translates to:
-  /// **'Device name, quality and audio output changes apply the next time the receiver starts.'**
-  String get settingsNextStart;
-
-  /// No description provided for @nextStartHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Changes apply the next time the receiver starts.'**
-  String get nextStartHelp;
 }
 
 class _AppLocalizationsDelegate

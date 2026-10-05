@@ -4,6 +4,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 abstract class ReceiverRepository {
   Stream<Map<String, dynamic>> get events;
+  // defaultName is the platform reset target. activeSettings contains the
+  // settings captured at receiver startup, using the same keys as save. Future
+  // receiver-run options must join this map and ReceiverModel._receiverSettings.
   Future<Map<String, dynamic>> snapshot();
   Future<void> save(
     String name,
@@ -14,6 +17,9 @@ abstract class ReceiverRepository {
     Map<String, bool> desktopOptions = const {},
   });
   Future<void> start(String name, String path);
+  // Hosts recheck session state before restarting. False means a connection or
+  // lifecycle transition prevented the update; retry on the next idle event.
+  Future<bool> applySettings();
   Future<void> stop();
   Future<void> check(String path);
 }
@@ -62,6 +68,9 @@ class NativeReceiverRepository implements ReceiverRepository {
       _control.invokeMethod('start', _settings(name, path));
   @override
   Future<void> stop() => _control.invokeMethod('stop');
+  @override
+  Future<bool> applySettings() async =>
+      await _control.invokeMethod<bool>('applySettings') ?? false;
   @override
   Future<void> check(String path) =>
       _control.invokeMethod('check', {'path': path});

@@ -34,6 +34,8 @@ class PlaybackHost(private val context: Context,
     private var pendingStart: MethodChannel.Result? = null
     private var busy = false
     private var running = false
+    var activeSettings: Map<String, Any> = emptyMap()
+        private set
     val receivingName: String? get() = registrations.firstOrNull()?.info?.serviceName
     private var generation = 0
     private var frames = 0L
@@ -121,6 +123,9 @@ class PlaybackHost(private val context: Context,
             result.error("video_quality", error.message, null); return
         }
         val requestWidth = VideoQuality.width(requestHeight)
+        activeSettings = mapOf("name" to name, "path" to "",
+            "videoQuality" to settings["videoQuality"]!!,
+            "audioOutput" to settings["audioOutput"]!!)
         pendingStart = result
         busy = true
         val epoch = ++generation
@@ -220,6 +225,9 @@ class PlaybackHost(private val context: Context,
             diagnostic("设备发现注销失败 ($code)")
         } }
     }
+    fun prepareRestart(): Boolean = worker.submit<Boolean> { prepareRestartNative() }.get()
+    private external fun prepareRestartNative(): Boolean
+
     fun stop(result:MethodChannel.Result) {
         stopInternal(result)
     }

@@ -26,6 +26,7 @@ struct AirplayPlayer {
     AirplayCallbacks callbacks;
     std::atomic<bool> closing{false};
     std::atomic<int> connections{0};
+    std::mutex session_lock;
     raop_t *receiver = nullptr;
     dnssd_t *dns = nullptr;
     uint16_t port = 0;
@@ -254,10 +255,19 @@ void audio_flush(void *cls) {
 void video_pause(void *cls) { player(cls)->pause_video(true); }
 void video_resume(void *cls) { player(cls)->pause_video(false); }
 void nothing(void *) {}
-void connected(void *cls) { player(cls)->connections.fetch_add(1); }
+void connected(void *cls) {
+    auto *p = player(cls);
+    std::lock_guard<std::mutex> guard(p->session_lock);
+    p->connections.fetch_add(1);
+}
 void disconnected(void *cls) {
     auto *p = player(cls);
-    if (p->connections.fetch_sub(1) == 1) { p->reset(); p->event("waiting", "Waiting for iPhone"); }
+    bool ended;
+    {
+        std::lock_guard<std::mutex> guard(p->session_lock);
+        ended = p->connections.fetch_sub(1) == 1;
+    }
+    if (ended) { p->reset(); p->event("waiting", "Waiting for iPhone"); }
 }
 void client(void *cls, char *, char *, char *name, bool *admit) {
     *admit = true;
@@ -349,6 +359,14 @@ extern "C" size_t airplay_player_txt(AirplayPlayer *p, bool audio, uint8_t *outp
     return length;
 }
 extern "C" void airplay_player_destroy(AirplayPlayer *p) { delete p; }
+extern "C" bool airplay_player_prepare_restart(AirplayPlayer *p) {
+    if (!p) return false;
+    std::lock_guard<std::mutex> guard(p->session_lock);
+    if (p->closing || p->connections.load() != 0) return false;
+    p->closing = true;
+    p->wake.notify_all();
+    return true;
+}
 
 #ifdef __ANDROID__
 extern "C" bool airplay_player_set_hevc_decoder(AirplayPlayer *p, const char *decoder) {

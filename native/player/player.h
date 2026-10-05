@@ -43,6 +43,10 @@ bool airplay_player_start(AirplayPlayer *, const char *name, const uint8_t ident
                           const char *key_path, char *error, size_t error_size);
 uint16_t airplay_player_port(AirplayPlayer *);
 size_t airplay_player_txt(AirplayPlayer *, bool audio, uint8_t *output, size_t capacity);
+// Reserves an idle receiver for replacement. False preserves any connection,
+// including one whose host/UI event has not arrived yet. On true, destroy the
+// player on the same lifecycle thread; it must not be reused.
+bool airplay_player_prepare_restart(AirplayPlayer *);
 // Joins reception and playback before returning; no callbacks may follow.
 void airplay_player_destroy(AirplayPlayer *);
 

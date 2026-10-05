@@ -118,7 +118,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get name => '设备名';
 
   @override
-  String get randomName => '生成随机名称';
+  String get randomName => '随机名称';
+
+  @override
+  String get reset => '重置';
+
+  @override
+  String get settingsApplyHelp => '等待连接时自动生效；已有连接时，结束后自动生效。';
 
   @override
   String get nameHelp => '显示在 iPhone「屏幕镜像」列表中';
@@ -128,9 +134,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get autoStart => '打开应用时自动接收';
-
-  @override
-  String get restartHelp => '修改设备名后会重新启动接收，当前投屏将结束。';
 
   @override
   String get advanced => '高级';
@@ -388,9 +391,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get saveRestart => '保存并重启';
 
   @override
-  String get qualityRestartHelp => '修改设备名或清晰度后会重新启动接收，当前投屏将结束。';
-
-  @override
   String get shareLogs => '分享日志文件';
 
   @override
@@ -425,17 +425,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get audioOutputTrack => '兼容';
 
   @override
-  String get audioOutputRestartHelp => '停止并重新打开接收后生效。';
-
-  @override
   String get buildVersion => '版本';
 
   @override
   String get buildTime => '构建时间';
-
-  @override
-  String get settingsNextStart => '设备名、清晰度和音频输出在下次开启接收时生效。';
-
-  @override
-  String get nextStartHelp => '下次开启接收时生效。';
 }

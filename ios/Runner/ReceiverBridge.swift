@@ -42,6 +42,7 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
                     var value: Any?
                     switch call.method {
                     case "snapshot": value = self.host.snapshot()
+                    case "applySettings": value = try self.host.applySettings()
                     case "save":
                         try self.host.save(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "",
                                            autoStart: args["autoStart"] as? Bool)
