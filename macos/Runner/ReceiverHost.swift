@@ -20,6 +20,11 @@ protocol ReceiverVideoOutput: AnyObject {
 // The native library joins every callback before stop returns. Mutable UI state
 // stays on queue; generation rejects events already queued by a stopped session.
 final class ReceiverHost {
+    private static let buildTime: String = {
+        guard let url = Bundle.main.url(forResource: "build-time", withExtension: "txt"),
+              let value = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }()
     let queue = DispatchQueue(label: "org.airplayreceiver.host")
     var videoOutput: ReceiverVideoOutput?
     var onEvent: (([String: Any]) -> Void)?
@@ -34,6 +39,7 @@ final class ReceiverHost {
     }
     private var callbackContext: CallbackContext?
     private var player: OpaquePointer?
+    private var receivingName = ""
     private var clientName = ""
     private var videoWidth = 0, videoHeight = 0
     private var audioPlaying = false, videoPaused = false
@@ -88,6 +94,8 @@ final class ReceiverHost {
             data[key] = defaults.object(forKey: key) as? Bool ?? fallback
         }
         data["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
+        data["receivingName"] = receivingName
+        data["buildTime"] = Self.buildTime
         data["videoQualities"] = videoQualities
         let screen = screenSize()
         data["screenWidth"] = screen.width
@@ -116,9 +124,6 @@ final class ReceiverHost {
         guard path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ReceiverFailure(message: "macOS 使用内置 C++ 接收核心，无需指定路径。")
         }
-        guard player == nil || clean == defaults.string(forKey: "receiverName") else {
-            throw ReceiverFailure(message: "请先停止接收器再修改设备名。")
-        }
         guard !clean.isEmpty, clean.utf8.count <= 50,
               !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
             throw ReceiverFailure(message: "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。")
@@ -126,9 +131,6 @@ final class ReceiverHost {
         if let quality = videoQuality {
             guard videoQualities.contains(quality) else {
                 throw ReceiverFailure(message: "Unknown video quality")
-            }
-            guard player == nil || quality == defaults.string(forKey: "videoQuality") ?? "auto" else {
-                throw ReceiverFailure(message: "请先停止接收器再修改投屏清晰度。")
             }
             defaults.set(quality, forKey: "videoQuality")
         }
@@ -180,6 +182,7 @@ final class ReceiverHost {
             callbackContext = nil; video.end(); state("error", "无法初始化原生播放库。")
             throw ReceiverFailure(message: message)
         }
+        receivingName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         player = native
         let size = requestedVideoSize()
         let screen = screenSize()

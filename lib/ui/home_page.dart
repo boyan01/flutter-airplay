@@ -80,7 +80,7 @@ class HomePage extends StatelessWidget {
           children: [
             Flexible(
               child: Text(
-                model.name,
+                model.receivingName,
                 key: const Key('homeDeviceName'),
                 textAlign: tv ? TextAlign.start : TextAlign.center,
                 style: TextStyle(
@@ -152,12 +152,12 @@ class HomePage extends StatelessWidget {
         ? [
             l10n(context).sameWifiTv,
             l10n(context).controlCenter,
-            l10n(context).selectReceiver(model.name),
+            l10n(context).selectReceiver(model.receivingName),
           ]
         : [
             l10n(context).openControlCenter,
             l10n(context).tapMirroring,
-            l10n(context).selectReceiver(model.name),
+            l10n(context).selectReceiver(model.receivingName),
           ];
     return Container(
       key: const Key('homeInstructions'),
@@ -289,21 +289,20 @@ class HomePage extends StatelessWidget {
           value: model.active,
           onChanged: transitioning ? null : (_) => onToggle(),
         ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            model.platform == 'ios'
-                ? l10n(context).foregroundReceive
-                : model.platform == 'android'
-                ? l10n(context).backgroundReceive
-                : l10n(context).deviceAudioHelp,
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.5,
-              color: colors.onSurfaceVariant,
+        if (model.isMobile)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              model.platform == 'ios'
+                  ? l10n(context).foregroundReceive
+                  : l10n(context).backgroundReceive,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: colors.onSurfaceVariant,
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -478,14 +477,6 @@ class HomePage extends StatelessWidget {
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Text(
-                    l10n(context).drmNotice,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],

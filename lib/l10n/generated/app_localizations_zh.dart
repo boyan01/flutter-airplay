@@ -25,7 +25,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get unavailable => '无法接收投屏';
 
   @override
-  String get ready => '可被发现 · 等待 iPhone';
+  String get ready => '等待 iPhone 连接';
 
   @override
   String get connecting => 'iPhone 正在连接…';
@@ -37,7 +37,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get stopping => '正在停止…';
 
   @override
-  String get off => '接收已关闭 · 不会被发现';
+  String get off => '接收已关闭';
 
   @override
   String get loading => '正在读取状态…';
@@ -49,7 +49,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get start => '打开接收';
 
   @override
-  String get awaitingFrame => '已建立连接，等待第一帧画面';
+  String get awaitingFrame => '已连接，等待画面';
 
   @override
   String get reconnectHelp => '如果长时间无画面，请在 iPhone 上重新选择。';
@@ -79,16 +79,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logsShort => '日志';
 
   @override
-  String get foregroundHelp => '请保持本应用在前台 · 不支持 DRM 内容';
-
-  @override
   String get receive => '接收投屏';
 
   @override
-  String get deviceAudioHelp => '声音由本设备播放 · 不支持 DRM 内容';
-
-  @override
-  String get noLogs => '暂无日志。启动接收后可在这里查看运行情况。';
+  String get noLogs => '暂无日志';
 
   @override
   String get logsCopied => '日志已复制';
@@ -166,13 +160,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get nameInvalid => '设备名最多 50 个 UTF-8 字节，不能含换行';
 
   @override
-  String get nativeError => '原生接收器操作失败';
+  String get nativeError => '接收操作失败';
 
   @override
   String get saved => '设置已保存';
 
   @override
-  String get checkPassed => '依赖检查通过，可以启动接收器';
+  String get checkPassed => '检查通过，可以接收投屏';
 
   @override
   String selectReceiver(String name) {
@@ -180,7 +174,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get discoverable => '可被发现';
+  String get discoverable => '等待 iPhone 连接';
 
   @override
   String get openControlCenter => '打开 iPhone 控制中心';
@@ -206,9 +200,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get appPermissionsHelp => '部分设备还需允许后台弹出界面。请允许通知，以便通过连接提醒打开应用。';
-
-  @override
-  String get drmNotice => '不支持 DRM 内容';
 
   @override
   String clientConnecting(String name) {
@@ -338,7 +329,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get videoResumeHelp => '亮屏并继续屏幕镜像，画面会自动恢复。';
 
   @override
-  String get audioOnlyHelp => '当前只有音频。收到投屏画面后，会自动切回视频。';
+  String get audioOnlyHelp => '收到投屏画面后会自动显示。';
 
   @override
   String clientConnected(String name) {
@@ -346,7 +337,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get foregroundReceive => '在 iPad 上接收镜像时，请保持应用在前台。';
+  String get foregroundReceive => '请保持应用在前台';
 
   @override
   String get maximize => '最大化';
@@ -379,11 +370,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quality2160 => '超高清 · 4K';
 
   @override
-  String get qualityHelp =>
-      '适配本机最高请求 4K（3840 × 2160）。macOS 参考屏幕像素，Android 还会检查解码能力。实际尺寸由发送端决定。保存后需重新连接屏幕镜像。';
+  String get qualityHelp => '自动适配设备，最高 4K。实际画面尺寸取决于 iPhone。';
 
   @override
-  String get qualityUnsupported => '此设备的解码器不支持此档位';
+  String get qualityUnsupported => '此设备无法使用该清晰度';
 
   @override
   String get screenSize => '当前屏幕';
@@ -429,17 +419,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String get audioOutputAutoHelp => '优先低延迟，失败时切换兼容输出';
 
   @override
-  String get audioOutputAAudio => '低延迟（AAudio）';
+  String get audioOutputAAudio => '低延迟';
 
   @override
-  String get audioOutputTrack => '兼容（AudioTrack）';
+  String get audioOutputTrack => '兼容';
 
   @override
-  String get audioOutputRestartHelp => '更改将在接收器下次启动时生效。请停止并启动接收器以应用新选择。';
+  String get audioOutputRestartHelp => '停止并重新打开接收后生效。';
 
   @override
   String get buildVersion => '版本';
 
   @override
-  String get buildTime => '构建时间（UTC）';
+  String get buildTime => '构建时间';
+
+  @override
+  String get settingsNextStart => '设备名、清晰度和音频输出在下次开启接收时生效。';
+
+  @override
+  String get nextStartHelp => '下次开启接收时生效。';
 }

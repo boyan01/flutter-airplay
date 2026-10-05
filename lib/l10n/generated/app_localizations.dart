@@ -131,7 +131,7 @@ abstract class AppLocalizations {
   /// No description provided for @ready.
   ///
   /// In en, this message translates to:
-  /// **'Discoverable · Waiting for iPhone'**
+  /// **'Waiting for iPhone'**
   String get ready;
 
   /// No description provided for @connecting.
@@ -155,7 +155,7 @@ abstract class AppLocalizations {
   /// No description provided for @off.
   ///
   /// In en, this message translates to:
-  /// **'Receiver off · Not discoverable'**
+  /// **'Receiver off'**
   String get off;
 
   /// No description provided for @loading.
@@ -179,7 +179,7 @@ abstract class AppLocalizations {
   /// No description provided for @awaitingFrame.
   ///
   /// In en, this message translates to:
-  /// **'Connected. Waiting for the first frame.'**
+  /// **'Connected. Waiting for video.'**
   String get awaitingFrame;
 
   /// No description provided for @reconnectHelp.
@@ -236,28 +236,16 @@ abstract class AppLocalizations {
   /// **'Logs'**
   String get logsShort;
 
-  /// No description provided for @foregroundHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep this app in the foreground · DRM content is not supported'**
-  String get foregroundHelp;
-
   /// No description provided for @receive.
   ///
   /// In en, this message translates to:
   /// **'Receive AirPlay'**
   String get receive;
 
-  /// No description provided for @deviceAudioHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Audio plays on this device · DRM content is not supported'**
-  String get deviceAudioHelp;
-
   /// No description provided for @noLogs.
   ///
   /// In en, this message translates to:
-  /// **'No logs yet. Receiver activity will appear here.'**
+  /// **'No logs yet'**
   String get noLogs;
 
   /// No description provided for @logsCopied.
@@ -413,7 +401,7 @@ abstract class AppLocalizations {
   /// No description provided for @nativeError.
   ///
   /// In en, this message translates to:
-  /// **'Native receiver operation failed'**
+  /// **'Receiver operation failed'**
   String get nativeError;
 
   /// No description provided for @saved.
@@ -425,7 +413,7 @@ abstract class AppLocalizations {
   /// No description provided for @checkPassed.
   ///
   /// In en, this message translates to:
-  /// **'Environment check passed. The receiver is ready to start.'**
+  /// **'Check passed. Ready to receive AirPlay.'**
   String get checkPassed;
 
   /// No description provided for @selectReceiver.
@@ -437,7 +425,7 @@ abstract class AppLocalizations {
   /// No description provided for @discoverable.
   ///
   /// In en, this message translates to:
-  /// **'Discoverable'**
+  /// **'Waiting for iPhone'**
   String get discoverable;
 
   /// No description provided for @openControlCenter.
@@ -487,12 +475,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Some devices also require permission to open windows from the background. Allow notifications to open the app from connection alerts.'**
   String get appPermissionsHelp;
-
-  /// No description provided for @drmNotice.
-  ///
-  /// In en, this message translates to:
-  /// **'DRM content is not supported'**
-  String get drmNotice;
 
   /// No description provided for @clientConnecting.
   ///
@@ -743,7 +725,7 @@ abstract class AppLocalizations {
   /// No description provided for @audioOnlyHelp.
   ///
   /// In en, this message translates to:
-  /// **'Only audio is available. Video will appear automatically when it arrives.'**
+  /// **'Video will appear automatically when it arrives.'**
   String get audioOnlyHelp;
 
   /// No description provided for @clientConnected.
@@ -755,7 +737,7 @@ abstract class AppLocalizations {
   /// No description provided for @foregroundReceive.
   ///
   /// In en, this message translates to:
-  /// **'Keep this app in the foreground to receive mirroring on iPad.'**
+  /// **'Keep this app in the foreground'**
   String get foregroundReceive;
 
   /// No description provided for @maximize.
@@ -821,13 +803,13 @@ abstract class AppLocalizations {
   /// No description provided for @qualityHelp.
   ///
   /// In en, this message translates to:
-  /// **'Fit this device requests up to 4K (3840 × 2160). macOS uses screen pixels; Android also checks decoder capabilities. The sender decides the actual size. Reconnect Screen Mirroring after saving.'**
+  /// **'Automatically fits your device, up to 4K. The actual video size depends on your iPhone.'**
   String get qualityHelp;
 
   /// No description provided for @qualityUnsupported.
   ///
   /// In en, this message translates to:
-  /// **'This decoder does not support this quality'**
+  /// **'This quality is unavailable on this device'**
   String get qualityUnsupported;
 
   /// No description provided for @screenSize.
@@ -917,19 +899,19 @@ abstract class AppLocalizations {
   /// No description provided for @audioOutputAAudio.
   ///
   /// In en, this message translates to:
-  /// **'Low latency (AAudio)'**
+  /// **'Low latency'**
   String get audioOutputAAudio;
 
   /// No description provided for @audioOutputTrack.
   ///
   /// In en, this message translates to:
-  /// **'Compatible (AudioTrack)'**
+  /// **'Compatible'**
   String get audioOutputTrack;
 
   /// No description provided for @audioOutputRestartHelp.
   ///
   /// In en, this message translates to:
-  /// **'Changes apply the next time the receiver starts. Stop and start the receiver to use the new selection.'**
+  /// **'Stop and restart the receiver to apply changes.'**
   String get audioOutputRestartHelp;
 
   /// No description provided for @buildVersion.
@@ -941,8 +923,20 @@ abstract class AppLocalizations {
   /// No description provided for @buildTime.
   ///
   /// In en, this message translates to:
-  /// **'Built at (UTC)'**
+  /// **'Built at'**
   String get buildTime;
+
+  /// No description provided for @settingsNextStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Device name, quality and audio output changes apply the next time the receiver starts.'**
+  String get settingsNextStart;
+
+  /// No description provided for @nextStartHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes apply the next time the receiver starts.'**
+  String get nextStartHelp;
 }
 
 class _AppLocalizationsDelegate

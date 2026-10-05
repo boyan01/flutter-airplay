@@ -44,6 +44,8 @@ if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   pkg_check_modules(APPINDICATOR REQUIRED IMPORTED_TARGET ayatana-appindicator3-0.1)
   add_executable(linux_host_tests host_test.cc ../runner/receiver_host.cc
     ../runner/frame_texture.cc ../runner/discovery.cc)
+  set(AIRPLAY_BUILD_INFO_TARGET linux_host_tests)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
   target_include_directories(linux_host_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
   target_link_libraries(linux_host_tests PRIVATE airplay_player PkgConfig::GTK PkgConfig::AVAHI
     "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")

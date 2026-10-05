@@ -21,6 +21,11 @@ protocol ReceiverVideoOutput: AnyObject {
 // The native library joins every callback before stop returns. Mutable UI state
 // stays on queue; generation rejects events already queued by a stopped session.
 final class ReceiverHost {
+    private static let buildTime: String = {
+        guard let url = Bundle.main.url(forResource: "build-time", withExtension: "txt"),
+              let value = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }()
     let queue = DispatchQueue(label: "org.airplayreceiver.host")
     var videoOutput: ReceiverVideoOutput?
     var onEvent: (([String: Any]) -> Void)?
@@ -39,6 +44,7 @@ final class ReceiverHost {
     var publish: ((String, Data, Int, Data, Data, Int) -> Void)?
     var unpublish: (() -> Void)?
     private var published = Set<String>()
+    private var receivingName = ""
     private var clientName = ""
     private var videoWidth = 0, videoHeight = 0
     private var audioPlaying = false, videoPaused = false
@@ -70,6 +76,8 @@ final class ReceiverHost {
             "videoWidth": videoWidth, "videoHeight": videoHeight, "logs": logs,
             "audioPlaying": audioPlaying, "videoPaused": videoPaused,
             "autoStart": defaults.object(forKey: "receiverAutoStart") == nil ? true : defaults.bool(forKey: "receiverAutoStart")]
+        data["receivingName"] = receivingName
+        data["buildTime"] = Self.buildTime
         data["capabilities"] = ["platform": "ios", "supportsExecutablePath": false,
             "supportsLaunchAtLogin": false, "foregroundOnly": true]
         return data
@@ -93,9 +101,6 @@ final class ReceiverHost {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ReceiverFailure(message: "iPad 使用内置接收核心，无需指定路径。")
-        }
-        guard player == nil || clean == defaults.string(forKey: "receiverName") else {
-            throw ReceiverFailure(message: "请先停止接收器再修改设备名。")
         }
         guard !clean.isEmpty, clean.utf8.count <= 50,
               !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
@@ -157,6 +162,7 @@ final class ReceiverHost {
             callbackContext = nil; video.end(); try? session.setActive(false); state("error", "无法初始化原生播放库。")
             throw ReceiverFailure(message: message)
         }
+        receivingName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         player = native
         var identity = defaults.data(forKey: "receiverIdentity")
         if identity?.count != 6 {

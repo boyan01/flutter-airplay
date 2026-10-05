@@ -25,7 +25,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get unavailable => 'Unable to receive';
 
   @override
-  String get ready => 'Discoverable · Waiting for iPhone';
+  String get ready => 'Waiting for iPhone';
 
   @override
   String get connecting => 'iPhone is connecting…';
@@ -37,7 +37,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get stopping => 'Stopping…';
 
   @override
-  String get off => 'Receiver off · Not discoverable';
+  String get off => 'Receiver off';
 
   @override
   String get loading => 'Loading receiver status…';
@@ -49,7 +49,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get start => 'Turn on receiver';
 
   @override
-  String get awaitingFrame => 'Connected. Waiting for the first frame.';
+  String get awaitingFrame => 'Connected. Waiting for video.';
 
   @override
   String get reconnectHelp =>
@@ -80,18 +80,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logsShort => 'Logs';
 
   @override
-  String get foregroundHelp =>
-      'Keep this app in the foreground · DRM content is not supported';
-
-  @override
   String get receive => 'Receive AirPlay';
 
   @override
-  String get deviceAudioHelp =>
-      'Audio plays on this device · DRM content is not supported';
-
-  @override
-  String get noLogs => 'No logs yet. Receiver activity will appear here.';
+  String get noLogs => 'No logs yet';
 
   @override
   String get logsCopied => 'Logs copied';
@@ -171,14 +163,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Use at most 50 UTF-8 bytes, with no control characters';
 
   @override
-  String get nativeError => 'Native receiver operation failed';
+  String get nativeError => 'Receiver operation failed';
 
   @override
   String get saved => 'Settings saved';
 
   @override
-  String get checkPassed =>
-      'Environment check passed. The receiver is ready to start.';
+  String get checkPassed => 'Check passed. Ready to receive AirPlay.';
 
   @override
   String selectReceiver(String name) {
@@ -186,7 +177,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get discoverable => 'Discoverable';
+  String get discoverable => 'Waiting for iPhone';
 
   @override
   String get openControlCenter => 'Open iPhone Control Center';
@@ -214,9 +205,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get appPermissionsHelp =>
       'Some devices also require permission to open windows from the background. Allow notifications to open the app from connection alerts.';
-
-  @override
-  String get drmNotice => 'DRM content is not supported';
 
   @override
   String clientConnecting(String name) {
@@ -348,7 +336,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get audioOnlyHelp =>
-      'Only audio is available. Video will appear automatically when it arrives.';
+      'Video will appear automatically when it arrives.';
 
   @override
   String clientConnected(String name) {
@@ -356,8 +344,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get foregroundReceive =>
-      'Keep this app in the foreground to receive mirroring on iPad.';
+  String get foregroundReceive => 'Keep this app in the foreground';
 
   @override
   String get maximize => 'Maximize';
@@ -391,10 +378,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get qualityHelp =>
-      'Fit this device requests up to 4K (3840 × 2160). macOS uses screen pixels; Android also checks decoder capabilities. The sender decides the actual size. Reconnect Screen Mirroring after saving.';
+      'Automatically fits your device, up to 4K. The actual video size depends on your iPhone.';
 
   @override
-  String get qualityUnsupported => 'This decoder does not support this quality';
+  String get qualityUnsupported => 'This quality is unavailable on this device';
 
   @override
   String get screenSize => 'Current screen';
@@ -444,18 +431,26 @@ class AppLocalizationsEn extends AppLocalizations {
       'Prefer low latency; switch to compatible output on failure';
 
   @override
-  String get audioOutputAAudio => 'Low latency (AAudio)';
+  String get audioOutputAAudio => 'Low latency';
 
   @override
-  String get audioOutputTrack => 'Compatible (AudioTrack)';
+  String get audioOutputTrack => 'Compatible';
 
   @override
   String get audioOutputRestartHelp =>
-      'Changes apply the next time the receiver starts. Stop and start the receiver to use the new selection.';
+      'Stop and restart the receiver to apply changes.';
 
   @override
   String get buildVersion => 'Version';
 
   @override
-  String get buildTime => 'Built at (UTC)';
+  String get buildTime => 'Built at';
+
+  @override
+  String get settingsNextStart =>
+      'Device name, quality and audio output changes apply the next time the receiver starts.';
+
+  @override
+  String get nextStartHelp =>
+      'Changes apply the next time the receiver starts.';
 }

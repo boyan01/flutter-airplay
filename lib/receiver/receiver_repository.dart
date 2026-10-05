@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 abstract class ReceiverRepository {
   Stream<Map<String, dynamic>> get events;
@@ -27,9 +28,14 @@ class NativeReceiverRepository implements ReceiverRepository {
       .map((event) => Map<String, dynamic>.from(event as Map));
 
   @override
-  Future<Map<String, dynamic>> snapshot() async => Map<String, dynamic>.from(
-    (await _control.invokeMapMethod<String, dynamic>('snapshot'))!,
-  );
+  Future<Map<String, dynamic>> snapshot() async {
+    final data = Map<String, dynamic>.from(
+      (await _control.invokeMapMethod<String, dynamic>('snapshot'))!,
+    );
+    final info = await PackageInfo.fromPlatform();
+    data['buildVersion'] = '${info.version} (${info.buildNumber})';
+    return data;
+  }
 
   Map<String, String> _settings(String name, String path) => {
     'name': name,

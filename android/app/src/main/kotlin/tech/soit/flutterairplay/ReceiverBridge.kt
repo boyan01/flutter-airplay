@@ -77,7 +77,8 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         return state.snapshot(name(), if (isActive) Process.myPid() else 0, television) +
-            mapOf("autoStart" to preferences.getBoolean("autoStart", true)) + host.videoSettings()
+            mapOf("autoStart" to preferences.getBoolean("autoStart", true),
+                "receivingName" to (host.receivingName ?: pendingStart?.first ?: name())) + host.videoSettings()
     }
 
     private fun publish() {
@@ -228,12 +229,8 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                 "save" -> {
                     requireEmbeddedPath(call)
                     val nextName = requestedName(call)
-                    check(!isActive || nextName == name()) { "请等待接收器停止后再修改设备名。" }
                     val quality = call.argument<String>("videoQuality")
                     if (quality != null) {
-                        check(!isActive || quality == preferences.getString("videoQuality", "auto")) {
-                            "请先停止接收器再修改清晰度。"
-                        }
                         host.validateVideoQuality(quality)
                     }
                     val audioOutput = call.argument<String>("audioOutput")
@@ -241,6 +238,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                         "Invalid audio output selection"
                     }
                     if (audioOutput != null) preferences.edit().putString("audioOutput", audioOutput).apply()
+                    // Persist the next run without changing the active receiver.
                     saveName(nextName)
                     if (quality != null) preferences.edit().putString("videoQuality", quality).apply()
                     call.argument<Boolean>("autoStart")?.let {

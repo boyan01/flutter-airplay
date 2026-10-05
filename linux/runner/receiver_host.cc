@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "receiver_host.h"
+#include "build_info.h"
 
 #include "discovery.h"
 #include "frame_texture.h"
@@ -122,6 +123,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   std::string key_path;
   std::string config_error;
   std::string name = "Flutter AirPlay";
+  std::string receiving_name;
   bool auto_start = true;
   const std::array<const char*, 4> window_keys{
       "keepInMenuBar", "showOnConnect", "fullscreenOnConnect", "alwaysOnTop"};
@@ -257,8 +259,10 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   Value Snapshot() {
     auto data = Own(fl_value_new_map());
     String(data.get(), "status", status);
+    String(data.get(), "buildTime", AIRPLAY_BUILD_TIME);
     String(data.get(), "message", message);
     String(data.get(), "name", name);
+    String(data.get(), "receivingName", receiving_name);
     String(data.get(), "path", "");
     String(data.get(), "clientName", client_name);
     Integer(data.get(), "pid", player ? getpid() : 0);
@@ -400,8 +404,6 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       throw std::runtime_error("Linux uses the built-in C++ receiver; no executable path is needed.");
     if (!ValidName(next))
       throw std::runtime_error("Device name must contain 1–50 UTF-8 bytes and no control characters.");
-    if (player && next != name)
-      throw std::runtime_error("Stop the receiver before changing the device name.");
     auto* launch = fl_value_lookup_string(args, "launchAtLogin");
     if (launch && fl_value_get_type(launch) == FL_VALUE_TYPE_BOOL && fl_value_get_bool(launch))
       throw std::runtime_error("Launch at login is not supported by this Linux host.");
@@ -504,6 +506,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       throw std::runtime_error(message);
     }
     char error[512] = {};
+    receiving_name = name;
     if (!airplay_player_start(player, name.c_str(), identity.data(), key_path.c_str(),
                                error, sizeof(error))) {
       Fail(SafeText(error));

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "receiver_bridge.h"
+#include "build_info.h"
 #include "player.h"
 #include "windows_video.h"
 #include <flutter/event_channel.h>
@@ -96,6 +97,7 @@ struct ReceiverBridge::Impl {
     std::unique_ptr<Context> context;
     AirplayPlayer *player = nullptr;
     std::string name = "Flutter AirPlay", status = "stopped", message = "接收器未启动", client;
+    std::string receiving_name;
     std::filesystem::path directory;
     std::array<uint8_t, 6> identity{};
     bool auto_start = true, audio = false, paused = false;
@@ -179,6 +181,8 @@ struct ReceiverBridge::Impl {
     }
     Map snapshot() const {
         return Map{{Value("status"), Value(status)}, {Value("message"), Value(message)}, {Value("name"), Value(name)},
+            {Value("buildTime"), Value(AIRPLAY_BUILD_TIME)},
+            {Value("receivingName"), Value(receiving_name)},
             {Value("path"), Value("")}, {Value("autoStart"), Value(auto_start)},
             {Value("keepInMenuBar"), Value(keep_in_tray)}, {Value("showOnConnect"), Value(show_on_connect)},
             {Value("fullscreenOnConnect"), Value(fullscreen_on_connect)}, {Value("alwaysOnTop"), Value(always_on_top)},
@@ -268,7 +272,6 @@ struct ReceiverBridge::Impl {
         next = begin == std::string::npos ? "" : next.substr(begin, end - begin + 1);
         if (!string(args, "path").empty()) return "Windows 使用内置接收核心，无需指定路径。";
         if (!valid_name(next)) return "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。";
-        if (player && next != name) return "请先停止接收器再修改设备名。";
         if (directory.empty()) return "无法创建接收器的本地配置目录。";
         const auto automatic = bool_argument(args, "autoStart", auto_start);
         const auto keep = bool_argument(args, "keepInMenuBar", keep_in_tray);
@@ -338,6 +341,7 @@ struct ReceiverBridge::Impl {
         if (!player) { context.reset(); state("error", "无法初始化原生播放库。"); return message; }
         char error[512]{};
         const auto key = utf8((directory / L"airplay-pairing.pem").wstring());
+        receiving_name = name;
         if (!airplay_player_start(player, name.c_str(), identity.data(), key.c_str(), error, sizeof(error))) {
             const std::string detail = error; stop(); state("error", detail); return detail;
         }

@@ -20,6 +20,8 @@ add_executable(${BINARY_NAME} WIN32
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+set(AIRPLAY_BUILD_INFO_TARGET ${BINARY_NAME})
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
 target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
 
 # Add preprocessor definitions for the build version.

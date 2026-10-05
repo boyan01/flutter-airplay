@@ -298,24 +298,31 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     setState(() => _dialogOpen = true);
     final page = SettingsPage(model: model, editName: editName, onLogs: _logs);
     if (model.supportsWindowPreferences) {
-      final top = model.platform == 'macos' ? 12.0 : 44.0;
       await showGeneralDialog<void>(
         context: context,
         barrierDismissible: true,
         barrierLabel: MaterialLocalizations.of(context)
             .modalBarrierDismissLabel,
-        pageBuilder: (context, animation, secondary) => Align(
-          alignment: Alignment.topCenter,
-          child: Padding(
-            padding: EdgeInsets.only(top: top),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 480,
-                maxHeight: MediaQuery.sizeOf(context).height - top - 12,
+        pageBuilder: (context, animation, secondary) => Column(
+          children: [
+            Material(
+              child: DesktopWindowBar(
+                title: 'Flutter AirPlay',
+                platform: model.platform,
+                maximized: _maximized,
               ),
-              child: page,
             ),
-          ),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: 480,
+                  height: double.infinity,
+                  child: page,
+                ),
+              ),
+            ),
+          ],
         ),
         transitionBuilder: (context, animation, secondary, child) =>
             SlideTransition(

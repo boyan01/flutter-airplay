@@ -19,6 +19,8 @@ add_executable(${BINARY_NAME}
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+set(AIRPLAY_BUILD_INFO_TARGET ${BINARY_NAME})
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
 target_compile_features(${BINARY_NAME} PRIVATE cxx_std_17)
 
 # Add preprocessor definitions for the application ID.

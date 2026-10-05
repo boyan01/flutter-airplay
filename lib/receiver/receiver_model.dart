@@ -30,6 +30,8 @@ class ReceiverModel extends ChangeNotifier {
   String status = 'stopped';
   String message = 'off';
   String name = 'Flutter AirPlay';
+  String? _receivingName;
+  String get receivingName => active ? _receivingName ?? name : name;
   String path = '';
   bool autoStart = true;
   String videoQuality = 'auto';
@@ -70,6 +72,7 @@ class ReceiverModel extends ChangeNotifier {
   bool loaded = false;
   bool busy = false;
   bool _disposed = false;
+  Future<void> _pendingSave = Future.value();
   UnmodifiableListView<ReceiverLog> get logs => UnmodifiableListView(_logs);
   bool get active => {
     'checking',
@@ -119,6 +122,8 @@ class ReceiverModel extends ChangeNotifier {
     message = data['message'] as String;
     pid = data['pid'] as int? ?? 0;
     name = data['name'] as String;
+    final receivingName = (data['receivingName'] as String?)?.trim();
+    if (receivingName?.isNotEmpty ?? false) _receivingName = receivingName;
     path = data['path'] as String? ?? '';
     autoStart = data['autoStart'] as bool? ?? true;
     videoQuality = data['videoQuality'] as String? ?? videoQuality;
@@ -280,41 +285,40 @@ class ReceiverModel extends ChangeNotifier {
     String? videoQuality,
     String? audioOutput,
     Map<String, bool>? desktopOptions,
-  }) async {
-    if (!editable) return;
-    final error = validateName(nextName);
-    if (error != null) {
-      notice = error;
-      _notify();
-      return;
-    }
-    final restart =
-        active &&
-        (nextName.trim() != name ||
-            nextPath.trim() != path ||
-            (videoQuality != null && videoQuality != this.videoQuality));
-    await _command(() async {
-      if (restart) await _stopAndWait();
-      await repository.save(
-        nextName.trim(),
-        nextPath.trim(),
-        autoStart: autoStart ?? this.autoStart,
-        videoQuality: supportsVideoQuality
-            ? videoQuality ?? this.videoQuality
-            : null,
-        audioOutput: platform == 'android'
-            ? audioOutput ?? this.audioOutput
-            : null,
-        desktopOptions: desktopOptions ?? this.desktopOptions,
-      );
-      name = nextName.trim();
-      path = nextPath.trim();
-      this.autoStart = autoStart ?? this.autoStart;
-      this.videoQuality = videoQuality ?? this.videoQuality;
-      this.audioOutput = audioOutput ?? this.audioOutput;
-      if (desktopOptions != null) this.desktopOptions.addAll(desktopOptions);
-      if (restart) await repository.start(name, path);
-    }, success: 'saved');
+  }) {
+    final options = desktopOptions == null
+        ? null
+        : Map<String, bool>.of(desktopOptions);
+    return _pendingSave = _pendingSave.then((_) async {
+      if (!editable || _disposed) return;
+      final error = validateName(nextName);
+      if (error != null) {
+        notice = error;
+        _notify();
+        return;
+      }
+      await _command(() async {
+        if (active) _receivingName ??= name;
+        await repository.save(
+          nextName.trim(),
+          nextPath.trim(),
+          autoStart: autoStart ?? this.autoStart,
+          videoQuality: supportsVideoQuality
+              ? videoQuality ?? this.videoQuality
+              : null,
+          audioOutput: platform == 'android'
+              ? audioOutput ?? this.audioOutput
+              : null,
+          desktopOptions: options ?? this.desktopOptions,
+        );
+        name = nextName.trim();
+        path = nextPath.trim();
+        this.autoStart = autoStart ?? this.autoStart;
+        this.videoQuality = videoQuality ?? this.videoQuality;
+        this.audioOutput = audioOutput ?? this.audioOutput;
+        if (options != null) this.desktopOptions.addAll(options);
+      });
+    });
   }
 
   // The current native protocol has no session-only disconnect command.
@@ -322,6 +326,7 @@ class ReceiverModel extends ChangeNotifier {
     if (!canStop) return;
     await _command(() async {
       await _stopAndWait();
+      _receivingName = name;
       await repository.start(name, path);
     });
   }
@@ -335,8 +340,10 @@ class ReceiverModel extends ChangeNotifier {
       return;
     }
     await _command(() async {
+      _receivingName = nextName.trim();
       await repository.start(nextName.trim(), nextPath.trim());
       name = nextName.trim();
+      _receivingName = name;
       path = nextPath.trim();
     });
   }

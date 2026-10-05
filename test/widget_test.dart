@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_airplay/main.dart';
 import 'package:flutter_airplay/ui/logs_page.dart';
+import 'package:flutter_airplay/ui/settings_page.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter_airplay/receiver/receiver_repository.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ class FakeReceiver implements ReceiverRepository {
     this.autoStart = true,
     this.macVideoQuality = false,
     this.videoQualities = const ['auto', '720', '1080'],
+    this.buildTime,
+    this.buildVersion,
     this.capabilities = const {
       'platform': 'macos',
       'supportsExecutablePath': true,
@@ -22,6 +25,7 @@ class FakeReceiver implements ReceiverRepository {
   bool autoStart;
   final bool macVideoQuality;
   final List<String> videoQualities;
+  final String? buildTime, buildVersion;
   final Map<String, dynamic>? capabilities;
   final controller = StreamController<Map<String, dynamic>>.broadcast(
     sync: true,
@@ -30,6 +34,9 @@ class FakeReceiver implements ReceiverRepository {
   String? startedName, savedName, failure;
   String? savedVideoQuality, savedAudioOutput;
   Map<String, bool> savedOptions = {};
+  String? saveFailure;
+  Completer<void>? saving;
+  int saves = 0;
   Completer<void>? startup;
   Completer<void>? shutdown;
   @override
@@ -40,7 +47,7 @@ class FakeReceiver implements ReceiverRepository {
     'status': 'stopped',
     'message': '接收器未启动',
     'pid': 0,
-    'name': 'Flutter AirPlay',
+    'name': savedName ?? 'Flutter AirPlay',
     'path': '',
     'logs': <dynamic>[],
     if (capabilities?['platform'] == 'android' || macVideoQuality) ...{
@@ -52,6 +59,8 @@ class FakeReceiver implements ReceiverRepository {
       'screenWidth': 1200,
       'screenHeight': 2670,
     },
+    if (buildTime != null) 'buildTime': buildTime,
+    if (buildVersion != null) 'buildVersion': buildVersion,
     if (capabilities != null) 'capabilities': capabilities,
   };
   void state(String status, [int pid = 42]) => controller.add({
@@ -91,6 +100,11 @@ class FakeReceiver implements ReceiverRepository {
     String? audioOutput,
     Map<String, bool> desktopOptions = const {},
   }) async {
+    saves++;
+    if (saving != null) await saving!.future;
+    if (saveFailure != null) {
+      throw PlatformException(code: 'receiver_error', message: saveFailure);
+    }
     this.autoStart = autoStart;
     savedName = name;
     savedVideoQuality = videoQuality;
@@ -215,6 +229,136 @@ void main() {
     await tester.pumpAndSettle();
     addTearDown(backend.controller.close);
     return backend;
+  }
+
+  for (final platform in ['macos', 'windows', 'linux']) {
+    for (final size in [const Size(440, 560), const Size(900, 1000)]) {
+      testWidgets('$platform settings fill content height at $size', (
+        tester,
+      ) async {
+        await launch(tester, size: size, platform: platform);
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pumpAndSettle();
+        final panel = tester.getRect(find.byType(SettingsPage));
+        expect(panel.top, 36);
+        expect(panel.bottom, size.height);
+        expect(panel.width, size.width.clamp(0, 480));
+        expect(find.byKey(const Key('closeSettings')), findsOneWidget);
+        await tester.ensureVisible(find.text('开源许可'));
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byKey(const Key('closeSettings')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsPage), findsNothing);
+        expect(
+          find.byKey(
+            Key(platform == 'macos' ? 'macWindowBar' : '${platform}WindowBar'),
+          ),
+          findsOneWidget,
+        );
+      });
+    }
+  }
+
+  for (final platform in ['macos', 'ios', 'android', 'linux', 'windows']) {
+    for (final time in ['', '2026-10-05T01:02:03Z']) {
+      testWidgets('$platform settings show version with build time "$time"', (
+        tester,
+      ) async {
+        await launch(
+          tester,
+          size: const Size(1000, 1200),
+          backend: FakeReceiver(
+            capabilities: {'platform': platform},
+            buildVersion: '0.1.2 (3)',
+            buildTime: time,
+          ),
+        );
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('buildInfo')));
+        final tile = tester.widget<ListTile>(
+          find.byKey(const Key('buildInfo')),
+        );
+        expect((tile.title! as Text).data, '版本: 0.1.2 (3)');
+        if (time.isEmpty) {
+          expect(tile.subtitle, isNull);
+        } else {
+          final local = DateTime.parse(time).toLocal();
+          String pad(int value) => value.toString().padLeft(2, '0');
+          final formatted =
+              '${local.year}-${pad(local.month)}-${pad(local.day)} '
+              '${pad(local.hour)}:${pad(local.minute)}:${pad(local.second)}';
+          expect((tile.subtitle! as Text).data, '构建时间: $formatted');
+        }
+      });
+    }
+  }
+
+  for (final locale in ['zh', 'en']) {
+    testWidgets('$locale Android settings keep consistent content edges', (
+      tester,
+    ) async {
+      final chinese = locale == 'zh';
+      await launch(
+        tester,
+        locale: locale,
+        platform: 'android',
+        size: const Size(390, 900),
+        backend: FakeReceiver(capabilities: {'platform': 'android'}),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      final left = tester.getTopLeft(find.byKey(const Key('receiverName'))).dx;
+      void expectLeft(String text) {
+        expect(tester.getTopLeft(find.text(text)).dx, closeTo(left, 0.1));
+      }
+
+      expectLeft(chinese ? '打开应用时自动接收' : 'Receive automatically on launch');
+      expectLeft(chinese ? '投屏清晰度' : 'Mirroring quality');
+      expectLeft(
+        chinese ? '收到投屏时自动打开应用' : 'Open the app when AirPlay connects',
+      );
+      expectLeft(chinese ? '应用权限与通知' : 'App permissions and notifications');
+      expect(find.text(chinese ? '完成' : 'Done'), findsNothing);
+      await tester.ensureVisible(find.text(chinese ? '接收日志' : 'Receiver logs'));
+      expectLeft(chinese ? '接收日志' : 'Receiver logs');
+      await tester.ensureVisible(
+        find.text(chinese ? '开源许可' : 'Open-source licenses'),
+      );
+      expectLeft(chinese ? '开源许可' : 'Open-source licenses');
+
+      await tester.ensureVisible(find.byKey(const Key('videoQuality')));
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      for (final text
+          in chinese
+              ? ['适配本机', '流畅 · 720p', '标准 · 1080p']
+              : ['Fit this device', 'Smooth · 720p', 'Standard · 1080p']) {
+        expectLeft(text);
+      }
+      expect(find.text(chinese ? '完成' : 'Done'), findsNothing);
+      await tester.tap(find.byKey(const Key('quality720')));
+      await tester.pumpAndSettle();
+      expectLeft(chinese ? '流畅 · 720p' : 'Smooth · 720p');
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+      await tester.tap(find.byKey(const Key('advancedSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('audioOutput')));
+      expectLeft(chinese ? '音频输出' : 'Audio output');
+      await tester.tap(find.byKey(const Key('audioOutput')));
+      await tester.pumpAndSettle();
+      for (final text
+          in chinese
+              ? ['自动（推荐）', '低延迟', '兼容']
+              : ['Automatic (recommended)', 'Low latency', 'Compatible']) {
+        expectLeft(text);
+      }
+      expect(find.text(chinese ? '完成' : 'Done'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   void frame(FakeReceiver backend, [int width = 160, int height = 90]) {
@@ -363,7 +507,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.stops, 1);
       expect(backend.starts, 2);
-      expect(find.text('可被发现'), findsOneWidget);
+      expect(find.text('等待 iPhone 连接'), findsOneWidget);
     },
   );
 
@@ -428,13 +572,13 @@ void main() {
   ) async {
     final backend = await launch(tester);
     expect(backend.starts, 1);
-    expect(find.text('可被发现 · 等待 iPhone'), findsOneWidget);
+    expect(find.text('等待 iPhone 连接'), findsOneWidget);
     expect(find.byType(Texture), findsNothing);
     expect(find.byKey(const Key('appearance')), findsNothing);
     await tester.tap(find.byKey(const Key('receiveSwitch')));
     await tester.pumpAndSettle();
     expect(backend.stops, 1);
-    expect(find.text('接收已关闭 · 不会被发现'), findsOneWidget);
+    expect(find.text('接收已关闭'), findsOneWidget);
   });
 
   testWidgets('All home states render and command errors offer recovery', (
@@ -442,10 +586,10 @@ void main() {
   ) async {
     final backend = await launch(tester, autoStart: false);
     for (final entry in {
-      'stopped': '接收已关闭 · 不会被发现',
+      'stopped': '接收已关闭',
       'checking': '正在启动…',
       'starting': '正在启动…',
-      'waiting': '可被发现 · 等待 iPhone',
+      'waiting': '等待 iPhone 连接',
       'streaming': 'iPhone 正在连接…',
       'stopping': '正在停止…',
       'error': '无法接收投屏',
@@ -463,62 +607,43 @@ void main() {
     expect(find.text('查看日志'), findsOneWidget);
   });
 
-  testWidgets('Rename while receiving stops, saves and resumes', (
+  testWidgets('Rename saves during reception without restarting it', (
     tester,
   ) async {
     final backend = await launch(tester);
-    await tester.tap(find.byTooltip('修改设备名'));
+    await tester.tap(find.byKey(const Key('openSettings')));
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<TextField>(find.byKey(const Key('receiverName'))).enabled,
-      true,
-    );
     await tester.enterText(
       find.byKey(const Key('receiverName')),
       'Living Room',
     );
-    await tester.tap(find.text('完成'));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(backend.savedName, 'Living Room');
-    expect(backend.startedName, 'Living Room');
-    expect(backend.starts, 2);
-    expect(backend.stops, 1);
+    expect(backend.startedName, 'Flutter AirPlay');
+    expect(backend.starts, 1);
+    expect(backend.stops, 0);
   });
 
   for (final locale in ['en', 'zh']) {
-    testWidgets('$locale random name stays a draft until saved', (
-      tester,
-    ) async {
+    testWidgets('$locale generated name saves automatically', (tester) async {
       final backend = await launch(tester, locale: locale);
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
-      final field = find.byKey(const Key('receiverName'));
-      await tester.enterText(field, '');
       await tester.tap(find.byKey(const Key('randomReceiverName')));
-      await tester.pump();
-      final generated = tester.widget<TextField>(field).controller!.text;
-      expect(ReceiverModel(backend).validateName(generated), isNull);
-      expect(generated, matches(RegExp(r' \d{4}$')));
-      expect(backend.savedName, isNull);
-      expect(backend.stops, 0);
-      await tester.tap(find.byKey(const Key('randomReceiverName')));
-      await tester.pump();
-      final next = tester.widget<TextField>(field).controller!.text;
-      expect(next, isNot(generated));
-      await tester.tap(
-        find.text(locale == 'zh' ? '保存并重启' : 'Save and restart'),
-      );
+      final name = tester
+          .widget<TextField>(find.byKey(const Key('receiverName')))
+          .controller!
+          .text;
+      expect(name, matches(RegExp(r' \d{4}$')));
+      await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
-      expect(backend.savedName, next);
-      expect(backend.startedName, next);
-      expect(backend.stops, 1);
-      expect(backend.starts, 2);
+      expect(backend.savedName, name);
+      expect(backend.stops, 0);
     });
   }
 
-  testWidgets('TV remote generates and confirms a name without typing', (
-    tester,
-  ) async {
+  testWidgets('TV generated name saves without confirmation', (tester) async {
     final backend = await launch(
       tester,
       platform: 'android',
@@ -530,19 +655,16 @@ void main() {
     await tester.tap(find.byKey(const Key('tvName')));
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
-    final generated = tester
+    final name = tester
         .widget<TextField>(find.byKey(const Key('receiverName')))
         .controller!
         .text;
-    expect(generated, isNot('Flutter AirPlay'));
-    expect(backend.savedName, isNull);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    expect(backend.savedName, name);
+    expect(backend.stops, 0);
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(backend.savedName, generated);
-    expect(backend.startedName, generated);
     expect(find.byKey(const Key('tvName')), findsOneWidget);
   });
 
@@ -587,28 +709,31 @@ void main() {
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('autoStart')));
-      await tester.tap(find.text('完成'));
       await tester.pumpAndSettle();
       expect(backend.autoStart, false);
       expect(backend.stops, 0);
     },
   );
 
-  testWidgets('Blank names and cancel preserve saved values', (tester) async {
-    final backend = await launch(tester, autoStart: false);
-    await tester.tap(find.byKey(const Key('openSettings')));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('receiverName')), '   ');
-    await tester.tap(find.text('完成'));
-    await tester.pumpAndSettle();
-    expect(find.text('请输入设备名'), findsOneWidget);
-    expect(backend.savedName, isNull);
-    expect(backend.starts, 0);
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(FocusManager.instance.primaryFocus?.debugLabel, 'Home action');
-  });
+  testWidgets(
+    'Invalid names preserve saved values; returning flushes valid edits',
+    (tester) async {
+      final backend = await launch(tester, autoStart: false);
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('receiverName')), '   ');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpAndSettle();
+      expect(find.text('请输入设备名'), findsOneWidget);
+      expect(backend.savedName, isNull);
+      await tester.enterText(find.byKey(const Key('receiverName')), 'Office');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(backend.savedName, 'Office');
+      expect(backend.starts, 0);
+      expect(find.byKey(const Key('receiverName')), findsNothing);
+    },
+  );
 
   testWidgets(
     'First frame opens clean player, rotation preserves ratio, disconnect resumes',
@@ -631,7 +756,7 @@ void main() {
       await tester.tap(find.byKey(const Key('disconnect')));
       await tester.pumpAndSettle();
       expect(find.byType(Texture), findsNothing);
-      expect(find.text('可被发现 · 等待 iPhone'), findsOneWidget);
+      expect(find.text('等待 iPhone 连接'), findsOneWidget);
       expect(backend.stops, 1);
       expect(backend.starts, 2);
     },
@@ -730,139 +855,151 @@ void main() {
     );
   });
 
-  testWidgets('macOS quality exposes 2K and 4K and restarts on save', (
-    tester,
-  ) async {
-    final backend = await launch(
+  for (final platform in ['android', 'macos']) {
+    testWidgets('$platform quality saves on selection and persists on return', (
       tester,
-      size: const Size(1000, 900),
-      backend: FakeReceiver(
-        macVideoQuality: true,
-        videoQualities: const ['auto', '720', '1080', '1440', '2160'],
-      ),
-    );
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: platform,
+        size: const Size(1000, 900),
+        backend: FakeReceiver(
+          capabilities: {'platform': platform},
+          macVideoQuality: platform == 'macos',
+          videoQualities: const ['auto', '720', '1080', '1440', '2160'],
+        ),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('videoQuality')));
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quality2160')));
+      await tester.pumpAndSettle();
+      expect(backend.savedVideoQuality, '2160');
+      expect(backend.stops, 0);
+      expect(backend.starts, 1);
+      expect(find.text('完成'), findsNothing);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('超高清 · 4K'), findsOneWidget);
+    });
+  }
+
+  testWidgets('Unsupported quality stays disabled', (tester) async {
+    await launch(tester, platform: 'android');
     await tester.tap(find.byKey(const Key('openSettings')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('videoQuality')));
     await tester.tap(find.byKey(const Key('videoQuality')));
     await tester.pumpAndSettle();
-    for (final quality in ['1080', '1440', '2160']) {
-      expect(
-        tester
-            .widget<RadioListTile<String>>(find.byKey(Key('quality$quality')))
-            .enabled,
-        isTrue,
-      );
-    }
-    await tester.tap(find.byKey(const Key('quality2160')));
-    await tester.tap(find.text('完成'));
-    await tester.pumpAndSettle();
-    expect(backend.savedVideoQuality, isNull);
-    await tester.tap(find.text('保存并重启'));
-    await tester.pumpAndSettle();
-    expect(backend.savedVideoQuality, '2160');
-    expect(backend.stops, 1);
-    expect(backend.starts, 2);
+    expect(
+      tester
+          .widget<RadioListTile<String>>(find.byKey(const Key('quality1440')))
+          .enabled,
+      isFalse,
+    );
   });
 
+  for (final tv in [false, true]) {
+    testWidgets('Audio output saves immediately on ${tv ? "TV" : "phone"}', (
+      tester,
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: 'android',
+        tv: tv,
+        backend: FakeReceiver(
+          capabilities: {'platform': 'android', 'isTelevision': tv},
+        ),
+        size: tv ? const Size(960, 540) : const Size(390, 800),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+      await tester.tap(find.byKey(const Key('advancedSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('audioOutput')));
+      await tester.tap(find.byKey(const Key('audioOutput')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('audioOutputaudiotrack')));
+      await tester.pumpAndSettle();
+      expect(backend.savedAudioOutput, 'audiotrack');
+      expect(backend.stops, 0);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('兼容'), findsOneWidget);
+      expect(find.text('完成'), findsNothing);
+    });
+  }
+
   testWidgets(
-    'Quality is a draft until save; unsupported options are disabled',
+    'Saved name does not replace the advertised name until reception restarts',
     (tester) async {
       final backend = await launch(tester, platform: 'android');
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
-      expect(find.text('当前屏幕: 1200 × 2670'), findsOneWidget);
-      expect(find.text('实际接收: 等待画面'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.enterText(find.byKey(const Key('receiverName')), 'Office');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       expect(
-        tester
-            .widget<RadioListTile<String>>(find.byKey(const Key('quality1440')))
-            .enabled,
-        isFalse,
+        tester.widget<Text>(find.byKey(const Key('homeDeviceName'))).data,
+        'Flutter AirPlay',
       );
-      await tester.tap(find.byKey(const Key('quality720')));
-      await tester.tap(find.text('取消'));
+      expect(find.text('选择「Flutter AirPlay」'), findsOneWidget);
+      expect(backend.savedName, 'Office');
+      await tester.tap(find.byKey(const Key('receiveSwitch')));
       await tester.pumpAndSettle();
-      expect(find.text('适配本机'), findsOneWidget);
-      expect(backend.stops, 0);
-      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.tap(find.byKey(const Key('receiveSwitch')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('quality1080')));
-      await tester.tap(find.text('完成'));
-      await tester.pumpAndSettle();
-      expect(backend.stops, 0);
-      expect(backend.savedVideoQuality, isNull);
-      await tester.tap(find.text('保存并重启'));
-      await tester.pumpAndSettle();
-      expect(backend.savedVideoQuality, '1080');
-      expect(backend.stops, 1);
-      expect(backend.starts, 2);
-      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('homeDeviceName'))).data,
+        'Office',
+      );
+      expect(find.text('选择「Office」'), findsOneWidget);
     },
   );
 
-  for (final tv in [false, true]) {
-    testWidgets(
-      'Android audio output selection works on ${tv ? "TV" : "phone"}',
-      (tester) async {
-        final backend = FakeReceiver(
-          capabilities: {'platform': 'android', 'isTelevision': tv},
-        );
-        await launch(
-          tester,
-          platform: 'android',
-          tv: tv,
-          backend: backend,
-          size: tv ? const Size(960, 540) : const Size(390, 800),
-        );
-        await tester.tap(tv ? find.text('设置') : find.byTooltip('设置'));
-        await tester.pumpAndSettle();
-        await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-        await tester.tap(find.byKey(const Key('advancedSettings')));
-        await tester.pumpAndSettle();
-        await tester.ensureVisible(find.byKey(const Key('audioOutput')));
-        await tester.tap(find.byKey(const Key('audioOutput')));
-        await tester.pumpAndSettle();
-        expect(find.textContaining('接收器下次启动'), findsOneWidget);
-        if (tv) {
-          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-          await tester.pumpAndSettle();
-          expect(
-            tester
-                .widget<ListTile>(find.byKey(const Key('audioOutputauto')))
-                .selected,
-            isTrue,
-          );
-          await tester.sendKeyEvent(LogicalKeyboardKey.select);
-          await tester.pumpAndSettle();
-          expect(
-            tester
-                .widget<ListTile>(
-                  find.byKey(const Key('audioOutputaudiotrack')),
-                )
-                .selected,
-            isTrue,
-          );
-          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-          await tester.sendKeyEvent(LogicalKeyboardKey.select);
-        } else {
-          await tester.tap(find.byKey(const Key('audioOutputaudiotrack')));
-          await tester.tap(find.text('完成'));
-        }
-        await tester.pumpAndSettle();
-        if (!tv) {
-          await tester.tap(find.text('完成'));
-          await tester.pumpAndSettle();
-        }
-        expect(backend.savedAudioOutput, 'audiotrack');
-        expect(backend.stops, 0);
-        expect(tester.takeException(), isNull);
-      },
-    );
-  }
+  test('Rapid saves are serialized and keep the last edit', () async {
+    final backend = FakeReceiver()..saving = Completer<void>();
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    final first = model.save('First', '');
+    final second = model.save('Second', '');
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.saves, 1);
+    backend.saving!.complete();
+    await Future.wait([first, second]);
+    expect(backend.saves, 2);
+    expect(backend.savedName, 'Second');
+    expect(model.name, 'Second');
+    expect(backend.stops, 0);
+    model.dispose();
+    await backend.controller.close();
+  });
+
+  testWidgets(
+    'Failed automatic save keeps the old selection and can be retried',
+    (tester) async {
+      final backend = await launch(tester, platform: 'android');
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('videoQuality')));
+      await tester.pumpAndSettle();
+      backend.saveFailure = 'Could not save settings';
+      await tester.tap(find.byKey(const Key('quality720')));
+      await tester.pumpAndSettle();
+      expect(find.text('Could not save settings'), findsOneWidget);
+      expect(backend.savedVideoQuality, isNull);
+      backend.saveFailure = null;
+      await tester.tap(find.byKey(const Key('quality720')));
+      await tester.pumpAndSettle();
+      expect(backend.savedVideoQuality, '720');
+      expect(find.text('Could not save settings'), findsNothing);
+      expect(backend.stops, 0);
+    },
+  );
 
   test('Audio selection persists without restarting active receiver', () async {
     final backend = FakeReceiver(capabilities: {'platform': 'android'});
@@ -883,132 +1020,28 @@ void main() {
     await backend.controller.close();
   });
 
-  test('Saving unchanged quality does not restart; changed quality survives reload', () async {
-    final backend = FakeReceiver(capabilities: {'platform': 'android'});
-    final model = ReceiverModel(backend);
-    await model.initialize();
-    await model.save(model.name, model.path, videoQuality: 'auto');
-    expect(backend.stops, 0);
-    await model.save(model.name, model.path, videoQuality: '720');
-    expect(model.videoQuality, '720');
-    expect(backend.stops, 1);
-    final restored = ReceiverModel(backend);
-    await restored.initialize();
-    expect(restored.videoQuality, '720');
-    model.dispose();
-    restored.dispose();
-    await backend.controller.close();
-  });
-
-  testWidgets('TV can select supported 4K and cancel restores quality focus', (
-    tester,
-  ) async {
-    final backend = FakeReceiver(
-      capabilities: {'platform': 'android', 'isTelevision': true},
-      videoQualities: const ['auto', '720', '1080', '1440', '2160'],
-    );
-    backend.savedVideoQuality = '2160';
-    await launch(
-      tester,
-      platform: 'android',
-      tv: true,
-      backend: backend,
-      size: const Size(960, 540),
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
-      isTrue,
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
-      isFalse,
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
-      isTrue,
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(backend.stops, 0);
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('quality2160')), findsOneWidget);
-    expect(
-      tester.widget<ListTile>(find.byKey(const Key('quality2160'))).selected,
-      isTrue,
-    );
-    await tester.sendKeyEvent(
-      LogicalKeyboardKey.goBack,
-      physicalKey: PhysicalKeyboardKey.escape,
-      platform: 'android',
-    );
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('quality2160')), findsNothing);
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('quality2160')), findsOneWidget);
-  });
-
-  testWidgets('TV quality D-pad moves focus without changing the draft', (
-    tester,
-  ) async {
-    final backend = await launch(
-      tester,
-      platform: 'android',
-      tv: true,
-      size: const Size(960, 540),
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    expect(find.text('保存并重启'), findsNothing);
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(find.text('保存并重启'), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(backend.savedVideoQuality, '720');
-    expect(backend.stops, 1);
-    expect(find.byKey(const Key('videoQuality')), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('quality720')), findsOneWidget);
-  });
+  test(
+    'Quality persists across reloads without restarting the receiver',
+    () async {
+      final backend = FakeReceiver(capabilities: {'platform': 'android'});
+      final model = ReceiverModel(backend);
+      await model.initialize();
+      await model.save(model.name, model.path, videoQuality: 'auto');
+      expect(backend.stops, 0);
+      await model.save(model.name, model.path, videoQuality: '720');
+      expect(model.videoQuality, '720');
+      expect(backend.stops, 0);
+      final restored = ReceiverModel(backend);
+      await restored.initialize();
+      expect(restored.videoQuality, '720');
+      model.dispose();
+      restored.dispose();
+      await backend.controller.close();
+    },
+  );
 
   testWidgets(
-    'TV quality confirms once; compact quality page supports scaled text',
+    'TV D-pad focus does not select; selection saves without a footer',
     (tester) async {
       final backend = await launch(
         tester,
@@ -1021,17 +1054,14 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('videoQuality')));
       await tester.tap(find.byKey(const Key('videoQuality')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('quality720')));
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
-      expect(backend.stops, 0);
-      await tester.tap(find.text('保存并重启'));
+      expect(backend.savedVideoQuality, isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pumpAndSettle();
       expect(backend.savedVideoQuality, '720');
-      expect(backend.stops, 1);
-      expect(find.byKey(const Key('videoQuality')), findsOneWidget);
-      await tester.ensureVisible(find.byKey(const Key('videoQuality')));
-      await tester.tap(find.byKey(const Key('videoQuality')));
-      await tester.pumpAndSettle();
+      expect(backend.stops, 0);
+      expect(find.text('完成'), findsNothing);
       tester.platformDispatcher.textScaleFactorTestValue = 1.5;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       await tester.binding.setSurfaceSize(const Size(390, 560));
@@ -1135,11 +1165,7 @@ void main() {
         addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
         await launch(tester, locale: locale, size: const Size(390, 560));
         expect(
-          find.text(
-            locale == 'en'
-                ? 'Discoverable · Waiting for iPhone'
-                : '可被发现 · 等待 iPhone',
-          ),
+          find.text(locale == 'en' ? 'Waiting for iPhone' : '等待 iPhone 连接'),
           findsOneWidget,
         );
         await tester.tap(find.byKey(const Key('openSettings')));
@@ -1159,12 +1185,12 @@ void main() {
     final backend = await launch(tester, locale: 'zh');
     tester.platformDispatcher.localesTestValue = const [Locale('en')];
     await tester.pumpAndSettle();
-    expect(find.text('Discoverable · Waiting for iPhone'), findsOneWidget);
+    expect(find.text('Waiting for iPhone'), findsOneWidget);
     expect(backend.starts, 1);
   });
 
   test(
-    'In-flight starts are ignored and save waits for asynchronous stop',
+    'In-flight starts are ignored and settings do not restart reception',
     () async {
       final backend = FakeReceiver(autoStart: false)
         ..startup = Completer<void>();
@@ -1176,9 +1202,9 @@ void main() {
       backend.startup!.complete();
       await first;
       await model.save('Room', '');
-      expect(backend.stops, 1);
+      expect(backend.stops, 0);
       expect(backend.savedName, 'Room');
-      expect(backend.startedName, 'Room');
+      expect(backend.startedName, 'Office');
       model.dispose();
       await backend.controller.close();
     },
@@ -1218,25 +1244,18 @@ void main() {
     model.dispose();
     await backend.controller.close();
   });
-  test(
-    'Rename waits until the stop event, not just the stop request',
-    () async {
-      final backend = FakeReceiver()..shutdown = Completer<void>();
-      final model = ReceiverModel(backend);
-      await model.initialize();
-      final saving = model.save('New Name', '');
-      await Future<void>.delayed(Duration.zero);
-      expect(backend.stops, 1);
-      expect(backend.savedName, isNull);
-      expect(backend.starts, 1);
-      backend.shutdown!.complete();
-      await saving;
-      expect(backend.savedName, 'New Name');
-      expect(backend.starts, 2);
-      model.dispose();
-      await backend.controller.close();
-    },
-  );
+  test('Rename persists during a session without waiting for stop', () async {
+    final backend = FakeReceiver()..shutdown = Completer<void>();
+    final model = ReceiverModel(backend);
+    await model.initialize();
+    backend.state('streaming');
+    await model.save('New Name', '');
+    expect(backend.savedName, 'New Name');
+    expect(backend.stops, 0);
+    expect(model.status, 'streaming');
+    model.dispose();
+    await backend.controller.close();
+  });
 
   testWidgets('Settings log entry opens the dedicated logs page', (
     tester,
@@ -1283,32 +1302,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'TV name confirmation saves immediately and returns to settings',
-    (tester) async {
-      final backend = await launch(
-        tester,
-        platform: 'android',
-        tv: true,
-        size: const Size(960, 540),
-      );
-      await tester.sendKeyEvent(LogicalKeyboardKey.select);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('tvName')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('receiverName')),
-        'Living Room',
-      );
-      await tester.tap(find.text('确认'));
-      await tester.pumpAndSettle();
-      expect(backend.savedName, 'Living Room');
-      expect(backend.stops, 1);
-      expect(backend.starts, 2);
-      expect(find.byKey(const Key('tvName')), findsOneWidget);
-      expect(find.text('完成'), findsNothing);
-    },
-  );
+  testWidgets('TV name saves automatically and survives returning', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('tvName')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('receiverName')),
+      'Living Room',
+    );
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(backend.savedName, 'Living Room');
+    expect(backend.stops, 0);
+    expect(find.byKey(const Key('tvName')), findsOneWidget);
+  });
 
   testWidgets('Sender connection stays on home until a video frame exists', (
     tester,
@@ -1424,7 +1440,7 @@ void main() {
         size: const Size(1024, 768),
       );
       expect(find.byKey(const Key('homeToolbar')), findsOneWidget);
-      expect(find.text('在 iPad 上接收镜像时，请保持应用在前台。'), findsOneWidget);
+      expect(find.text('请保持应用在前台'), findsOneWidget);
       expect(find.byKey(const Key('macWindowBar')), findsNothing);
       frame(backend);
       await tester.pumpAndSettle();
@@ -1455,7 +1471,7 @@ void main() {
         ),
       );
       final backend = await launch(tester, platform: platform);
-      expect(find.text('声音由本设备播放 · 不支持 DRM 内容'), findsOneWidget);
+      expect(find.textContaining('DRM'), findsNothing);
       frame(backend);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('playerPage')));
@@ -1542,7 +1558,6 @@ void main() {
           await tester.tap(find.byKey(Key(key)));
           await tester.pump();
         }
-        await tester.tap(find.text('完成'));
         await tester.pumpAndSettle();
         expect(backend.savedOptions, containsPair('keepInMenuBar', false));
         expect(backend.savedOptions, containsPair('showOnConnect', false));

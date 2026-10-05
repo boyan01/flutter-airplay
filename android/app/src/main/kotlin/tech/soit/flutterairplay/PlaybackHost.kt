@@ -34,6 +34,7 @@ class PlaybackHost(private val context: Context,
     private var pendingStart: MethodChannel.Result? = null
     private var busy = false
     private var running = false
+    val receivingName: String? get() = registrations.firstOrNull()?.info?.serviceName
     private var generation = 0
     private var frames = 0L
     private var decodedWidth = 0
@@ -89,7 +90,6 @@ class PlaybackHost(private val context: Context,
         val metrics = context.resources.displayMetrics
         return mapOf(
             "buildTime" to BuildConfig.BUILD_TIME,
-            "buildVersion" to "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             "audioOutput" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 .getString("audioOutput", "auto")!!,
             "videoQuality" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
