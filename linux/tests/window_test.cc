@@ -17,7 +17,7 @@ constexpr char watcher_xml[] = R"(<node><interface name="org.kde.StatusNotifierW
 </interface></node>)";
 
 GVariant* RemoteCall(GDBusConnection* bus, const char* path, const char* interface,
-                     const char* method, GVariant* args) {
+                     const char* method, GVariant* args, GError** error = nullptr) {
   struct Result { bool done = false; GVariant* value = nullptr; GError* error = nullptr; } result;
   g_dbus_connection_call(bus, item_owner.c_str(), path, interface, method, args,
       nullptr, G_DBUS_CALL_FLAGS_NONE, 5000, nullptr,
@@ -27,6 +27,7 @@ GVariant* RemoteCall(GDBusConnection* bus, const char* path, const char* interfa
         result->done = true;
       }, &result);
   SpinUntil([&] { return result.done; });
+  if (error) { *error = result.error; return result.value; }
   g_assert_no_error(result.error);
   g_assert_nonnull(result.value);
   return result.value;
@@ -49,13 +50,43 @@ int FindMenuItem(GVariant* node, const char* label) {
 }
 
 void TrayAction(GDBusConnection* bus, const char* menu, const char* label) {
-  g_autoptr(GVariant) layout = RemoteCall(bus, menu, "com.canonical.dbusmenu", "GetLayout",
-      g_variant_new("(ii@as)", 0, -1, g_variant_new_strv(nullptr, 0)));
-  g_autoptr(GVariant) root = g_variant_get_child_value(layout, 1);
-  const int id = FindMenuItem(root, label);
-  g_assert_cmpint(id, >=, 0);
-  g_autoptr(GVariant) clicked = RemoteCall(bus, menu, "com.canonical.dbusmenu", "Event",
-      g_variant_new("(isvu)", id, "clicked", g_variant_new_int32(0), 0u));
+  g_test_message("Tray action: %s", label);
+  guint latest_revision = 0;
+  const guint subscription = g_dbus_connection_signal_subscribe(bus, item_owner.c_str(),
+      "com.canonical.dbusmenu", "LayoutUpdated", menu, nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
+      [](GDBusConnection*, const gchar*, const gchar*, const gchar*, const gchar*,
+         GVariant* args, gpointer data) {
+        guint revision; gint parent;
+        g_variant_get(args, "(ui)", &revision, &parent);
+        auto* latest = static_cast<guint*>(data);
+        *latest = std::max(*latest, revision);
+      }, &latest_revision, nullptr);
+  // Window-state callbacks can replace the exported menu while a D-Bus reply
+  // is in flight. Follow LayoutUpdated revisions as a real tray client does.
+  for (int attempt = 0; attempt < 10; ++attempt) {
+    g_autoptr(GVariant) layout = RemoteCall(bus, menu, "com.canonical.dbusmenu", "GetLayout",
+        g_variant_new("(ii@as)", 0, -1, g_variant_new_strv(nullptr, 0)));
+    g_autoptr(GVariant) version = g_variant_get_child_value(layout, 0);
+    const guint revision = g_variant_get_uint32(version);
+    if (latest_revision > revision) continue;
+    g_autoptr(GVariant) root = g_variant_get_child_value(layout, 1);
+    const int id = FindMenuItem(root, label);
+    g_assert_cmpint(id, >=, 0);
+    g_autoptr(GError) error = nullptr;
+    g_autoptr(GVariant) clicked = RemoteCall(bus, menu, "com.canonical.dbusmenu", "Event",
+        g_variant_new("(isvu)", id, "clicked", g_variant_new_int32(0), 0u), &error);
+    if (error) {
+      // Retry only an explicitly invalidated item, never other D-Bus failures.
+      g_assert_nonnull(g_strstr_len(error->message, -1, "does not refer to a menu item"));
+      g_assert_cmpuint(latest_revision, >, revision);
+      continue;
+    }
+    g_assert_nonnull(clicked);
+    g_dbus_connection_signal_unsubscribe(bus, subscription);
+    return;
+  }
+  g_dbus_connection_signal_unsubscribe(bus, subscription);
+  g_error("Tray menu did not stabilize for action %s", label);
 }
 
 void Command(TestMessenger* messenger, const char* method, FlValue* args = nullptr) {

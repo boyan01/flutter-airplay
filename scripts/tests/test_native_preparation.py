@@ -88,6 +88,19 @@ class NativePreparationTest(unittest.TestCase):
         self.assertFalse(cache.exists())
         self.assertTrue((self.root / "native/player/player.cpp").is_file())
 
+    def test_xcode_environment_does_not_mix_platform_targets(self):
+        values = {"IPHONEOS_DEPLOYMENT_TARGET": "18.5", "XROS_DEPLOYMENT_TARGET": "1.3",
+                  "MACOSX_DEPLOYMENT_TARGET": "15.6", "SDKROOT": "/iphone-sdk",
+                  "DEVELOPER_DIR": "/selected-xcode", "SWIFT_DEBUG_INFORMATION_FORMAT": "dwarf"}
+        with patch.dict(native.os.environ, values):
+            for target in ("ios", "macos"):
+                environment = native.native_environment(target)
+                self.assertFalse(any(key.endswith("_DEPLOYMENT_TARGET") for key in environment))
+                self.assertNotIn("SDKROOT", environment)
+                self.assertNotIn("SWIFT_DEBUG_INFORMATION_FORMAT", environment)
+                self.assertEqual(environment["DEVELOPER_DIR"], "/selected-xcode")
+            self.assertEqual(native.os.environ["SDKROOT"], "/iphone-sdk")
+
 
 if __name__ == "__main__":
     unittest.main()

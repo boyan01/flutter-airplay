@@ -14,9 +14,22 @@ import platform
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def native_environment(target):
+    environment = os.environ.copy()
+    if target in ("ios", "macos"):
+        # Xcode exports minimum versions for several platforms at once. Native
+        # scripts select their own SDKs and deployment targets (both iOS slices).
+        for key in list(environment):
+            if key.endswith("_DEPLOYMENT_TARGET") or key in (
+                    "SDKROOT", "SWIFT_DEBUG_INFORMATION_FORMAT", "SWIFT_DEBUG_INFORMATION_VERSION"):
+                environment.pop(key)
+    return environment
+
+
 def host_toolchain(target):
     if target in ("ios", "macos"):
-        return subprocess.check_output(["xcodebuild", "-version"], text=True).strip()
+        return subprocess.check_output(["xcodebuild", "-version"], text=True,
+                                       env=native_environment(target)).strip()
     if target == "windows":
         vswhere = Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Microsoft Visual Studio/Installer/vswhere.exe"
         return subprocess.check_output(
@@ -112,7 +125,8 @@ def inputs(target):
             if path.is_file() and not any(part in (".git", "__pycache__") for part in path.parts):
                 paths.add(path)
     # Resolve host SDK changes as well as source/configuration changes.
-    environment = {key: os.environ.get(key, "") for key in
+    native_env = native_environment(target)
+    environment = {key: native_env.get(key, "") for key in
                    ("ANDROID_HOME", "ANDROID_SDK_ROOT", "DEVELOPER_DIR", "SDKROOT")}
     tools = {}
     for name in ("cmake", "python3", "perl"):
@@ -169,7 +183,7 @@ def ensure(target):
     else:
         script = "scripts/build_receiver.sh" if target == "macos" else f"{target}/scripts/build_native.sh"
         command = ["bash", str(ROOT / script)]
-    subprocess.run(command, cwd=ROOT, check=True)
+    subprocess.run(command, cwd=ROOT, check=True, env=native_environment(target))
     artifacts = outputs(target)
     if not artifacts:
         raise SystemExit(f"{target}: native build did not produce all required artifacts")
