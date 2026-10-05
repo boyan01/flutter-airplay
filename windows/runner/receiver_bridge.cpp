@@ -2,6 +2,7 @@
 #include "receiver_bridge.h"
 #include "build_info.h"
 #include "player.h"
+#include "../../native/player/video_quality.h"
 #include "windows_video.h"
 #include <flutter/event_channel.h>
 #include <flutter/event_stream_handler_functions.h>
@@ -22,6 +23,7 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#include <utility>
 
 namespace {
 using Value = flutter::EncodableValue;
@@ -99,6 +101,7 @@ struct ReceiverBridge::Impl {
     AirplayPlayer *player = nullptr;
     std::string name = "Flutter AirPlay", status = "stopped", message = "接收器未启动", client;
     std::string receiving_name;
+    std::string video_quality = "auto", active_video_quality = "auto";
     std::filesystem::path directory;
     std::array<uint8_t, 6> identity{};
     bool auto_start = true, audio = false, paused = false;
@@ -180,12 +183,25 @@ struct ReceiverBridge::Impl {
         logs.emplace_back(entry); if (logs.size() > 300) logs.erase(logs.begin());
         emit(Map{{Value("type"), Value("log")}, {Value("entry"), Value(entry)}});
     }
+    std::pair<int, int> screen_size() const {
+        MONITORINFOEXW monitor{}; monitor.cbSize = sizeof(monitor);
+        DEVMODEW mode{}; mode.dmSize = sizeof(mode);
+        if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), reinterpret_cast<LPMONITORINFO>(&monitor)) &&
+            EnumDisplaySettingsW(monitor.szDevice, ENUM_CURRENT_SETTINGS, &mode))
+            return {static_cast<int>(mode.dmPelsWidth), static_cast<int>(mode.dmPelsHeight)};
+        return {1920, 1080};
+    }
     Map snapshot() const {
+        const auto screen = screen_size();
+        List qualities;
+        for (const auto* quality : airplay::video_qualities) qualities.emplace_back(quality);
         return Map{{Value("status"), Value(status)}, {Value("message"), Value(message)}, {Value("name"), Value(name)},
             {Value("buildTime"), Value(AIRPLAY_BUILD_TIME)},
+            {Value("videoQuality"), Value(video_quality)}, {Value("videoQualities"), Value(qualities)},
+            {Value("screenWidth"), Value(screen.first)}, {Value("screenHeight"), Value(screen.second)},
             {Value("receivingName"), Value(receiving_name)},
             {Value("defaultName"), Value(default_name())},
-            {Value("activeSettings"), Value(Map{{Value("name"), Value(receiving_name)}, {Value("path"), Value("")}})},
+            {Value("activeSettings"), Value(Map{{Value("name"), Value(receiving_name)}, {Value("path"), Value("")}, {Value("videoQuality"), Value(active_video_quality)}})},
             {Value("path"), Value("")}, {Value("autoStart"), Value(auto_start)},
             {Value("keepInMenuBar"), Value(keep_in_tray)}, {Value("showOnConnect"), Value(show_on_connect)},
             {Value("fullscreenOnConnect"), Value(fullscreen_on_connect)}, {Value("alwaysOnTop"), Value(always_on_top)},
@@ -226,6 +242,7 @@ struct ReceiverBridge::Impl {
             for (auto *option : {&keep_in_tray, &show_on_connect, &fullscreen_on_connect, &always_on_top}) {
                 if (std::getline(settings, saved)) *option = saved != "0";
             }
+            if (std::getline(settings, saved) && airplay::valid_video_quality(saved)) video_quality = saved;
             launch_at_login = login_enabled();
             std::ifstream data(directory / L"identity.dat", std::ios::binary);
             data.read(reinterpret_cast<char *>(identity.data()), identity.size());
@@ -287,6 +304,11 @@ struct ReceiverBridge::Impl {
         if (!string(args, "path").empty()) return "Windows 使用内置接收核心，无需指定路径。";
         if (!valid_name(next)) return "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。";
         if (directory.empty()) return "无法创建接收器的本地配置目录。";
+        const auto quality_arg = args.find(Value("videoQuality"));
+        if (quality_arg != args.end() && !std::holds_alternative<std::string>(quality_arg->second))
+            return "Unknown video quality";
+        const auto quality = string(args, "videoQuality", video_quality);
+        if (!airplay::valid_video_quality(quality)) return "Unknown video quality";
         const auto automatic = bool_argument(args, "autoStart", auto_start);
         const auto keep = bool_argument(args, "keepInMenuBar", keep_in_tray);
         const auto show = bool_argument(args, "showOnConnect", show_on_connect);
@@ -296,11 +318,12 @@ struct ReceiverBridge::Impl {
         if (login != launch_at_login && !set_login(login)) return "无法更新当前用户的登录启动设置。";
         std::ofstream output(directory / L"settings.txt", std::ios::binary | std::ios::trunc);
         output << next << '\n' << (automatic ? '1' : '0') << '\n'
-            << keep << '\n' << show << '\n' << full << '\n' << top << '\n'; output.close();
+            << keep << '\n' << show << '\n' << full << '\n' << top << '\n' << quality << '\n'; output.close();
         if (!output) {
             if (login != launch_at_login) set_login(launch_at_login);
             return "无法保存接收器配置。";
         }
+        video_quality = quality;
         name = std::move(next); auto_start = automatic; keep_in_tray = keep;
         show_on_connect = show; fullscreen_on_connect = full; always_on_top = top; launch_at_login = login;
         return "";
@@ -356,6 +379,14 @@ struct ReceiverBridge::Impl {
         char error[512]{};
         const auto key = utf8((directory / L"airplay-pairing.pem").wstring());
         receiving_name = name;
+        active_video_quality = video_quality;
+        const int request_height = airplay::requested_video_height(video_quality, screen_size().second);
+        const int request_width = airplay::requested_video_width(request_height);
+        if (!airplay_player_set_video_size(player, request_width, request_height)) {
+            stop(); state("error", "Invalid mirroring size"); return message;
+        }
+        log("Receiver request: quality=" + video_quality + ", " + std::to_string(request_width) + "x" +
+            std::to_string(request_height) + ", maxFPS=60; sender chooses actual codec/size/rate");
         if (!airplay_player_start(player, name.c_str(), identity.data(), key.c_str(), error, sizeof(error))) {
             const std::string detail = error; stop(); state("error", detail); return detail;
         }

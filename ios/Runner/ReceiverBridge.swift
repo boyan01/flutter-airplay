@@ -36,7 +36,10 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         methods?.setMethodCallHandler { [weak self] call, result in
             guard let self = self else { return }
             let foreground = UIApplication.shared.applicationState != .background
+            let bounds = UIScreen.main.nativeBounds
+            let screenSize = (width: Int(bounds.width), height: Int(bounds.height))
             self.host.queue.async {
+                self.host.screenSize = screenSize
                 do {
                     let args = call.arguments as? [String: Any] ?? [:]
                     var value: Any?
@@ -45,7 +48,7 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
                     case "applySettings": value = try self.host.applySettings()
                     case "save":
                         try self.host.save(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "",
-                                           autoStart: args["autoStart"] as? Bool)
+                                           autoStart: args["autoStart"] as? Bool, videoQuality: args["videoQuality"] as? String)
                         let snapshot = self.host.snapshot()
                         DispatchQueue.main.async { self.eventSink?(["type": "snapshot", "data": snapshot]) }
                     case "check": try self.host.check(path: args["path"] as? String ?? "")

@@ -55,8 +55,9 @@ final class ReceiverHost {
     private var logs = [[String: Any]]()
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, screenSize: (width: Int, height: Int)? = nil) {
         self.defaults = defaults
+        self.screenSize = screenSize ?? (width: Int(UIScreen.main.nativeBounds.width), height: Int(UIScreen.main.nativeBounds.height))
         if defaults.string(forKey: "receiverName") == nil {
             defaults.set(defaultName(), forKey: "receiverName")
         }
@@ -88,6 +89,18 @@ final class ReceiverHost {
         }
     }
 
+    private let videoQualities = ["auto", "720", "1080", "1440", "2160"]
+    // Captured on the main thread at creation; nativeBounds uses physical pixels.
+    var screenSize: (width: Int, height: Int)
+
+    func requestedVideoSize() -> (width: Int, height: Int) {
+        let quality = defaults.string(forKey: "videoQuality") ?? "auto"
+        let height = quality == "auto"
+            ? min(2160, max(480, screenSize.height)) / 2 * 2
+            : Int(quality) ?? 1080
+        return ((height * 16 / 9 + 1) / 2 * 2, height)
+    }
+
     func snapshot() -> [String: Any] {
         var data: [String: Any] = ["status": status, "message": message, "pid": player == nil ? 0 : getpid(),
             "clientName": clientName, "name": defaults.string(forKey: "receiverName") ?? "Flutter AirPlay",
@@ -95,6 +108,10 @@ final class ReceiverHost {
             "videoWidth": videoWidth, "videoHeight": videoHeight, "logs": logs,
             "audioPlaying": audioPlaying, "videoPaused": videoPaused,
             "autoStart": defaults.object(forKey: "receiverAutoStart") == nil ? true : defaults.bool(forKey: "receiverAutoStart")]
+        data["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
+        data["videoQualities"] = videoQualities
+        data["screenWidth"] = screenSize.width
+        data["screenHeight"] = screenSize.height
         data["defaultName"] = defaultName()
         data["activeSettings"] = activeSettings
         data["receivingName"] = receivingName
@@ -118,7 +135,7 @@ final class ReceiverHost {
         }
         onEvent?(["type": "state", "status": next, "message": detail, "pid": player == nil ? 0 : getpid()])
     }
-    func save(name: String, path: String, autoStart: Bool? = nil, options: [String: Bool] = [:]) throws {
+    func save(name: String, path: String, autoStart: Bool? = nil, videoQuality: String? = nil, options: [String: Bool] = [:]) throws {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ReceiverFailure(message: "iPad 使用内置接收核心，无需指定路径。")
@@ -126,6 +143,12 @@ final class ReceiverHost {
         guard !clean.isEmpty, clean.utf8.count <= 50,
               !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
             throw ReceiverFailure(message: "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。")
+        }
+        if let quality = videoQuality {
+            guard videoQualities.contains(quality) else {
+                throw ReceiverFailure(message: "Unknown video quality")
+            }
+            defaults.set(quality, forKey: "videoQuality")
         }
         defaults.set(clean, forKey: "receiverName")
         if let value = autoStart { defaults.set(value, forKey: "receiverAutoStart") }
@@ -185,7 +208,13 @@ final class ReceiverHost {
         }
         receivingName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         activeSettings = ["name": receivingName, "path": ""]
+        activeSettings["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
         player = native
+        let size = requestedVideoSize()
+        guard airplay_player_set_video_size(native, Int32(size.width), Int32(size.height)) else {
+            stop(); state("error", "Invalid mirroring size"); throw ReceiverFailure(message: message)
+        }
+        log("Receiver request: quality=\(defaults.string(forKey: "videoQuality") ?? "auto"), \(size.width)x\(size.height), maxFPS=60; sender chooses actual codec/size/rate")
         var identity = defaults.data(forKey: "receiverIdentity")
         if identity?.count != 6 {
             var bytes = (0..<6).map { _ in UInt8.random(in: 0...255) }

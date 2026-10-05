@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "windows_pixels.h"
+#include "../../native/player/video_quality.h"
 #undef NDEBUG
 #include <cassert>
 #include <cstdio>
 
 int main() {
+    for (const auto* quality : airplay::video_qualities) assert(airplay::valid_video_quality(quality));
+    assert(!airplay::valid_video_quality("invalid"));
+    assert(!airplay::valid_video_quality(""));
+    for (const auto& size : std::array<std::array<int, 2>, 4>{{{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}}}) {
+        const auto height = airplay::requested_video_height(std::to_string(size[1]), 1080);
+        assert(height == size[1]);
+        assert(airplay::requested_video_width(height) == size[0]);
+    }
+    assert(airplay::requested_video_height("auto", 2670) == 2160);
+    assert(airplay::requested_video_height("auto", 1081) == 1080);
+    assert(airplay::requested_video_height("auto", 0) == 480);
+
     std::vector<uint8_t> rgba;
     const uint8_t black[] = {16, 16, 16, 16, 128, 128};
     assert(airplay::windows_nv12_to_rgba(black, sizeof(black), 2, 2, 2, false, false, rgba));

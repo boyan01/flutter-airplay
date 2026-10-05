@@ -13,7 +13,7 @@ import 'package:mixin_logger/mixin_logger.dart' as logging;
 class FakeReceiver implements ReceiverRepository {
   FakeReceiver({
     this.autoStart = true,
-    this.macVideoQuality = false,
+    this.enableVideoQuality = false,
     this.videoQualities = const ['auto', '720', '1080'],
     this.buildTime,
     this.buildVersion,
@@ -23,7 +23,7 @@ class FakeReceiver implements ReceiverRepository {
     },
   });
   bool autoStart;
-  final bool macVideoQuality;
+  final bool enableVideoQuality;
   final List<String> videoQualities;
   final String? buildTime, buildVersion;
   final Map<String, dynamic>? capabilities;
@@ -66,7 +66,7 @@ class FakeReceiver implements ReceiverRepository {
     'name': savedName ?? 'Flutter AirPlay',
     'path': '',
     'logs': <dynamic>[],
-    if (capabilities?['platform'] == 'android' || macVideoQuality) ...{
+    if (capabilities?['platform'] == 'android' || enableVideoQuality) ...{
       'videoQuality': savedVideoQuality ?? 'auto',
       'audioOutput': savedAudioOutput ?? 'auto',
       'buildTime': '2026-10-04T13:00:00Z',
@@ -96,7 +96,7 @@ class FakeReceiver implements ReceiverRepository {
     activeSettings = {
       'name': name,
       'path': path,
-      if (capabilities?['platform'] == 'android' || macVideoQuality)
+      if (capabilities?['platform'] == 'android' || enableVideoQuality)
         'videoQuality': savedVideoQuality ?? 'auto',
       if (capabilities?['platform'] == 'android')
         'audioOutput': savedAudioOutput ?? 'auto',
@@ -888,7 +888,36 @@ void main() {
     );
   });
 
-  for (final platform in ['android', 'macos']) {
+  for (final platform in ['android', 'macos', 'windows', 'linux', 'ios']) {
+    test(
+      '$platform quality applies after streaming and persists on reload',
+      () async {
+        final backend = FakeReceiver(
+          capabilities: {'platform': platform},
+          enableVideoQuality: true,
+          videoQualities: const ['auto', '720', '1080', '1440', '2160'],
+        );
+        final model = ReceiverModel(backend);
+        await model.initialize();
+        backend.state('streaming');
+        await model.save(model.name, model.path, videoQuality: '1440');
+        expect(model.settingsPending, isTrue);
+        expect(backend.stops, 0);
+        expect(backend.activeSettings['videoQuality'], 'auto');
+        backend.state('waiting');
+        await Future<void>.delayed(Duration.zero);
+        expect(backend.stops, 1);
+        expect(backend.activeSettings['videoQuality'], '1440');
+        expect(model.settingsPending, isFalse);
+        final restored = ReceiverModel(backend);
+        await restored.initialize();
+        expect(restored.videoQuality, '1440');
+        model.dispose();
+        restored.dispose();
+        await backend.controller.close();
+      },
+    );
+
     testWidgets('$platform quality saves on selection and persists on return', (
       tester,
     ) async {
@@ -898,7 +927,7 @@ void main() {
         size: const Size(1000, 900),
         backend: FakeReceiver(
           capabilities: {'platform': platform},
-          macVideoQuality: platform == 'macos',
+          enableVideoQuality: platform != 'android',
           videoQualities: const ['auto', '720', '1080', '1440', '2160'],
         ),
       );

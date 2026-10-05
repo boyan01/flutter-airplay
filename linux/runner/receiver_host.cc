@@ -5,6 +5,8 @@
 #include "discovery.h"
 #include "frame_texture.h"
 #include "native/player/player.h"
+#include "native/player/video_quality.h"
+#include <gdk/gdk.h>
 
 #include <glib/gstdio.h>
 #include <sys/random.h>
@@ -124,6 +126,8 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   std::string config_error;
   std::string name = "Flutter AirPlay";
   std::string receiving_name;
+  std::string video_quality = "auto", active_video_quality = "auto";
+  std::atomic<int> screen_width{1920}, screen_height{1080};
   bool auto_start = true;
   const std::array<const char*, 4> window_keys{
       "keepInMenuBar", "showOnConnect", "fullscreenOnConnect", "alwaysOnTop"};
@@ -229,6 +233,8 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     } else {
       name = DefaultName();
     }
+    g_autofree gchar* quality = g_key_file_get_string(preferences, "Receiver", "videoQuality", nullptr);
+    if (quality && airplay::valid_video_quality(quality)) video_quality = quality;
     if (g_key_file_has_key(preferences, "Receiver", "autoStart", nullptr))
       auto_start = g_key_file_get_boolean(preferences, "Receiver", "autoStart", nullptr);
     for (size_t i = 0; i < window_keys.size(); ++i)
@@ -284,7 +290,15 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     auto active_settings = Own(fl_value_new_map());
     String(active_settings.get(), "name", receiving_name);
     String(active_settings.get(), "path", "");
+    String(active_settings.get(), "videoQuality", active_video_quality);
     fl_value_set_string(data.get(), "activeSettings", active_settings.get());
+    String(data.get(), "videoQuality", video_quality);
+    auto* qualities = fl_value_new_list();
+    for (const auto* quality : airplay::video_qualities)
+      fl_value_append_take(qualities, fl_value_new_string(quality));
+    fl_value_set_string_take(data.get(), "videoQualities", qualities);
+    Integer(data.get(), "screenWidth", screen_width.load());
+    Integer(data.get(), "screenHeight", screen_height.load());
     String(data.get(), "path", "");
     String(data.get(), "clientName", client_name);
     Integer(data.get(), "pid", player ? getpid() : 0);
@@ -429,6 +443,14 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     auto* launch = fl_value_lookup_string(args, "launchAtLogin");
     if (launch && fl_value_get_type(launch) == FL_VALUE_TYPE_BOOL && fl_value_get_bool(launch))
       throw std::runtime_error("Launch at login is not supported by this Linux host.");
+    auto next_quality = video_quality;
+    auto* quality = fl_value_lookup_string(args, "videoQuality");
+    if (quality) {
+      if (fl_value_get_type(quality) != FL_VALUE_TYPE_STRING ||
+          !airplay::valid_video_quality(fl_value_get_string(quality)))
+        throw std::runtime_error("Unknown video quality");
+      next_quality = fl_value_get_string(quality);
+    }
     bool next_auto = auto_start;
     auto* automatic = fl_value_lookup_string(args, "autoStart");
     if (automatic && fl_value_get_type(automatic) == FL_VALUE_TYPE_BOOL)
@@ -442,14 +464,17 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     }
     g_key_file_set_string(preferences, "Receiver", "name", next.c_str());
     g_key_file_set_boolean(preferences, "Receiver", "autoStart", next_auto);
+    g_key_file_set_string(preferences, "Receiver", "videoQuality", next_quality.c_str());
     try { WritePreferences(); }
     catch (...) {
+      g_key_file_set_string(preferences, "Receiver", "videoQuality", video_quality.c_str());
       g_key_file_set_string(preferences, "Receiver", "name", name.c_str());
       g_key_file_set_boolean(preferences, "Receiver", "autoStart", auto_start);
       for (size_t i = 0; i < window_keys.size(); ++i)
         g_key_file_set_boolean(preferences, "Receiver", window_keys[i], window_options[i]);
       throw;
     }
+    video_quality = next_quality;
     name = next;
     auto_start = next_auto;
     window_options = next_options;
@@ -529,6 +554,14 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     }
     char error[512] = {};
     receiving_name = name;
+    active_video_quality = video_quality;
+    const int request_height = airplay::requested_video_height(video_quality, screen_height.load());
+    const int request_width = airplay::requested_video_width(request_height);
+    if (!airplay_player_set_video_size(player, request_width, request_height)) {
+      Fail("Invalid mirroring size"); throw std::runtime_error(message);
+    }
+    LogText("Receiver request: quality=" + video_quality + ", " + std::to_string(request_width) + "x" +
+        std::to_string(request_height) + ", maxFPS=60; sender chooses actual codec/size/rate");
     if (!airplay_player_start(player, name.c_str(), identity.data(), key_path.c_str(),
                                error, sizeof(error))) {
       Fail(SafeText(error));
@@ -574,7 +607,23 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     });
   }
 
+  // GDK is confined to the main thread; the host worker reads only pixel counts.
+  void UpdateScreenSize() {
+    auto* display = gdk_display_get_default();
+    if (!display) return;
+    auto* monitor = gdk_display_get_primary_monitor(display);
+    if (!monitor && gdk_display_get_n_monitors(display) > 0)
+      monitor = gdk_display_get_monitor(display, 0);
+    if (!monitor) return;
+    GdkRectangle geometry{};
+    gdk_monitor_get_geometry(monitor, &geometry);
+    const int scale = gdk_monitor_get_scale_factor(monitor);
+    screen_width = geometry.width * scale;
+    screen_height = geometry.height * scale;
+  }
+
   void Handle(FlMethodCall* call) {
+    UpdateScreenSize();
     const std::string method = fl_method_call_get_name(call);
     if (method != "snapshot" && method != "save" && method != "start" &&
         method != "stop" && method != "check" && method != "applySettings") {
@@ -618,6 +667,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   }
 
   void Install(FlBinaryMessenger* messenger, FlTextureRegistrar* registrar) {
+    UpdateScreenSize();
     binary_messenger = FL_BINARY_MESSENGER(g_object_ref(messenger));
     texture = std::make_unique<FrameTexture>(registrar);
     g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();

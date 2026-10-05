@@ -55,6 +55,27 @@ final class RunnerTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
     }
 
+    func testVideoQualityPersistsAndControlsRequestedSize() throws {
+        try host.queue.sync {
+            host.screenSize = (width: 2732, height: 2048)
+            try host.save(name: "Quality iPad", path: "", videoQuality: "auto")
+            XCTAssertEqual(host.requestedVideoSize().height, 2048)
+            host.screenSize = (width: 3840, height: 2670)
+            XCTAssertEqual(host.requestedVideoSize().height, 2160)
+            for (quality, width, height) in [("720", 1280, 720), ("1080", 1920, 1080),
+                                            ("1440", 2560, 1440), ("2160", 3840, 2160)] {
+                try host.save(name: "Quality iPad", path: "", videoQuality: quality)
+                let restored = ReceiverHost(defaults: defaults, screenSize: host.screenSize)
+                XCTAssertEqual(restored.snapshot()["videoQuality"] as? String, quality)
+                XCTAssertEqual(restored.requestedVideoSize().width, width)
+                XCTAssertEqual(restored.requestedVideoSize().height, height)
+            }
+            XCTAssertThrowsError(try host.save(name: "Rejected", path: "", videoQuality: "invalid"))
+            XCTAssertEqual(host.snapshot()["name"] as? String, "Quality iPad")
+            XCTAssertEqual(host.snapshot()["videoQuality"] as? String, "2160")
+        }
+    }
+
     func testSaveTrimsNameAndPersistsPreferencesWithoutStarting() throws {
         let defaultName = host.queue.sync { host.snapshot()["defaultName"] as? String }
         XCTAssertFalse(try host.queue.sync { try host.applySettings() })

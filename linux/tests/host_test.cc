@@ -65,6 +65,8 @@ static void HostTest() {
     auto* data = fl_method_response_get_result(snapshot, nullptr);
     g_assert_cmpstr(GetString(data, "status"), ==, "stopped");
     g_assert_cmpstr(GetString(data, "path"), ==, "");
+    g_assert_cmpstr(GetString(data, "videoQuality"), ==, "auto");
+    g_assert_cmpuint(fl_value_get_length(fl_value_lookup_string(data, "videoQualities")), ==, 5);
     const char* device_name = GetString(data, "name");
     g_assert_nonnull(device_name);
     g_assert_cmpuint(std::strlen(device_name), >, 0);
@@ -84,6 +86,7 @@ static void HostTest() {
     g_assert_false(fl_value_get_bool(fl_value_lookup_string(capabilities, "supportsExecutablePath")));
     g_assert_false(fl_value_get_bool(fl_value_lookup_string(capabilities, "supportsLaunchAtLogin")));
     g_autoptr(FlValue) settings = Settings("Linux Fixture 测试");
+    fl_value_set_string_take(settings, "videoQuality", fl_value_new_string("1440"));
     fl_value_set_string_take(settings, "keepInMenuBar", fl_value_new_bool(false));
     fl_value_set_string_take(settings, "showOnConnect", fl_value_new_bool(false));
     fl_value_set_string_take(settings, "fullscreenOnConnect", fl_value_new_bool(true));
@@ -91,6 +94,13 @@ static void HostTest() {
     g_autoptr(FlMethodResponse) saved = Call(messenger, "save", settings);
     g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(saved));
     SpinUntil([&] { return snapshots >= 2; });
+    g_autoptr(FlValue) invalid_quality = Settings("Rejected");
+    fl_value_set_string_take(invalid_quality, "videoQuality", fl_value_new_string("invalid"));
+    g_autoptr(FlMethodResponse) quality_rejected = Call(messenger, "save", invalid_quality);
+    g_assert_true(FL_IS_METHOD_ERROR_RESPONSE(quality_rejected));
+    g_autoptr(FlMethodResponse) after_quality = Call(messenger, "snapshot");
+    auto* quality_data = fl_method_response_get_result(after_quality, nullptr);
+    g_assert_cmpstr(GetString(quality_data, "videoQuality"), ==, "1440");
     for (const char* invalid : {"", "bad\nname", "123456789012345678901234567890123456789012345678901"}) {
       g_autoptr(FlValue) args = Settings(invalid);
       g_autoptr(FlMethodResponse) rejected = Call(messenger, "save", args);
@@ -137,6 +147,7 @@ static void HostTest() {
     g_autoptr(FlMethodResponse) snapshot = Call(messenger, "snapshot");
     auto* data = fl_method_response_get_result(snapshot, nullptr);
     g_assert_cmpstr(GetString(data, "name"), ==, "Linux Fixture 测试");
+    g_assert_cmpstr(GetString(data, "videoQuality"), ==, "1440");
     g_assert_false(fl_value_get_bool(fl_value_lookup_string(data, "autoStart")));
     g_assert_false(fl_value_get_bool(fl_value_lookup_string(data, "keepInMenuBar")));
     g_assert_false(fl_value_get_bool(fl_value_lookup_string(data, "showOnConnect")));
