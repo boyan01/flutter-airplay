@@ -10,8 +10,41 @@ import subprocess
 import shutil
 import contextlib
 import platform
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def prepare_windows_make():
+    """Fetch a verified POSIX Make without depending on Flutter build output."""
+    entry = json.loads((ROOT / "android/dependencies.lock.json").read_text())["windows-make"]
+    folder = ROOT / "windows/.cache/tools"
+    folder.mkdir(parents=True, exist_ok=True)
+    archive = folder / f"make-{entry['version']}.pkg.tar.zst"
+    package = archive.read_bytes() if archive.is_file() else b""
+    if hashlib.sha256(package).hexdigest() != entry["sha256"]:
+        print("Downloading pinned Windows GNU Make...", flush=True)
+        with urllib.request.urlopen(entry["url"], timeout=60) as response:
+            package = response.read()
+        if hashlib.sha256(package).hexdigest() != entry["sha256"]:
+            raise SystemExit("Windows GNU Make package SHA-256 mismatch")
+        temporary = archive.with_suffix(".download")
+        temporary.write_bytes(package)
+        temporary.replace(archive)
+    # Extract only the executable: archive paths cannot escape the cache.
+    # Windows' built-in bsdtar supports the MSYS2 zstd package format.
+    tar = str(Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/tar.exe")
+    result = subprocess.run([tar, "-xOf", str(archive), "usr/bin/make.exe"],
+                            check=True, capture_output=True)
+    if not result.stdout:
+        raise SystemExit("Windows GNU Make package has no executable")
+    executable = folder / "usr/bin/make.exe"
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    if not executable.is_file() or executable.read_bytes() != result.stdout:
+        temporary = executable.with_suffix(".download")
+        temporary.write_bytes(result.stdout)
+        temporary.replace(executable)
+    return executable
 
 
 def native_environment(target):
@@ -193,10 +226,15 @@ def ensure(target):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--prepare-windows-make", action="store_true")
     parser.add_argument("target", choices=("android", "macos", "ios", "windows"))
     parser.add_argument("--prepare-dependencies", action="store_true")
     args = parser.parse_args()
-    if args.prepare_dependencies:
+    if args.prepare_windows_make:
+        if args.target != "windows":
+            parser.error("--prepare-windows-make requires windows")
+        print(prepare_windows_make().resolve())
+    elif args.prepare_dependencies:
         prepare_dependencies(args.target)
     else:
         with build_lock(args.target):

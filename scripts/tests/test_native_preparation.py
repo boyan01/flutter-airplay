@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import importlib.util
+import hashlib
+import io
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -100,6 +103,63 @@ class NativePreparationTest(unittest.TestCase):
                 self.assertNotIn("SWIFT_DEBUG_INFORMATION_FORMAT", environment)
                 self.assertEqual(environment["DEVELOPER_DIR"], "/selected-xcode")
             self.assertEqual(native.os.environ["SDKROOT"], "/iphone-sdk")
+
+
+class WindowsMakePreparationTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        root_patch = patch.object(native, "ROOT", self.root)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        self.package = b"verified package"
+        lock = self.root / "android/dependencies.lock.json"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"windows-make": {
+            "version": "test", "url": "https://example.invalid/make.pkg.tar.zst",
+            "sha256": hashlib.sha256(self.package).hexdigest()}}))
+        self.download = patch.object(native.urllib.request, "urlopen",
+                                     side_effect=lambda *args, **kwargs: io.BytesIO(self.package))
+        self.open = self.download.start()
+        self.addCleanup(self.download.stop)
+        self.extract = patch.object(native.subprocess, "run",
+                                    return_value=subprocess.CompletedProcess([], 0, stdout=b"make executable"))
+        self.tar = self.extract.start()
+        self.addCleanup(self.extract.stop)
+
+    def test_download_cache_and_modified_executable_repair(self):
+        executable = native.prepare_windows_make()
+        self.assertEqual(executable.read_bytes(), b"make executable")
+        self.assertFalse(executable.is_relative_to(self.root / "build"))
+        executable.write_bytes(b"corrupted executable")
+        native.prepare_windows_make()
+        self.assertEqual(executable.read_bytes(), b"make executable")
+        self.assertEqual(self.open.call_count, 1)
+        self.assertEqual(self.tar.call_args.args[0][-1], "usr/bin/make.exe")
+
+    def test_bad_download_never_extracts_or_installs(self):
+        self.open.side_effect = lambda *args, **kwargs: io.BytesIO(b"wrong package")
+        with self.assertRaisesRegex(SystemExit, "SHA-256 mismatch"):
+            native.prepare_windows_make()
+        self.tar.assert_not_called()
+        self.assertFalse((self.root / "windows/.cache/tools/usr/bin/make.exe").exists())
+
+    def test_corrupt_package_cache_is_downloaded_again(self):
+        native.prepare_windows_make()
+        archive = self.root / "windows/.cache/tools/make-test.pkg.tar.zst"
+        archive.write_bytes(b"damaged cache")
+        native.prepare_windows_make()
+        self.assertEqual(self.open.call_count, 2)
+        self.assertEqual(archive.read_bytes(), self.package)
+
+    def test_network_failure_can_be_retried(self):
+        self.open.side_effect = OSError("offline")
+        with self.assertRaisesRegex(OSError, "offline"):
+            native.prepare_windows_make()
+        self.tar.assert_not_called()
+        self.open.side_effect = lambda *args, **kwargs: io.BytesIO(self.package)
+        self.assertTrue(native.prepare_windows_make().is_file())
 
 
 if __name__ == "__main__":

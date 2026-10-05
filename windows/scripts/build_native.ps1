@@ -27,29 +27,42 @@ if (-not $Bash) {
     }
 }
 if (-not (Test-Path $Bash)) { throw 'Git Bash is required. Pass -Bash with a bash.exe path if using MSYS2.' }
-if (-not $Make) {
-    $bundledMake = Join-Path (Split-Path $Bash) '../usr/bin/make.exe'
-    if (Test-Path $bundledMake) { $Make = (Resolve-Path $bundledMake).Path }
-    if (-not $Make -and (Test-Path (Join-Path $root 'build/windows-tools/make.exe'))) {
-        $Make = Join-Path $root 'build/windows-tools/make.exe'
-    }
-    foreach ($name in @('make', 'gmake')) {
-        if ($Make) { break }
-        $command = Get-Command $name -ErrorAction SilentlyContinue
-        if ($command) { $Make = $command.Source; break }
-    }
-}
-if (-not $Make) { throw 'MSYS2 GNU Make is required for FFmpeg. Add it to PATH or pass -Make with its path.' }
 # A script file preserves shell quoting under both Windows PowerShell 5 and pwsh.
 $probeDirectory = Join-Path $root 'build/native-preparation'
 New-Item -ItemType Directory -Force $probeDirectory | Out-Null
 $makeProbe = Join-Path $probeDirectory 'check_make.sh'
 [IO.File]::WriteAllText($makeProbe, '"$1" --version' + "`n", (New-Object Text.UTF8Encoding($false)))
-$makeVersion = & $Bash --noprofile --norc $makeProbe $Make
-if ($LASTEXITCODE -ne 0 -or $makeVersion[0] -notmatch 'GNU Make' -or
-    ($makeVersion -join "`n") -notmatch 'Built for .*-(msys|cygwin)') {
-    throw 'FFmpeg requires an MSYS2/Cygwin GNU Make that understands POSIX paths; native Windows make is incompatible.'
+if (-not $Make) {
+    $candidates = @(
+        (Join-Path (Split-Path $Bash) 'make.exe'),
+        (Join-Path (Split-Path $Bash) '../usr/bin/make.exe')
+    )
+    foreach ($name in @('make', 'gmake')) {
+        $candidates += @(Get-Command $name -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+    }
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        try {
+            $version = @(& $Bash --noprofile --norc $makeProbe $candidate 2>&1)
+            if ($LASTEXITCODE -eq 0 -and ($version -join "`n") -match 'GNU Make' -and
+                ($version -join "`n") -match 'Built for .*-(msys|cygwin)') {
+                $Make = (Resolve-Path -LiteralPath $candidate).Path
+                break
+            }
+        } catch { continue }
+    }
 }
+if (-not $Make) {
+    $downloadedMake = & python (Join-Path $root 'scripts/ensure_native.py') windows --prepare-windows-make
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the pinned Windows GNU Make tool.' }
+    $Make = ($downloadedMake | Select-Object -Last 1).Trim()
+}
+$makeVersion = @(& $Bash --noprofile --norc $makeProbe $Make)
+if ($LASTEXITCODE -ne 0 -or ($makeVersion -join "`n") -notmatch 'GNU Make' -or
+    ($makeVersion -join "`n") -notmatch 'Built for .*-(msys|cygwin)') {
+    throw "FFmpeg requires MSYS2/Cygwin GNU Make; selected: $Make. Install MSYS2 make (pacman -S make), or set AIRPLAY_MAKE to its make.exe path. Native Windows make is incompatible."
+}
+Write-Host "Windows build tools: Bash=$Bash Make=$Make"
 $lock = Get-Content (Join-Path $root 'android/dependencies.lock.json') -Raw | ConvertFrom-Json
 & python (Join-Path $root 'scripts/ensure_native.py') windows --prepare-dependencies
 if ($LASTEXITCODE -ne 0) { throw 'Could not prepare native dependency cache.' }
@@ -130,5 +143,5 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $native 'Release/ffmpeg-licenses') | Out-Null
     Copy-Item (Join-Path $cache 'ffmpeg-aac/licenses/*') (Join-Path $native 'Release/ffmpeg-licenses') -Force
 } finally { Pop-Location }
-Write-Host 'Windows native player built. Run the pinned Flutter SDK: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
+Write-Host 'Windows native player built. Run the latest Flutter stable SDK: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
 if ($Tests) { Write-Host 'Native fixtures built. Run them with: bash scripts/test_native.sh windows' }

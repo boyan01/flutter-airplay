@@ -13,9 +13,9 @@
 
 ## 日常开发
 
-命令均从仓库根目录执行。使用 `.fvmrc` 固定的 Flutter SDK；以下统一写 `flutter`，
-使用 FVM 时替换为 `fvm flutter`。会在内部调用 Flutter 的脚本也需要 PATH 中的 SDK
-与 `.fvmrc` 一致。首次设置或依赖变化后执行：
+命令均从仓库根目录执行，默认使用最新的 Flutter stable SDK。确保 PATH 中的 `flutter`
+来自 stable 通道；切换通道或更新 SDK 时执行 `flutter channel stable` 和 `flutter upgrade`。
+会在内部调用 Flutter 的脚本也使用 PATH 中的 SDK。首次设置或依赖变化后执行：
 
 ```sh
 flutter pub get
@@ -73,7 +73,7 @@ sdkmanager "ndk;$(sed -n 's/^airplay\.ndkVersion=//p' android/gradle.properties)
 
 SDK 安装在其他位置时修改 `ANDROID_HOME`，也兼容已有 `ANDROID_SDK_ROOT` 配置。
 NDK 版本统一由 `android/gradle.properties` 的 `airplay.ndkVersion` 指定，Gradle、原生脚本和 CI
-共用它。当前基线与 Flutter 3.47.2 的默认 NDK 一致；升级 NDK 时修改这一项并验证原生构建与播放。
+共用它。升级 NDK 时修改这一项并验证原生构建与播放。
 原生与 OpenSSL 构建目录按 NDK 版本隔离，避免升级后复用旧工具链产物。
 依赖缓存位于 `android/.cache/`，原生输出位于 `build/android-native-arm64-<ndk-version>/`，JNI 库复制到
 `android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so`。缺失 JNI 库时应用打包会失败。
@@ -94,14 +94,16 @@ NDK 版本统一由 `android/gradle.properties` 的 `airplay.ndkVersion` 指定�
 ### Windows
 
 Windows x64 构建自动加载 Visual Studio 2022 x64 工具环境。安装 C++ 桌面开发、
-Windows 10/11 SDK、Visual Studio Clang tools、CMake、Git、Python 3.10+、Perl，以及 MSYS2 Bash / GNU Make
-（MSYS2 中使用 `pacman -S make`）。工具必须能从当前终端访问。
+Windows 10/11 SDK、Visual Studio Clang tools、CMake、Git（含 Git Bash）、Python 3.10+ 和 Perl。
+工具必须能从当前终端访问。缺少兼容 GNU Make 时，原生构建会自动下载 lock 文件中的
+MSYS2 版本并校验 SHA-256，缓存至 `windows/.cache/tools/`，不受 `flutter clean` 影响。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build_native.ps1 -Bash C:/msys64/usr/bin/bash.exe -Make C:/msys64/usr/bin/make.exe
+powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build_native.ps1
 ```
 
-默认检测 `C:/msys64/usr/bin`，也可通过 `AIRPLAY_BASH` / `AIRPLAY_MAKE` 环境变量指定路径，
+默认检测 MSYS2 或 Git Bash，以及可用的 MSYS2/Cygwin GNU Make；也可通过
+`AIRPLAY_BASH` / `AIRPLAY_MAKE` 环境变量指定路径，
 供 `flutter run` 自动构建使用；独立脚本仍支持 `-Bash` / `-Make`。Python 必须可通过 `python` 执行。
 路径按本机安装位置调整。FFmpeg 要求支持 POSIX 路径的 MSYS2/Cygwin GNU Make，
 Strawberry Perl 附带的原生 Windows Make 不适用。
@@ -165,7 +167,7 @@ Dart 使用 Flutter 自带命令，无需额外脚本。Native 入口默认运�
 ### GitHub Actions
 
 `CI` 在 PR 和推送到 `main` 时运行，也可在 Actions 页面手动启动全部平台任务。
-Flutter 版本读取 `.fvmrc`，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
+各平台使用最新的 Flutter stable，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
 独立原生脚本仍使用自身的优化配置。
 
 | 任务 | 覆盖 |
@@ -189,6 +191,12 @@ Windows Server runner 会检查并启用 Media Foundation，软件解码使用�
 Android 播放器 fixture 与应用集成测试要求 arm64 设备，目前不在托管 CI 中运行；
 macOS 全屏窗口测试、真实投屏发现、设备音频/视频输出及音画同步仍需目标设备验证。
 CI 的编译与合成媒体结果不能替代这些检查。
+
+GitHub 托管 runner（`GITHUB_ACTIONS=true` 且 `RUNNER_ENVIRONMENT=github-hosted`）
+跳过 macOS 的 30ms 实时到达抖动断言和 Linux 的真实 Flutter 标题拖动/关闭测试：
+虚拟主机调度不能保证实时上限，Xvfb 下的拖动路径出现 GDK event device 错误。
+跳过时输出明确的 `SKIP` 原因；其他视频、暂停恢复、GTK/托盘生命周期测试照常运行。
+本地及 self-hosted runner 保留这两项检查。
 
 ### Dart
 

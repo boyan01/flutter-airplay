@@ -143,10 +143,14 @@ android_host() (
         -DUXPLAY_SOURCE="$project_root/vendor/UxPlay" \
         -DPLIST_SOURCE="$project_root/android/.cache/deps/libplist" -DCRYPTO_PREFIX="${HOST_CRYPTO_PREFIX:-}"
     if [[ "${1:-host}" == rtp ]]; then
-        cmake --build "$project_root/build/android-core-host" --target rtp_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1
+        cmake --build "$project_root/build/android-core-host" --target rtp_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1 || {
+            cat "$project_root/artifacts/android/native-host.log" >&2; exit 1;
+        }
         "$project_root/build/android-core-host/rtp_test" | tee "$project_root/artifacts/android/rtp-test.log"
     else
-        cmake --build "$project_root/build/android-core-host" --target receiver_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1
+        cmake --build "$project_root/build/android-core-host" --target receiver_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1 || {
+            cat "$project_root/artifacts/android/native-host.log" >&2; exit 1;
+        }
         "$project_root/build/android-core-host/receiver_test" | tee "$project_root/artifacts/android/core-test.log"
     fi
 )
@@ -271,6 +275,10 @@ linux_tests() (
 )
 
 linux_window() (
+    if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+      echo 'SKIP: real Flutter caption drag is unsupported in the hosted Xvfb environment (GDK event device errors). GTK/window lifecycle tests still run.'
+      exit 0
+    fi
     for command in xvfb-run dbus-run-session openbox xdotool python3; do
       command -v "$command" >/dev/null || { echo "Missing window test dependency: $command" >&2; exit 1; }
     done
@@ -318,7 +326,7 @@ windows_tests() {
     if [[ $# -gt 0 && "$1" != -* ]]; then suite="$1"; shift; fi
     local test_args=(--no-tests=error)
     case "$suite" in
-        player) test_args+=(-R '^windows_(pixels|compat|httpd|audio_decode_recovery)$') ;;
+        player) test_args+=(-R '^windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery)$') ;;
         video) test_args+=(-R '^windows_(video|hevc_software)$') ;;
         all) ;;
         *) fail "Unknown Windows suite: $suite. Use --help." ;;

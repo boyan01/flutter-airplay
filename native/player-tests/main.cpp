@@ -73,16 +73,24 @@ int main() {
                 ++frames; video_width = w; video_height = h;
             }, [](const char *) {}
         });
-        check(video->decode({{std::begin(landscape), std::end(landscape)}, monotonic_ns(), 7}), "decode landscape H.264");
-        video->drain();
+        // Cold VideoToolbox startup on virtual hosts can exceed the player's
+        // late-frame budget. Give pixel/size fixtures a future deadline and
+        // drain until presentation; timing is checked separately below.
+        auto present = [&](const auto &fixture, int expected) {
+            check(video->decode({{std::begin(fixture), std::end(fixture)}, monotonic_ns() + kSecond, 7}), "decode H.264 pixel fixture");
+            const auto until = monotonic_ns() + 3 * kSecond;
+            while (frames < expected && monotonic_ns() < until) {
+                video->drain();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        };
+        present(landscape, 1);
         check(frames == 1 && video_width == landscape_width && video_height == landscape_height, "real landscape dimensions");
         video->reset();
         check(video->decode({{0,0,0,1,0x41,0x01}, due, 7}) && frames == 1, "reset waits for a keyframe");
-        check(video->decode({{std::begin(portrait), std::end(portrait)}, monotonic_ns(), 7}), "decode portrait after reset");
-        video->drain();
+        present(portrait, 2);
         check(frames == 2 && video_width == landscape_height && video_height == landscape_width, "rotation creates new decoder dimensions");
-        check(video->decode({{std::begin(landscape), std::end(landscape)}, monotonic_ns(), 7}), "changed SPS without explicit reset");
-        video->drain();
+        present(landscape, 3);
         check(frames == 3 && video_width == landscape_width, "SPS change replaces decoder session");
         {
             using namespace reorder_fixtures;
