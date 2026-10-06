@@ -35,6 +35,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!length || length >= executable.size()) { CloseHandle(instance_mutex); return EXIT_FAILURE; }
   executable.resize(length);
   flutter::DartProject project((std::filesystem::path(executable).parent_path() / L"data").wstring());
+  // nativeapi window calls must execute on the HWND owner thread.
+  project.set_ui_thread_policy(flutter::UIThreadPolicy::RunOnPlatformThread);
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();

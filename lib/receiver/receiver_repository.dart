@@ -20,6 +20,7 @@ abstract class ReceiverRepository {
     String? videoQuality,
     String? audioOutput,
     bool? fastPairing,
+    bool? showPlaybackStats,
     Map<String, bool> desktopOptions = const {},
   });
   Future<void> start(String name, String path);
@@ -144,6 +145,7 @@ class NativeReceiverRepository implements ReceiverRepository {
     String? videoQuality,
     String? audioOutput,
     bool? fastPairing,
+    bool? showPlaybackStats,
     Map<String, bool> desktopOptions = const {},
   }) => _save({
     'name': name,
@@ -152,6 +154,7 @@ class NativeReceiverRepository implements ReceiverRepository {
     'videoQuality': ?videoQuality,
     'audioOutput': ?audioOutput,
     'fastPairing': ?fastPairing,
+    'showPlaybackStats': ?showPlaybackStats,
     ...desktopOptions,
   });
   Future<void> _save(Map<String, dynamic> patch) {

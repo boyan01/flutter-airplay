@@ -7,32 +7,42 @@ import 'package:flutter/services.dart';
 import '../app/app_logging.dart';
 import '../receiver/receiver_model.dart';
 import '../platform/window_controller.dart';
+import '../platform/desktop_presentation.dart';
 import 'widgets/receiver_strings.dart';
 import 'home/home_page.dart';
 import 'playback/audio_page.dart';
 import 'playback/player_page.dart';
 import 'settings/settings_page.dart';
 import 'logs/logs_page.dart';
-import 'widgets/desktop_window_bar.dart';
 
 class ReceiverScreen extends StatefulWidget {
-  const ReceiverScreen({super.key, required this.model});
+  const ReceiverScreen({
+    super.key,
+    required this.model,
+    this.window = const WindowController(),
+    this.onControlsVisibility,
+    this.onDialogVisibility,
+    this.onWindowExpanded,
+  });
   final ReceiverModel model;
+  final WindowController window;
+  final ValueChanged<bool>? onControlsVisibility,
+      onDialogVisibility,
+      onWindowExpanded;
 
   @override
   State<ReceiverScreen> createState() => _ReceiverScreenState();
 }
 
 class _ReceiverScreenState extends State<ReceiverScreen> {
-  static const _window = WindowController();
+  WindowController get _window => widget.window;
   final _homeFocus = FocusNode(debugLabel: 'Home action');
   bool _dialogOpen = false;
-  bool _maximized = false;
-  String _windowLocale = '';
+  late final DesktopPresentation _desktop;
   bool _playing = false;
+  String _orientationMode = '';
   bool _connected = false;
   String _homeAction = '';
-  String _presentationMode = '';
   double _displayRefreshRate = 60;
   late final FlutterFrameDiagnostics _frameDiagnostics;
   ReceiverModel get model => widget.model;
@@ -44,11 +54,39 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       isPlaying: () => mounted && model.hasVideo && !model.videoPaused,
       refreshRate: () => _displayRefreshRate,
     );
-    _window.listen((action, expanded) async {
+    _desktop = DesktopPresentation(
+      window: _window,
+      model: model,
+      onAction: _windowAction,
+      onError: _windowError,
+    );
+    _window.listen(_windowAction);
+    model.addListener(_changed);
+    model.initialize();
+  }
+
+  Future<void> _windowAction(WindowAction action, bool expanded) async {
+    try {
       if (!mounted) return;
-      if (action == WindowAction.openSettings) {
+      if (action == WindowAction.quitApp) {
+        await _window.execute(WindowCommand.quitApp);
+      } else if (action == WindowAction.openApp) {
+        await _desktop.show();
+      } else if (action == WindowAction.closeRequested) {
+        await _desktop.hide(
+          disconnect: model.hasVideo || model.status == 'streaming',
+        );
+      } else if (action == WindowAction.actualSize) {
+        await _desktop.resize(actualSize: true);
+      } else if (action == WindowAction.fitScreen) {
+        await _desktop.resize();
+      } else if (action == WindowAction.windowTransitionStarted) {
+        _desktop.transitionStarted();
+      } else if (action == WindowAction.openSettings) {
+        if (model.supportsWindowPreferences) await _desktop.show();
         await _settings();
       } else if (action == WindowAction.openLogs) {
+        if (model.supportsWindowPreferences) await _desktop.show();
         await _logs();
       } else if (action == WindowAction.toggleReceiver) {
         if (model.canStop) {
@@ -67,62 +105,62 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
             'alwaysOnTop': !model.desktopOptions['alwaysOnTop']!,
           },
         );
-      } else if (action == WindowAction.windowStateChanged) {
-        setState(() => _maximized = expanded);
+      } else if (action == WindowAction.toggleFullscreen) {
+        await _toggleFullscreen();
+      } else if (action == WindowAction.enterFullscreen) {
+        await _toggleFullscreen(target: true);
+      } else if (action == WindowAction.minimizeWindow) {
+        await _window.execute(WindowCommand.minimizeWindow);
+      } else if (action == WindowAction.toggleMaximize) {
+        await _window.execute(WindowCommand.toggleMaximize);
+      } else if (action == WindowAction.windowStateChanged ||
+          action == WindowAction.nativeWindowStateChanged) {
+        final current = await _desktop.stateChanged(
+          transitionCompleted: action == WindowAction.windowStateChanged,
+        );
+        widget.onWindowExpanded?.call(expanded || current);
       }
-    });
-    model.addListener(_changed);
-    model.initialize();
+    } on MissingPluginException {
+      // Widget tests do not have a desktop host.
+    } on PlatformException catch (error) {
+      _windowError(error);
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _displayRefreshRate = View.of(context).display.refreshRate;
-    _setWindowStrings();
+    _updateDesktop();
   }
 
-  Future<void> _setWindowStrings() async {
-    if (!model.loaded || !{'windows', 'linux'}.contains(model.platform)) return;
-    final locale = Localizations.localeOf(context).toLanguageTag();
-    if (_windowLocale == locale) return;
-    _windowLocale = locale;
-    final strings = l10n(context);
+  Future<void> _updateDesktop() async {
+    if (!mounted) return;
     try {
-      await _window.setStrings({
-        'openApp': strings.openApp,
-        'showPlayer': strings.showPlayer,
-        'receive': strings.receive,
-        'disconnect': strings.disconnect,
-        'settings': strings.settings,
-        'logs': strings.logs,
-        'quitApp': strings.quitApp,
-        'discoverable': strings.discoverable,
-        'off': strings.off,
-        'starting': strings.starting,
-        'unavailable': strings.unavailable,
-        'playing': strings.playing,
-        'audioPlaying': strings.audioPlaying,
-        'actualSize': strings.actualSize,
-        'fitScreen': strings.fitScreen,
-        'alwaysOnTop': strings.alwaysOnTop,
-        'enterFullscreen': strings.enterFullscreen,
-        'exitFullscreen': strings.exitFullscreen,
-      });
+      await _desktop.update(l10n(context));
     } on MissingPluginException {
-      // A widget-test host has no native presentation adapter.
+      // Widget tests do not have a desktop host.
+    } on PlatformException catch (error) {
+      _windowError(error);
     }
   }
 
+  void _windowError(PlatformException error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error.message ?? l10n(context).fullscreenFailed)),
+    );
+  }
+
   void _changed() {
-    _setWindowStrings();
+    _updateDesktop();
     final playing = model.hasVideo;
-    final mode = playing
-        ? 'player:${model.videoWidth}:${model.videoHeight}'
-        : 'home';
-    if (model.loaded && mode != _presentationMode) {
-      _presentationMode = mode;
-      _setWindowMode(playing);
+    if (model.loaded && model.platform == 'android') {
+      final mode = '$playing:${model.videoWidth}:${model.videoHeight}';
+      if (_orientationMode != mode) {
+        _orientationMode = mode;
+        _updateOrientation(playing);
+      }
     }
     if (playing != _playing) {
       _playing = playing;
@@ -161,23 +199,17 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     }
   }
 
-  Future<void> _setWindowMode(bool playing) async {
+  Future<void> _updateOrientation(bool playing) async {
     try {
-      await _window.setMode(
+      await _window.setPlaybackOrientation(
         playing: playing,
         width: model.videoWidth,
         height: model.videoHeight,
       );
     } on MissingPluginException {
-      // A widget-test host has no native presentation adapter.
+      // Widget tests do not have an Android host.
     } on PlatformException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error.message ?? l10n(context).fullscreenFailed),
-          ),
-        );
-      }
+      _windowError(error);
     }
   }
 
@@ -197,11 +229,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   Future<void> _toggleFullscreen({bool? target}) async {
     if (!{'macos', 'windows', 'linux'}.contains(model.platform)) return;
     try {
-      await _window.execute(
-        target == false
-            ? WindowCommand.exitFullscreen
-            : WindowCommand.toggleFullscreen,
-      );
+      await _window.execute(switch (target) {
+        true => WindowCommand.enterFullscreen,
+        false => WindowCommand.exitFullscreen,
+        null => WindowCommand.toggleFullscreen,
+      });
     } on MissingPluginException {
       // A widget-test host has no native window.
     } on PlatformException catch (error) {
@@ -219,6 +251,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   void dispose() {
     _frameDiagnostics.dispose();
     _window.listen(null);
+    _desktop.dispose();
     model.removeListener(_changed);
     _homeFocus.dispose();
     model.dispose();
@@ -239,14 +272,6 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
           const SingleActivator(LogicalKeyboardKey.period, control: true): () {
             if (!_dialogOpen && model.status == 'streaming') model.disconnect();
           },
-          const SingleActivator(LogicalKeyboardKey.f11): _toggleFullscreen,
-          const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (!_dialogOpen) _toggleFullscreen(target: false);
-          },
-          const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
-              _window.execute(WindowCommand.closeWindow),
-          const SingleActivator(LogicalKeyboardKey.keyQ, control: true): () =>
-              _window.execute(WindowCommand.quitApp),
         },
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true):
             _toggleReceiver,
@@ -268,17 +293,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                 onFullscreen: _toggleFullscreen,
                 onEscape: () => _toggleFullscreen(target: false),
                 dialogOpen: _dialogOpen,
-                maximized: _maximized,
+                onControlsVisibility: widget.onControlsVisibility,
               )
             : SafeArea(
                 child: Column(
                   children: [
-                    if (model.supportsWindowPreferences)
-                      DesktopWindowBar(
-                        title: 'Flutter AirPlay',
-                        platform: model.platform,
-                        maximized: _maximized,
-                      ),
                     Expanded(
                       child: model.showAudioPage
                           ? AudioPage(
@@ -304,6 +323,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   Future<void> _settings({bool editName = false}) async {
     if (_dialogOpen || !model.loaded) return;
     setState(() => _dialogOpen = true);
+    widget.onDialogVisibility?.call(true);
     final page = SettingsPage(model: model, editName: editName, onLogs: _logs);
     if (model.supportsWindowPreferences) {
       await showGeneralDialog<void>(
@@ -311,26 +331,9 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         barrierDismissible: true,
         barrierLabel: MaterialLocalizations.of(context)
             .modalBarrierDismissLabel,
-        pageBuilder: (context, animation, secondary) => Column(
-          children: [
-            Material(
-              child: DesktopWindowBar(
-                title: 'Flutter AirPlay',
-                platform: model.platform,
-                maximized: _maximized,
-              ),
-            ),
-            Expanded(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: 480,
-                  height: double.infinity,
-                  child: page,
-                ),
-              ),
-            ),
-          ],
+        pageBuilder: (context, animation, secondary) => Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(width: 480, height: double.infinity, child: page),
         ),
         transitionBuilder: (context, animation, secondary, child) =>
             SlideTransition(
@@ -347,16 +350,19 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     }
     if (!mounted) return;
     setState(() => _dialogOpen = false);
+    widget.onDialogVisibility?.call(false);
     _restoreFocus();
   }
 
   Future<void> _logs() async {
     if (_dialogOpen) return;
     setState(() => _dialogOpen = true);
+    widget.onDialogVisibility?.call(true);
     await Navigator.of(context)
         .push<void>(MaterialPageRoute(builder: (_) => LogsPage(model: model)));
     if (mounted) {
       setState(() => _dialogOpen = false);
+      widget.onDialogVisibility?.call(false);
       _restoreFocus();
     }
   }

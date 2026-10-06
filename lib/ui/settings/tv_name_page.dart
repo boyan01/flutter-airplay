@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../receiver/receiver_model.dart';
 import '../widgets/receiver_strings.dart';
 import '../widgets/receiver_name_field.dart';
+import '../receiver_back.dart';
 
 class TvNamePage extends StatefulWidget {
   const TvNamePage({super.key, required this.model});
@@ -52,26 +53,34 @@ class TvNamePageState extends State<TvNamePage> {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.model,
-    builder: (context, _) => Scaffold(
-      appBar: AppBar(title: Text(l10n(context).name)),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(48),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ReceiverNameField(
-                controller: _name,
-                defaultName: widget.model.defaultName,
-                television: true,
-                enabled: widget.model.loaded,
-                error: _error,
-                onGenerated: () => setState(() => _error = null),
-                onSubmitted: _save,
+    builder: (context, _) => PopScope(
+      canPop: !widget.model.busy,
+      child: CallbackShortcuts(
+        bindings: receiverBackShortcuts(widget.model.platform, () {
+          if (!widget.model.busy) Navigator.pop(context);
+        }),
+        child: Scaffold(
+          appBar: AppBar(title: Text(l10n(context).name)),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(48),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ReceiverNameField(
+                    controller: _name,
+                    defaultName: widget.model.defaultName,
+                    television: true,
+                    enabled: widget.model.loaded,
+                    error: _error,
+                    onGenerated: () => setState(() => _error = null),
+                    onSubmitted: _save,
+                  ),
+                  const SizedBox(height: 24),
+                  Text(l10n(context).settingsApplyHelp),
+                ],
               ),
-              const SizedBox(height: 24),
-              Text(l10n(context).settingsApplyHelp),
-            ],
+            ),
           ),
         ),
       ),

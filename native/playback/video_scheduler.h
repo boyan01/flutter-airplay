@@ -13,6 +13,11 @@ constexpr int64_t kVideoLateToleranceNs = 150000000;
 // ownership, including on reset and destruction. Host calls borrow that lease.
 class VideoScheduler {
 public:
+    struct Stats { uint64_t submitted = 0, dropped = 0; size_t pending = 0; };
+    Stats stats() const {
+        std::lock_guard<std::mutex> guard(lock_);
+        return {total_submitted_, total_dropped_, frames_.size()};
+    }
     // Flutter gets acquisition lead; a native timed surface uses zero lead.
     explicit VideoScheduler(int64_t lead_ns = 2000000, size_t decode_ahead = 3)
         : lead_ns_(lead_ns), decode_ahead_(decode_ahead) {}
@@ -32,7 +37,7 @@ public:
         // nearest deadlines and bound retained 4K/GPU resources even then.
         if (frames_.size() > 16) {
             auto last = std::max_element(frames_.begin(), frames_.end(), earlier);
-            last->finish(false); frames_.erase(last); ++overflow_;
+            last->finish(false); frames_.erase(last); ++overflow_; ++total_dropped_;
         }
     }
     bool can_decode() const {
@@ -55,10 +60,10 @@ public:
                 if (first->due - lead_ns_ > now) break;
                 frame = std::move(*first); frames_.erase(first);
                 show = frame.due > last_due_ && frame.due >= now - kVideoLateToleranceNs;
-                if (frame.due <= last_due_) ++order_;
-                else if (!show) ++late_;
+                if (frame.due <= last_due_) { ++order_; ++total_dropped_; }
+                else if (!show) { ++late_; ++total_dropped_; }
                 else {
-                    ++submitted_; lateness_.add(now - frame.due);
+                    ++submitted_; ++total_submitted_; lateness_.add(now - frame.due);
                     if (last_submit_) gap_.add(now - last_submit_);
                     last_due_ = frame.due; last_submit_ = now;
                 }
@@ -126,6 +131,7 @@ private:
     uint64_t generation_ = 0;
     int64_t lead_ns_, last_due_ = 0, last_submit_ = 0, report_at_ = 0;
     size_t decode_ahead_, peak_ = 0;
+    uint64_t total_submitted_ = 0, total_dropped_ = 0;
     uint64_t ready_ = 0, submitted_ = 0, late_ = 0, order_ = 0, overflow_ = 0, cancelled_ = 0;
     TimingSamples lateness_, gap_;
 };

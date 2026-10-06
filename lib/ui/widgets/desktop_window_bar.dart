@@ -5,7 +5,7 @@ import '../../platform/window_controller.dart';
 
 import 'receiver_strings.dart';
 
-/// Flutter owns the window surface; the platform host executes window operations.
+/// Shared window controls delegate system operations to WindowController.
 class DesktopWindowBar extends StatelessWidget {
   const DesktopWindowBar({
     super.key,
@@ -13,11 +13,12 @@ class DesktopWindowBar extends StatelessWidget {
     required this.platform,
     this.dark = false,
     this.maximized = false,
+    this.window = const WindowController(),
   });
   final String title;
   final bool dark, maximized;
   final String platform;
-  static const _window = WindowController();
+  final WindowController window;
 
   Widget _button(
     String key,
@@ -35,7 +36,7 @@ class DesktopWindowBar extends StatelessWidget {
         tooltip: tooltip,
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(),
-        onPressed: () => _window.execute(command),
+        onPressed: () => window.execute(command),
         icon: Container(
           width: 14,
           height: 14,
@@ -67,7 +68,7 @@ class DesktopWindowBar extends StatelessWidget {
         foregroundColor: dark ? Colors.white : null,
         hoverColor: key == 'windowClose' ? const Color(0xffc42b1c) : null,
       ),
-      onPressed: () => _window.execute(command),
+      onPressed: () => window.execute(command),
       icon: Icon(icon, size: 16),
     ),
   );
@@ -79,8 +80,8 @@ class DesktopWindowBar extends StatelessWidget {
       child: GestureDetector(
         key: const Key('windowDragArea'),
         behavior: HitTestBehavior.opaque,
-        onPanStart: (_) => _window.startDragging(platform),
-        onDoubleTap: () => _window.execute(
+        onPanStart: (_) => window.execute(WindowCommand.startDragging),
+        onDoubleTap: () => window.execute(
           windows
               ? WindowCommand.toggleMaximize
               : WindowCommand.toggleFullscreen,
@@ -104,60 +105,98 @@ class DesktopWindowBar extends StatelessWidget {
         ),
       ),
     );
-    return SizedBox(
-      key: Key(windows ? '${platform}WindowBar' : 'macWindowBar'),
-      height: 36,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: windows ? 0 : 8),
-        child: Row(
-          children: windows
-              ? [
-                  titleArea,
-                  _windowsButton(
-                    'windowMinimize',
-                    l10n(context).minimize,
-                    Icons.remove,
-                    WindowCommand.minimizeWindow,
+    if (!windows) {
+      return SizedBox(
+        key: const Key('macWindowBar'),
+        height: 36,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                key: const Key('windowDragArea'),
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (_) => window.execute(WindowCommand.startDragging),
+                onDoubleTap: () =>
+                    window.execute(WindowCommand.toggleFullscreen),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 86),
+                  child: Center(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: dark
+                            ? Colors.white
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ),
-                  _windowsButton(
-                    'windowMaximize',
-                    maximized ? l10n(context).restore : l10n(context).maximize,
-                    maximized ? Icons.filter_none : Icons.crop_square,
-                    WindowCommand.toggleMaximize,
-                  ),
-                  _windowsButton(
-                    'windowClose',
-                    l10n(context).close,
-                    Icons.close,
-                    WindowCommand.closeWindow,
-                  ),
-                ]
-              : [
-                  _button(
-                    'windowClose',
-                    l10n(context).close,
-                    const Color(0xffff5f57),
-                    Icons.close,
-                    WindowCommand.closeWindow,
-                  ),
-                  _button(
-                    'windowMinimize',
-                    l10n(context).minimize,
-                    const Color(0xffffbd2e),
-                    Icons.remove,
-                    WindowCommand.minimizeWindow,
-                  ),
-                  _button(
-                    'windowFullscreen',
-                    l10n(context).fullscreen,
-                    const Color(0xff28c840),
-                    Icons.fullscreen,
-                    WindowCommand.toggleFullscreen,
-                  ),
-                  titleArea,
-                  const SizedBox(width: 8),
-                ],
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _button(
+                      'windowClose',
+                      l10n(context).close,
+                      const Color(0xffff5f57),
+                      Icons.close,
+                      WindowCommand.closeWindow,
+                    ),
+                    _button(
+                      'windowMinimize',
+                      l10n(context).minimize,
+                      const Color(0xffffbd2e),
+                      Icons.remove,
+                      WindowCommand.minimizeWindow,
+                    ),
+                    _button(
+                      'windowFullscreen',
+                      l10n(context).fullscreen,
+                      const Color(0xff28c840),
+                      Icons.fullscreen,
+                      WindowCommand.toggleFullscreen,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+      );
+    }
+    return SizedBox(
+      key: Key('${platform}WindowBar'),
+      height: 36,
+      child: Row(
+        children: [
+          titleArea,
+          _windowsButton(
+            'windowMinimize',
+            l10n(context).minimize,
+            Icons.remove,
+            WindowCommand.minimizeWindow,
+          ),
+          _windowsButton(
+            'windowMaximize',
+            maximized ? l10n(context).restore : l10n(context).maximize,
+            maximized ? Icons.filter_none : Icons.crop_square,
+            WindowCommand.toggleMaximize,
+          ),
+          _windowsButton(
+            'windowClose',
+            l10n(context).close,
+            Icons.close,
+            WindowCommand.closeWindow,
+          ),
+        ],
       ),
     );
   }

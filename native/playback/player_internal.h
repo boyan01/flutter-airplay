@@ -19,7 +19,7 @@
 using namespace airplay;
 struct AirplayPlayer {
     AirplayCallbacks callbacks;
-    std::atomic<bool> closing{false};
+    std::atomic<bool> closing{false}, stats_enabled{false};
     std::unique_ptr<airplay::ProtocolAdapter> protocol;
 #if defined(__APPLE__) && TARGET_OS_OSX
     // Cover short TCP arrival stalls without changing relative audio/video time.
@@ -145,6 +145,8 @@ struct AirplayPlayer {
     void run() {
         uint64_t generation = 1;
         auto next_audio_report = monotonic_ns() + 5 * kSecond;
+        auto profile_at = monotonic_ns();
+        VideoScheduler::Stats profile_previous{}, profile_base{};
         while (!closing) {
             VideoPacket packet;
             int w, h;
@@ -163,7 +165,11 @@ struct AirplayPlayer {
                   if (!video_stats_started) video_stats_started = monotonic_ns();
                   if (packet.received_ns) video_stats.queue_wait.add(monotonic_ns() - packet.received_ns);
               } }
-            if (reset) video->reset();
+            if (reset) {
+                video->reset();
+                profile_base = profile_previous = video->stats();
+                profile_at = monotonic_ns();
+            }
             video->size(w, h);
             if (!packet.bytes.empty() && packet.generation == generation && !video->decode(packet)) {
                 video->reset(); event("error", "Video decoding failed; reconnect screen mirroring");
@@ -171,6 +177,24 @@ struct AirplayPlayer {
             video->drain();
             const auto now = monotonic_ns();
             report_video(now);
+            // Sample scheduler state before taking the player lock: Apple frame
+            // callbacks can take the player lock while retiring scheduler leases.
+            if (now - profile_at >= kSecond) {
+                const auto stats = video->stats();
+                std::lock_guard<std::mutex> guard(lock);
+                if (stats_enabled && generation == video_generation && video_arrival_ns && !video_paused) {
+                    char profile[512];
+                    std::snprintf(profile, sizeof(profile),
+                        "{\"codec\":\"%s\",\"decoder\":\"%s\",\"fps\":%.2f,\"submitted\":%llu,\"dropped\":%llu,\"pending\":%zu,\"queued\":%zu}",
+                        video_hevc ? "HEVC" : "H.264", video->decoder_name(),
+                        (stats.submitted - profile_previous.submitted) * 1e9 / (now - profile_at),
+                        static_cast<unsigned long long>(stats.submitted - profile_base.submitted),
+                        static_cast<unsigned long long>(stats.dropped - profile_base.dropped),
+                        stats.pending, packets.size());
+                    event("playbackStats", profile);
+                }
+                profile_previous = stats; profile_at = now;
+            }
             if (now >= next_audio_report) {
                 next_audio_report = now + 5 * kSecond;
                 if (protocol->connections() > 0) {

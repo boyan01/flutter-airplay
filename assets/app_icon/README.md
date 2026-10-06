@@ -35,7 +35,7 @@ Android 自适应图标入口为 `mipmap-anydpi-v26/ic_launcher.xml`，
 Android 主题色图标以及桌面托盘／菜单栏状态图标使用单色或状态色，
 与彩色应用图标用途不同。现有状态图标不由本脚本重新生成。
 
-Linux 和 Windows 托盘使用简化的屏幕与投送三角，按接收状态配色：
+桌面托盘使用简化的屏幕与投送三角，按接收状态配色：
 
 | 状态 | 颜色 |
 | --- | --- |
@@ -45,9 +45,9 @@ Linux 和 Windows 托盘使用简化的屏幕与投送三角，按接收状态�
 | 视频或音频播放 | 亮绿色 `#20BFA9` |
 | 接收异常 | 红色 `#F06A6A` |
 
-Linux 使用 `linux/icons/airplay-*.svg`，由 CMake 打包进 bundle 的 `data/icons/`；
-Windows 在 `windows/runner/flutter_window.cpp` 中绘制透明背景的 32 px 图标。
-修改托盘配色时，两处颜色和状态映射需保持一致。
+`lib/platform/desktop_presentation.dart` 使用 Flutter Canvas 在内存中绘制图标，
+交给 `nativeapi` 在 macOS、Windows 和 Linux 上显示。颜色与状态映射只维护一份。
+macOS 空闲和过渡状态使用系统模板图标，播放与异常状态使用状态色。
 
 ## 原始生成提示词
 

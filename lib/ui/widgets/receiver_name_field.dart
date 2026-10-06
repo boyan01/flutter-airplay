@@ -99,7 +99,6 @@ class ReceiverNameField extends StatelessWidget {
         runSpacing: 8,
         children: [
           TvFocus(
-            outline: television,
             child: TextButton.icon(
               key: const Key('randomReceiverName'),
               autofocus: television,
@@ -109,7 +108,6 @@ class ReceiverNameField extends StatelessWidget {
             ),
           ),
           TvFocus(
-            outline: television,
             child: TextButton.icon(
               key: const Key('resetReceiverName'),
               onPressed: enabled ? _reset : null,

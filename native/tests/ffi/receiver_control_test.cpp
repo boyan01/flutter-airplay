@@ -84,13 +84,13 @@ int main() {
     std::string name = "Copied 测试";
     AirplayReceiverSettings settings{}; settings.fields = AIRPLAY_SETTING_NAME | AIRPLAY_SETTING_FAST_PAIRING;
     settings.name = name.data(); settings.name_size = name.size(); settings.fast_pairing = true;
-    std::string input = "{\"method\":\"save\",\"arguments\":{\"name\":\"Copied 测试\",\"fastPairing\":true}}";
+    std::string input = "{\"method\":\"save\",\"arguments\":{\"name\":\"Copied 测试\",\"fastPairing\":true,\"showPlaybackStats\":true}}";
     require(airplay_receiver_control(handle, token, 1, input.data(), input.size()), "JSON save admitted");
     input.assign(input.size(), 'x');
     name.assign(name.size(), 'x');
     require(!item(reply(10, 1).get(), "error"), "submission owns argument bytes");
     auto saved = snapshot(handle);
-    require(std::string(saved->settings.name) == "Copied 测试" && saved->settings.fast_pairing, "typed Unicode settings preserved");
+    require(std::string(saved->settings.name) == "Copied 测试" && saved->settings.fast_pairing && saved->settings.show_playback_stats, "typed Unicode and overlay settings preserved");
     require(saved->settings.auto_start && saved->settings.keep_in_menu_bar && saved->settings.show_on_connect,
             "partial saves retain shared defaults");
     preferences.reject = true;

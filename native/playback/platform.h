@@ -24,6 +24,9 @@ public:
     virtual void drain() = 0;
     // Advertise ScreenMultiCodec only when the platform can decode HEVC.
     virtual bool supports_hevc() const { return false; }
+    // Read on the playback worker; counters survive decoder recovery.
+    virtual VideoScheduler::Stats stats() const { return {}; }
+    virtual const char *decoder_name() const { return "Unknown"; }
     // Android supplies a capability-checked MediaCodec name before reception.
     virtual bool set_hevc_decoder(const char *) { return false; }
     // Absolute monotonic deadline for held output; zero leaves polling to the host.

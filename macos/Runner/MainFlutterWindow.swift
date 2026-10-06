@@ -4,14 +4,16 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   private var presentation: FlutterMethodChannel?
-  private var playerDimensions: NSSize?
-  private var fullscreenTarget: Bool?
-  private var fullscreenTransition = false
+  var hideOnClose: Bool {
+    get { (NSApp.delegate as? AppDelegate)?.keepRunningWithoutWindow ?? false }
+    set { (NSApp.delegate as? AppDelegate)?.keepRunningWithoutWindow = newValue }
+  }
+  private(set) var desktopReady = false
   private var presentationObservers: [NSObjectProtocol] = []
 
   override func close() {
-    if let app = NSApp.delegate as? AppDelegate, app.preference("keepInMenuBar", default: true) {
-      app.hideWindow()
+    if hideOnClose {
+      openFlutterPanel("closeRequested")
     } else {
       (NSApp.delegate as? AppDelegate)?.receiver.dispose()
       super.close()
@@ -31,60 +33,42 @@ class MainFlutterWindow: NSWindow {
     updateReceiverDisplay()
     presentation = FlutterMethodChannel(name: "tech.soit.flutterairplay/window", binaryMessenger: controller.engine.binaryMessenger)
     presentation?.setMethodCallHandler { [weak self] call, result in
-      if call.method == "toggleFullscreen", let self = self {
-        self.setFullscreen(!self.styleMask.contains(.fullScreen)); result(nil); return
-      }
-      if call.method == "exitFullscreen", let self = self {
-        self.setFullscreen(false); result(nil); return
-      }
       if let self = self {
         switch call.method {
         case "closeWindow": self.close(); result(nil); return
-        case "minimizeWindow": self.miniaturize(nil); result(nil); return
+        case "quitApp": NSApp.terminate(nil); result(nil); return
+        case "desktopReady": self.desktopReady = true; result(true); return
+        case "setClosePolicy": self.hideOnClose = call.arguments as? Bool ?? false; result(nil); return
+        case "setDockVisible":
+          NSApp.setActivationPolicy(call.arguments as? Bool == true ? .regular : .accessory)
+          result(nil); return
         default: break
         }
       }
-      if call.method == "setMode", let self = self,
-         let arguments = call.arguments as? [String: Any] {
-        let width = arguments["width"] as? Int ?? 0
-        let height = arguments["height"] as? Int ?? 0
-        self.setMode(arguments["mode"] as? String == "player" && width > 0 && height > 0
-          ? NSSize(width: width, height: height) : nil)
-        result(nil)
-        return
-      }
-      guard call.method == "setFullscreen" else {
-        result(FlutterMethodNotImplemented)
-        return
-      }
-      guard let self = self, let arguments = call.arguments as? [String: Any],
-            let fullscreen = arguments["fullscreen"] as? Bool else {
-        result(FlutterError(code: "window_error", message: "无法读取全屏请求", details: nil))
-        return
-      }
-      self.fullscreenTarget = fullscreen
-      self.updateFullscreen()
-      result(nil)
+      result(FlutterMethodNotImplemented)
     }
+    installPresentationObservers()
+    super.awakeFromNib()
+    configureContentWindow()
+    DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.configureApplication() }
+  }
+
+  private func installPresentationObservers() {
     let center = NotificationCenter.default
     presentationObservers.append(center.addObserver(forName: NSWindow.didChangeScreenNotification, object: self, queue: .main) { [weak self] _ in
       self?.updateReceiverDisplay()
     })
     for notification in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
       presentationObservers.append(center.addObserver(forName: notification, object: self, queue: .main) { [weak self] _ in
-        self?.fullscreenTransition = true
+        self?.openFlutterPanel("windowTransitionStarted")
       })
     }
     for notification in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
       presentationObservers.append(center.addObserver(forName: notification, object: self, queue: .main) { [weak self] _ in
         guard let self = self else { return }
-        self.fullscreenTransition = false
-        self.updateFullscreen()
+        self.presentation?.invokeMethod("windowStateChanged", arguments: ["fullscreen": self.styleMask.contains(.fullScreen), "maximized": self.isZoomed])
       })
     }
-    super.awakeFromNib()
-    configureContentWindow()
-    DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.configureApplication() }
   }
 
   private func configureContentWindow() {
@@ -101,68 +85,7 @@ class MainFlutterWindow: NSWindow {
     (NSApp.delegate as? AppDelegate)?.receiver.setDisplay(display?.uint32Value ?? CGMainDisplayID())
   }
 
-  private func setMode(_ dimensions: NSSize?) {
-    playerDimensions = dimensions
-    applyMode()
-  }
-
-  private func applyMode() {
-    configureContentWindow()
-    guard !fullscreenTransition, !styleMask.contains(.fullScreen) else { return }
-    let visible = (screen ?? NSScreen.main)?.visibleFrame ?? frame
-    let oldCenter = NSPoint(x: frame.midX, y: frame.midY)
-    let size: NSSize
-    if let dimensions = playerDimensions {
-      let ratio = dimensions.width / dimensions.height
-      let maxWidth = visible.width * 0.8
-      let maxHeight = visible.height * 0.8
-      let width = min(maxWidth, maxHeight * ratio)
-      size = NSSize(width: width, height: width / ratio)
-      minSize = NSSize(width: 160, height: 160)
-      contentAspectRatio = dimensions
-      backgroundColor = .black
-    } else {
-      // Resize increments cancel aspect constraints; a zero ratio breaks fullscreen restoration.
-      resizeIncrements = NSSize(width: 1, height: 1)
-      minSize = NSSize(width: 360, height: 480)
-      size = NSSize(width: 440, height: 560)
-      backgroundColor = .windowBackgroundColor
-    }
-    var target = frameRect(forContentRect: NSRect(origin: .zero, size: size))
-    target.origin = NSPoint(
-      x: max(visible.minX, min(oldCenter.x - target.width / 2, visible.maxX - target.width)),
-      y: max(visible.minY, min(oldCenter.y - target.height / 2, visible.maxY - target.height)))
-    // The platform thread also announces video textures; synchronous animation stalls playback.
-    setFrame(target, display: true, animate: false)
-  }
-
   func openFlutterPanel(_ method: String) { presentation?.invokeMethod(method, arguments: nil) }
-  func setFullscreen(_ target: Bool) { fullscreenTarget = target; updateFullscreen() }
-  func resizePlayer(actualSize: Bool) {
-    guard let dimensions = playerDimensions, !styleMask.contains(.fullScreen) else { return }
-    if !actualSize { applyMode(); return }
-    let visible = (screen ?? NSScreen.main)?.visibleFrame ?? frame
-    let points = NSSize(width: dimensions.width / backingScaleFactor, height: dimensions.height / backingScaleFactor)
-    let scale = min(1, min(visible.width * 0.8 / points.width, visible.height * 0.8 / points.height))
-    var target = frameRect(forContentRect: NSRect(origin: .zero, size: NSSize(width: points.width * scale, height: points.height * scale)))
-    target.origin = NSPoint(
-      x: max(visible.minX, min(frame.midX - target.width / 2, visible.maxX - target.width)),
-      y: max(visible.minY, min(frame.midY - target.height / 2, visible.maxY - target.height)))
-    setFrame(target, display: true, animate: true)
-  }
-
-  private func updateFullscreen() {
-    guard !fullscreenTransition else { return }
-    let actual = styleMask.contains(.fullScreen)
-    if let target = fullscreenTarget, target != actual {
-      fullscreenTransition = true
-      toggleFullScreen(nil)
-    } else {
-      fullscreenTarget = nil
-      applyMode()
-      presentation?.invokeMethod("fullscreenChanged", arguments: actual)
-    }
-  }
 
   deinit {
     for observer in presentationObservers { NotificationCenter.default.removeObserver(observer) }

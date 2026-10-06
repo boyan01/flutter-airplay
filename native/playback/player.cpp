@@ -141,3 +141,7 @@ int AirplayPlayer::select_codec(bool hevc) {
     p->wake.notify_all();
     return 0;
 }
+
+extern "C" void airplay_player_set_stats_enabled(AirplayPlayer *p, bool enabled) {
+    if (p) p->stats_enabled = enabled;
+}

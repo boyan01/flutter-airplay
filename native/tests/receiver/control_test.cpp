@@ -22,6 +22,7 @@ extern "C" void airplay_player_destroy(AirplayPlayer* player) { if (player) std:
 extern "C" uint16_t airplay_player_port(AirplayPlayer*) { std::abort(); }
 extern "C" size_t airplay_player_txt(AirplayPlayer*, bool, uint8_t*, size_t) { std::abort(); }
 extern "C" bool airplay_player_prepare_restart(AirplayPlayer*) { std::abort(); }
+extern "C" void airplay_player_set_stats_enabled(AirplayPlayer*, bool) { std::abort(); }
 extern "C" bool airplay_player_set_fast_pairing(AirplayPlayer*, bool) { std::abort(); }
 extern "C" bool airplay_player_set_video_size(AirplayPlayer*, int, int) { std::abort(); }
 extern "C" bool airplay_player_start(AirplayPlayer*, const char*, const uint8_t[6], const char*, char*, size_t) { std::abort(); }

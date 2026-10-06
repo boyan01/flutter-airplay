@@ -435,4 +435,31 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get buildTime => '构建时间';
+
+  @override
+  String get showPlaybackStats => '播放统计图层';
+
+  @override
+  String get showPlaybackStatsHelp => '投屏时显示编解码、提交帧率和调度丢帧数据。';
+
+  @override
+  String get playbackStatsWaiting => '等待播放统计…';
+
+  @override
+  String get playbackStatsFps => '提交帧率';
+
+  @override
+  String get playbackStatsDropped => '调度丢帧';
+
+  @override
+  String get playbackStatsSubmitted => '已提交帧';
+
+  @override
+  String get playbackStatsPending => '待提交帧';
+
+  @override
+  String get playbackStatsQueued => '输入队列';
+
+  @override
+  String get playbackStatsHelp => '提交不等于屏幕实际呈现。丢帧不包含网络丢包。';
 }

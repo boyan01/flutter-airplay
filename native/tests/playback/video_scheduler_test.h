@@ -51,6 +51,14 @@ inline void video_scheduler_test() {
     scheduler.drain(now + 30000000);
     check(discarded.size() == 2 && shown.size() == 3, "late or already passed pictures are discarded");
 
+    const auto stats = scheduler.stats();
+    check(stats.submitted == 3 && stats.dropped == 2 && stats.pending == 0,
+          "telemetry distinguishes scheduler releases, drops and pending pictures");
+    scheduler.diagnostics(now);
+    scheduler.diagnostics(now + 6000000000LL);
+    check(scheduler.stats().submitted == 3 && scheduler.stats().dropped == 2,
+          "periodic diagnostic logging does not consume overlay counters");
+
     auto pixels = std::make_shared<int>(42);
     std::weak_ptr<int> alive = pixels;
     scheduler.enqueue(now + 40000000, 7, [pixels](bool) {});
@@ -67,6 +75,8 @@ inline void video_scheduler_test() {
     const auto before = discarded.size();
     scheduler.clear();
     check(discarded.size() == before + 16, "overflow and reset release every retained lease exactly once");
+    check(scheduler.stats().submitted == 4 && scheduler.stats().dropped == 6 && scheduler.stats().pending == 0,
+          "overflow counts as a drop, lifecycle cancellations do not");
     check(shown.size() + discarded.size() == 27, "no leaked or duplicate lease completion");
 
     airplay::VideoScheduler flutter(2000000);

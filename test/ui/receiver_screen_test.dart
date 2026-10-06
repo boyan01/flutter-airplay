@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../receiver/fake_receiver.dart';
+import '../platform/fake_window.dart';
+
+import 'package:flutter_airplay/platform/window_controller.dart';
 
 void main() {
   Future<FakeReceiver> launch(
@@ -17,6 +20,7 @@ void main() {
     bool autoStart = true,
     String locale = 'zh',
     FakeReceiver? backend,
+    List<String>? windowCalls,
   }) async {
     await tester.binding.setSurfaceSize(size);
     tester.platformDispatcher.localesTestValue = [Locale(locale)];
@@ -34,10 +38,188 @@ void main() {
         'supportsLaunchAtLogin': platform == 'windows',
       },
     );
-    await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
+    final window = FakeWindow(calls: windowCalls);
+    await tester.pumpWidget(
+      ReceiverApp(
+        model: ReceiverModel(backend),
+        window: WindowController(withWindow: (action) async => action(window)),
+      ),
+    );
     await tester.pumpAndSettle();
     addTearDown(backend.controller.close);
     return backend;
+  }
+
+  testWidgets('macOS title stays at the window center', (tester) async {
+    await launch(tester, size: const Size(600, 650));
+    final title = find.descendant(
+      of: find.byKey(const Key('windowDragArea')),
+      matching: find.byType(Text),
+    );
+    expect(tester.getCenter(title).dx, closeTo(300, 0.5));
+  });
+
+  for (final platform in ['macos', 'windows', 'linux']) {
+    testWidgets(
+      '$platform desktop title stays outside navigation and dialog transitions',
+      (tester) async {
+        await launch(tester, platform: platform, size: const Size(600, 650));
+        final bar = find.byKey(
+          Key(platform == 'macos' ? 'macWindowBar' : '${platform}WindowBar'),
+        );
+        final element = tester.element(bar);
+        expect(
+          find.ancestor(of: bar, matching: find.byType(Navigator)),
+          findsNothing,
+        );
+        final origin = tester.getTopLeft(bar);
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(bar, findsOneWidget);
+        expect(tester.element(bar), same(element));
+        expect(tester.getTopLeft(bar), origin);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('closeSettings')));
+        await tester.pumpAndSettle();
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(tester.element(bar), same(element));
+        expect(tester.getTopLeft(bar), origin);
+        expect(
+          find.ancestor(of: bar, matching: find.byType(Navigator)),
+          findsNothing,
+        );
+      },
+    );
+  }
+
+  for (final width in [200.0, 280.0, 600.0]) {
+    testWidgets('player controls align at width $width', (tester) async {
+      final backend = await launch(tester, size: Size(width, 650));
+      frame(backend);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump(const Duration(milliseconds: 200));
+      final disconnect = find.byKey(const Key('disconnect'));
+      final fullscreen = find.descendant(
+        of: find.byKey(const Key('playerControls')),
+        matching: find.widgetWithIcon(IconButton, Icons.fullscreen),
+      );
+      expect(
+        tester.getCenter(disconnect).dy,
+        closeTo(tester.getCenter(fullscreen).dy, 0.5),
+      );
+      if (width < 300) {
+        expect(
+          find.descendant(of: disconnect, matching: find.byType(Text)),
+          findsNothing,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('large text and resizing switch the player to icons', (
+    tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final backend = await launch(
+      tester,
+      locale: 'en',
+      size: const Size(600, 650),
+    );
+    frame(backend);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump(const Duration(milliseconds: 200));
+    final disconnect = find.byKey(const Key('disconnect'));
+    expect(tester.widget(disconnect), isA<IconButton>());
+    await tester.binding.setSurfaceSize(const Size(240, 650));
+    await tester.pump();
+    expect(tester.widget(disconnect), isA<IconButton>());
+    final fullscreen = find.descendant(
+      of: find.byKey(const Key('playerControls')),
+      matching: find.widgetWithIcon(IconButton, Icons.fullscreen),
+    );
+    expect(
+      tester.getCenter(disconnect).dy,
+      closeTo(tester.getCenter(fullscreen).dy, 0.5),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {
+    testWidgets('$target playback statistics overlay is passive and persists', (
+      tester,
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: target == 'tv' ? 'android' : target,
+        tv: target == 'tv',
+        size: const Size(390, 800),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+      await tester.tap(find.byKey(const Key('advancedSettings')));
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('showPlaybackStats'));
+      await tester.ensureVisible(toggle);
+      backend.saveFailure = 'Could not save overlay';
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      backend.saveFailure = null;
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(backend.savedShowPlaybackStats, isTrue);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      if (target == 'macos' || target == 'windows' || target == 'linux') {
+        await tester.tap(find.byKey(const Key('closeSettings')));
+      } else {
+        await tester.binding.handlePopRoute();
+      }
+      await tester.pumpAndSettle();
+      frame(backend);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsNothing);
+      expect(find.byKey(const Key('playbackStatsOverlay')), findsOneWidget);
+      backend.controller.add({
+        'type': 'playbackStats',
+        'metrics': {
+          'codec': 'HEVC',
+          'decoder': 'Fixture decoder',
+          'fps': 59.8,
+          'submitted': 120,
+          'dropped': 3,
+          'pending': 2,
+          'queued': 1,
+        },
+      });
+      await tester.pump();
+      expect(find.text('HEVC · Fixture decoder'), findsOneWidget);
+      expect(find.text('提交帧率: 59.8'), findsOneWidget);
+      expect(find.text('调度丢帧: 3'), findsOneWidget);
+      await tester.binding.setSurfaceSize(const Size(280, 320));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(
+        find.byKey(const Key('playbackStatsOverlay')),
+        warnIfMissed: false,
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      backend.state('waiting');
+      await tester.pumpAndSettle();
+      frame(backend);
+      await tester.pumpAndSettle();
+      expect(find.text('等待播放统计…'), findsOneWidget);
+      expect(find.text('HEVC · Fixture decoder'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {
@@ -579,6 +761,103 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Android TV Back toggles playback controls once per system return',
+    (tester) async {
+      final backend = await launch(
+        tester,
+        platform: 'android',
+        tv: true,
+        size: const Size(960, 540),
+      );
+      frame(backend);
+      await tester.pumpAndSettle();
+      for (final visible in [true, false, true]) {
+        await tester.sendKeyDownEvent(
+          LogicalKeyboardKey.goBack,
+          physicalKey: PhysicalKeyboardKey.escape,
+          platform: 'android',
+        );
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.sendKeyUpEvent(
+          LogicalKeyboardKey.goBack,
+          physicalKey: PhysicalKeyboardKey.escape,
+          platform: 'android',
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('playerControls')),
+          visible ? findsOneWidget : findsNothing,
+        );
+      }
+      expect(backend.stops, 0);
+    },
+  );
+
+  testWidgets('holding TV keyboard Escape does not toggle controls twice', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    frame(backend);
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('playerControls')), findsOneWidget);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.escape);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('playerControls')), findsNothing);
+    expect(backend.stops, 0);
+  });
+
+  testWidgets('TV focus ring follows home actions and restores after a route', (
+    tester,
+  ) async {
+    await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    final ring = find.byKey(const Key('tvFocusRing'));
+    expect(
+      tester.getRect(ring),
+      tester.getRect(find.byKey(const Key('openSettings'))).inflate(3),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(ring),
+      tester.getRect(find.byKey(const Key('openLogs'))).inflate(3),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(ring),
+      tester.getRect(find.byKey(const Key('shareLogs'))).inflate(3),
+    );
+    await tester.sendKeyEvent(
+      LogicalKeyboardKey.goBack,
+      physicalKey: PhysicalKeyboardKey.escape,
+      platform: 'android',
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(ring),
+      tester.getRect(find.byKey(const Key('openSettings'))).inflate(3),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('TV defaults to Settings and Back never disconnects', (
     tester,
   ) async {
@@ -896,7 +1175,13 @@ void main() {
   );
 
   for (final tv in [false, true]) {
-    for (final page in ['settings', 'logs', 'quality']) {
+    for (final page in [
+      'settings',
+      'logs',
+      'quality',
+      'audio',
+      if (tv) 'name',
+    ]) {
       testWidgets('Android ${tv ? 'TV' : 'phone'} back closes only $page', (
         tester,
       ) async {
@@ -923,9 +1208,19 @@ void main() {
         await tester.tap(find.byKey(const Key('openSettings')));
         await tester.pumpAndSettle();
         if (page != 'settings') {
-          final entry = page == 'logs'
-              ? find.text('接收日志')
-              : find.byKey(const Key('videoQuality'));
+          if (page == 'audio') {
+            await tester.ensureVisible(
+              find.byKey(const Key('advancedSettings')),
+            );
+            await tester.tap(find.byKey(const Key('advancedSettings')));
+            await tester.pumpAndSettle();
+          }
+          final entry = switch (page) {
+            'logs' => find.text('接收日志'),
+            'audio' => find.byKey(const Key('audioOutput')),
+            'name' => find.byKey(const Key('tvName')),
+            _ => find.byKey(const Key('videoQuality')),
+          };
           await tester.ensureVisible(entry);
           await tester.tap(entry);
           await tester.pumpAndSettle();
@@ -956,7 +1251,7 @@ void main() {
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
         expect(route.isCurrent, isFalse);
-        expect(navigator.canPop(), page == 'quality');
+        expect(navigator.canPop(), {'quality', 'audio', 'name'}.contains(page));
         expect(systemPops, isEmpty);
         expect(backend.stops, 0);
       });
@@ -1138,12 +1433,12 @@ void main() {
   testWidgets(
     'Flutter window controls and double tap invoke native operations',
     (tester) async {
-      final calls = <MethodCall>[];
+      final calls = <String>[];
       const channel = MethodChannel('tech.soit.flutterairplay/window');
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
         call,
       ) async {
-        calls.add(call);
+        calls.add(call.method);
         return null;
       });
       addTearDown(
@@ -1152,7 +1447,7 @@ void main() {
           null,
         ),
       );
-      await launch(tester);
+      await launch(tester, windowCalls: calls);
       expect(find.byKey(const Key('macWindowBar')), findsOneWidget);
       calls.clear();
       await tester.tap(find.byKey(const Key('windowClose')));
@@ -1163,11 +1458,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 80));
       await tester.tap(title);
       await tester.pump(const Duration(milliseconds: 350));
-      expect(calls.map((call) => call.method), [
+      expect(calls, [
         'closeWindow',
-        'minimizeWindow',
-        'toggleFullscreen',
-        'toggleFullscreen',
+        'minimize',
+        'fullscreen:true',
+        'fullscreen:false',
       ]);
     },
   );
@@ -1210,6 +1505,21 @@ void main() {
   );
 
   for (final platform in ['windows', 'linux']) {
+    testWidgets(
+      '$platform window shortcuts work from caption focus without repeats',
+      (tester) async {
+        final calls = <String>[];
+        await launch(tester, platform: platform, windowCalls: calls);
+        await tester.tap(find.byKey(const Key('windowMinimize')));
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.f11);
+        await tester.sendKeyRepeatEvent(LogicalKeyboardKey.f11);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.f11);
+        expect(calls, ['minimize', 'fullscreen:true']);
+      },
+    );
+  }
+
+  for (final platform in ['windows', 'linux']) {
     testWidgets('$platform player uses supported desktop controls', (
       tester,
     ) async {
@@ -1227,7 +1537,11 @@ void main() {
           null,
         ),
       );
-      final backend = await launch(tester, platform: platform);
+      final backend = await launch(
+        tester,
+        platform: platform,
+        windowCalls: calls,
+      );
       expect(find.textContaining('DRM'), findsNothing);
       frame(backend);
       await tester.pumpAndSettle();
@@ -1238,7 +1552,7 @@ void main() {
       expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
       expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
       await tester.tap(find.byIcon(Icons.fullscreen));
-      expect(calls, contains('toggleFullscreen'));
+      expect(calls, contains('fullscreen:true'));
       expect(tester.takeException(), isNull);
     });
   }
@@ -1275,7 +1589,11 @@ void main() {
             null,
           ),
         );
-        final backend = await launch(tester, platform: platform);
+        final backend = await launch(
+          tester,
+          platform: platform,
+          windowCalls: calls,
+        );
         expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
         expect(find.byKey(const Key('macWindowBar')), findsNothing);
         calls.clear();
@@ -1289,10 +1607,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 350));
         await tester.drag(title, const Offset(40, 0));
         expect(calls, [
-          'minimizeWindow',
-          'toggleMaximize',
+          'minimize',
+          'maximize',
           'closeWindow',
-          'toggleMaximize',
+          'unmaximize',
           'startDragging',
         ]);
         await tester.tap(find.byKey(const Key('openSettings')));
@@ -1343,7 +1661,11 @@ void main() {
             null,
           ),
         );
-        final backend = await launch(tester, platform: platform);
+        final backend = await launch(
+          tester,
+          platform: platform,
+          windowCalls: calls,
+        );
         await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
         await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
         await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
@@ -1355,12 +1677,13 @@ void main() {
         await tester.pumpAndSettle();
         expect(backend.starts, 2);
         await tester.sendKeyEvent(LogicalKeyboardKey.f11);
-        expect(calls, contains('toggleFullscreen'));
+        expect(calls, contains('fullscreen:true'));
       },
     );
     testWidgets(
       '$platform tray actions reuse reception and update window state',
       (tester) async {
+        final calls = <String>[];
         const channel = MethodChannel('tech.soit.flutterairplay/window');
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           channel,
@@ -1372,7 +1695,11 @@ void main() {
             null,
           ),
         );
-        final backend = await launch(tester, platform: platform);
+        final backend = await launch(
+          tester,
+          platform: platform,
+          windowCalls: calls,
+        );
         Future<void> nativeCall(String method, [Object? arguments]) async {
           await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
             channel.name,
@@ -1389,6 +1716,14 @@ void main() {
           'fullscreen': false,
         });
         expect(find.byTooltip('还原'), findsOneWidget);
+        await nativeCall('enterFullscreen');
+        await nativeCall('enterFullscreen');
+        await nativeCall('toggleFullscreen');
+        expect(calls, [
+          'fullscreen:true',
+          'fullscreen:true',
+          'fullscreen:false',
+        ]);
         await nativeCall('toggleReceiver');
         expect(backend.stops, 1);
         await nativeCall('toggleReceiver');

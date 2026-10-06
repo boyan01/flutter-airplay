@@ -22,6 +22,8 @@ public:
         ANativeWindow_acquire(window_);
     }
     ~AndroidVideo() override { reset(); ANativeWindow_release(window_); }
+    VideoScheduler::Stats stats() const override { return scheduler_.stats(); }
+    const char *decoder_name() const override { return "MediaCodec"; }
     bool supports_hevc() const override { return !hevc_decoder_.empty(); }
     bool set_hevc_decoder(const char *name) override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);

@@ -105,6 +105,9 @@ ReceiverEvent _$ReceiverEventFromJson(Map<String, dynamic> json) =>
       log: json['entry'] == null
           ? null
           : ReceiverLog.fromJson(json['entry'] as Map<String, dynamic>),
+      playbackStats: json['metrics'] == null
+          ? null
+          : PlaybackStats.fromJson(json['metrics'] as Map<String, dynamic>),
     );
 
 const _$ReceiverEventTypeEnumMap = {
@@ -114,5 +117,17 @@ const _$ReceiverEventTypeEnumMap = {
   ReceiverEventType.video: 'video',
   ReceiverEventType.media: 'media',
   ReceiverEventType.log: 'log',
+  ReceiverEventType.playbackStats: 'playbackStats',
   ReceiverEventType.unknown: 'unknown',
 };
+
+PlaybackStats _$PlaybackStatsFromJson(Map<String, dynamic> json) =>
+    PlaybackStats(
+      codec: json['codec'] as String? ?? '',
+      decoder: json['decoder'] as String? ?? '',
+      fps: (json['fps'] as num?)?.toDouble() ?? 0,
+      submitted: (json['submitted'] as num?)?.toInt() ?? 0,
+      dropped: (json['dropped'] as num?)?.toInt() ?? 0,
+      pending: (json['pending'] as num?)?.toInt() ?? 0,
+      queued: (json['queued'] as num?)?.toInt() ?? 0,
+    );

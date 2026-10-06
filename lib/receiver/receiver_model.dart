@@ -44,6 +44,8 @@ class ReceiverModel extends ChangeNotifier {
   String path = '';
   bool autoStart = true;
   bool fastPairing = true;
+  bool showPlaybackStats = false;
+  PlaybackStats? playbackStats;
   String videoQuality = 'auto';
   String audioOutput = 'auto';
   String buildTime = '', buildVersion = '';
@@ -133,6 +135,10 @@ class ReceiverModel extends ChangeNotifier {
     path = settings.path;
     autoStart = settings.autoStart;
     fastPairing = settings.fastPairing;
+    showPlaybackStats = settings.showPlaybackStats;
+    if (!showPlaybackStats || data.videoWidth == 0) {
+      playbackStats = null;
+    }
     videoQuality = settings.videoQuality.value;
     audioOutput = settings.audioOutput.name;
     desktopOptions.addAll(settings.desktopOptions);
@@ -184,6 +190,7 @@ class ReceiverModel extends ChangeNotifier {
         pid = event.pid;
         if ({'stopped', 'stopping', 'error', 'waiting'}.contains(status)) {
           clientName = null;
+          playbackStats = null;
           videoWidth = 0;
           videoHeight = 0;
           audioPlaying = false;
@@ -207,12 +214,19 @@ class ReceiverModel extends ChangeNotifier {
         textureId = event.textureId;
         videoWidth = event.videoWidth;
         videoHeight = event.videoHeight;
+        if (!hasVideo) playbackStats = null;
         if (hasVideo) videoPaused = false;
         _notify();
       case ReceiverEventType.media:
         audioPlaying = event.audioPlaying;
         videoPaused = event.videoPaused;
+        if (videoPaused) playbackStats = null;
         _notify();
+      case ReceiverEventType.playbackStats:
+        if (showPlaybackStats && hasVideo && !videoPaused) {
+          playbackStats = event.playbackStats;
+          _notify();
+        }
       case ReceiverEventType.unknown:
         break;
       case ReceiverEventType.log:
@@ -278,6 +292,7 @@ class ReceiverModel extends ChangeNotifier {
     String? videoQuality,
     String? audioOutput,
     bool? fastPairing,
+    bool? showPlaybackStats,
     Map<String, bool>? desktopOptions,
   }) {
     final options = desktopOptions == null
@@ -298,6 +313,7 @@ class ReceiverModel extends ChangeNotifier {
           nextPath.trim(),
           autoStart: autoStart ?? this.autoStart,
           fastPairing: fastPairing ?? this.fastPairing,
+          showPlaybackStats: showPlaybackStats ?? this.showPlaybackStats,
           videoQuality: supportsVideoQuality
               ? videoQuality ?? this.videoQuality
               : null,
@@ -310,6 +326,8 @@ class ReceiverModel extends ChangeNotifier {
         path = nextPath.trim();
         this.autoStart = autoStart ?? this.autoStart;
         this.fastPairing = fastPairing ?? this.fastPairing;
+        this.showPlaybackStats = showPlaybackStats ?? this.showPlaybackStats;
+        if (!this.showPlaybackStats) playbackStats = null;
         this.videoQuality = videoQuality ?? this.videoQuality;
         this.audioOutput = audioOutput ?? this.audioOutput;
         if (options != null) this.desktopOptions.addAll(options);

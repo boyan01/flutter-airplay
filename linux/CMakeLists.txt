@@ -54,7 +54,6 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(AVAHI REQUIRED IMPORTED_TARGET avahi-client)
-pkg_check_modules(APPINDICATOR REQUIRED IMPORTED_TARGET ayatana-appindicator3-0.1)
 
 # The shared receive/playback core only prepares TXT records. This GTK host
 # publishes them with Avahi and reports discovery failure back to the shared UI.

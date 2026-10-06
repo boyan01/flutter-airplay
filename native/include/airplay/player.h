@@ -50,6 +50,8 @@ size_t airplay_player_txt(AirplayPlayer *, bool audio, uint8_t *output, size_t c
 // including one whose host/UI event has not arrived yet. On true, destroy the
 // player on the same lifecycle thread; it must not be reused.
 bool airplay_player_prepare_restart(AirplayPlayer *);
+// Enables copied playback telemetry at one-second intervals. Safe while playing.
+void airplay_player_set_stats_enabled(AirplayPlayer *, bool enabled);
 // Joins reception and playback before returning; no callbacks may follow.
 void airplay_player_destroy(AirplayPlayer *);
 

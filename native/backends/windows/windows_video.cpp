@@ -19,6 +19,12 @@ public:
     }
     bool supports_hevc() const override { return hevc_mft_ || ffmpeg_->supports_hevc(); }
     ~WindowsVideo() override { reset(); }
+    VideoScheduler::Stats stats() const override {
+        const auto native = scheduler_.stats(), fallback = ffmpeg_->stats();
+        return {native.submitted + fallback.submitted, native.dropped + fallback.dropped,
+                using_ffmpeg_ ? fallback.pending : native.pending};
+    }
+    const char *decoder_name() const override { return using_ffmpeg_ ? ffmpeg_->decoder_name() : "Media Foundation"; }
     bool can_decode() const override { return using_ffmpeg_ ? ffmpeg_->can_decode() : scheduler_.can_decode(); }
     int64_t next_deadline() const override { return using_ffmpeg_ ? ffmpeg_->next_deadline() : scheduler_.next_deadline(); }
     void size(int, int) override {} // Decode dimensions and orientation come from the SPS.

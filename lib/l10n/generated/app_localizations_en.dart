@@ -447,4 +447,33 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get buildTime => 'Built at';
+
+  @override
+  String get showPlaybackStats => 'Playback statistics overlay';
+
+  @override
+  String get showPlaybackStatsHelp =>
+      'Show codec, submission frame rate and scheduler drops while mirroring.';
+
+  @override
+  String get playbackStatsWaiting => 'Waiting for playback statistics…';
+
+  @override
+  String get playbackStatsFps => 'Submission FPS';
+
+  @override
+  String get playbackStatsDropped => 'Scheduler drops';
+
+  @override
+  String get playbackStatsSubmitted => 'Submitted frames';
+
+  @override
+  String get playbackStatsPending => 'Pending frames';
+
+  @override
+  String get playbackStatsQueued => 'Input queue';
+
+  @override
+  String get playbackStatsHelp =>
+      'Submissions are not measured screen presentations. Drops exclude network loss.';
 }

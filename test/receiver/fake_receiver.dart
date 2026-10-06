@@ -41,7 +41,7 @@ class FakeReceiver extends ReceiverRepository {
 
   String? startedName, savedName, failure;
   String? savedVideoQuality, savedAudioOutput;
-  bool savedFastPairing = false;
+  bool savedFastPairing = false, savedShowPlaybackStats = false;
   final fastPairingCalls = <bool?>[];
   Map<String, bool> savedOptions = {};
   String? saveFailure;
@@ -58,6 +58,7 @@ class FakeReceiver extends ReceiverRepository {
   Future<Map<String, dynamic>> rawSnapshot() async => {
     'autoStart': autoStart,
     'fastPairing': savedFastPairing,
+    'showPlaybackStats': savedShowPlaybackStats,
     'status': currentStatus,
     'defaultName': 'System Device',
     'activeSettings': activeSettings,
@@ -89,6 +90,7 @@ class FakeReceiver extends ReceiverRepository {
     final desired = ReceiverSettings.fromJson({
       'name': savedName ?? startedName ?? 'Flutter AirPlay',
       'fastPairing': savedFastPairing,
+      'showPlaybackStats': savedShowPlaybackStats,
       'videoQuality': savedVideoQuality ?? 'auto',
       'audioOutput': savedAudioOutput ?? 'auto',
     });
@@ -132,6 +134,7 @@ class FakeReceiver extends ReceiverRepository {
       'name': name,
       'path': path,
       'fastPairing': savedFastPairing,
+      'showPlaybackStats': savedShowPlaybackStats,
       if (capabilities?['platform'] == 'android' || enableVideoQuality)
         'videoQuality': savedVideoQuality ?? 'auto',
       if (capabilities?['platform'] == 'android')
@@ -170,6 +173,7 @@ class FakeReceiver extends ReceiverRepository {
     String? videoQuality,
     String? audioOutput,
     bool? fastPairing,
+    bool? showPlaybackStats,
     Map<String, bool> desktopOptions = const {},
   }) async {
     saves++;
@@ -179,6 +183,7 @@ class FakeReceiver extends ReceiverRepository {
       throw PlatformException(code: 'receiver_error', message: saveFailure);
     }
     this.autoStart = autoStart;
+    if (showPlaybackStats != null) savedShowPlaybackStats = showPlaybackStats;
     if (fastPairing != null) savedFastPairing = fastPairing;
     savedName = name;
     savedVideoQuality = videoQuality;

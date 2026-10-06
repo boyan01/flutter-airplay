@@ -66,9 +66,18 @@ def main():
                     raise AssertionError('Dragging changed the window size')
                 xdo('mousemove', '--window', window, after['WIDTH'] - 23, 18)
                 xdo('click', 1)
-                if process.wait(timeout=10) != 0:
-                    raise AssertionError('Caption close did not exit cleanly without a tray host')
-                print('PASS: actual Flutter caption drag moved the GTK window; size preserved; close exited cleanly')
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    visible = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(process.pid),
+                                              '--name', '^Flutter AirPlay$'], capture_output=True, text=True)
+                    if visible.returncode != 0:
+                        break
+                    time.sleep(.1)
+                else:
+                    raise AssertionError('Caption close did not hide the window')
+                if process.poll() is not None:
+                    raise AssertionError('Close-to-tray stopped the background receiver')
+                print('PASS: caption drag moved the GTK window; size preserved; close hid the window')
             except Exception:
                 log.flush()
                 log.seek(0)

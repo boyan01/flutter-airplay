@@ -31,7 +31,7 @@ struct Settings {
     AirplayVideoQuality video_quality = AIRPLAY_VIDEO_AUTO;
     AirplayAudioOutput audio_output = AIRPLAY_AUDIO_AUTO;
     bool auto_start = true, fast_pairing = true, launch_at_login = false, keep_in_menu_bar = true;
-    bool show_on_connect = true, fullscreen_on_connect = false, always_on_top = false;
+    bool show_on_connect = true, fullscreen_on_connect = false, always_on_top = false, show_playback_stats = false;
     void apply(const Settings& patch) {
         if (patch.fields & AIRPLAY_SETTING_NAME) name = patch.name;
         if (patch.fields & AIRPLAY_SETTING_PATH) path = patch.path;
@@ -44,6 +44,7 @@ struct Settings {
         if (patch.fields & AIRPLAY_SETTING_SHOW_ON_CONNECT) show_on_connect = patch.show_on_connect;
         if (patch.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) fullscreen_on_connect = patch.fullscreen_on_connect;
         if (patch.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) always_on_top = patch.always_on_top;
+        if (patch.fields & AIRPLAY_SETTING_PLAYBACK_STATS) show_playback_stats = patch.show_playback_stats;
     }
 };
 const char* status_name(AirplayReceiverStatus status) {
@@ -126,6 +127,7 @@ Settings copied_settings(const AirplayReceiverSettings& value) {
     if (value.fields & AIRPLAY_SETTING_SHOW_ON_CONNECT) result.show_on_connect = value.show_on_connect;
     if (value.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) result.fullscreen_on_connect = value.fullscreen_on_connect;
     if (value.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) result.always_on_top = value.always_on_top;
+    if (value.fields & AIRPLAY_SETTING_PLAYBACK_STATS) result.show_playback_stats = value.show_playback_stats;
     if (value.fields & AIRPLAY_SETTING_NAME) {
         result.name = trim(result.name);
         if (!valid_name(result.name)) throw std::runtime_error("Invalid receiver name");
@@ -176,6 +178,7 @@ Settings settings_from_json(plist_t value) {
     bool_field("showOnConnect", AIRPLAY_SETTING_SHOW_ON_CONNECT, result.show_on_connect);
     bool_field("fullscreenOnConnect", AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT, result.fullscreen_on_connect);
     bool_field("alwaysOnTop", AIRPLAY_SETTING_ALWAYS_ON_TOP, result.always_on_top);
+    bool_field("showPlaybackStats", AIRPLAY_SETTING_PLAYBACK_STATS, result.show_playback_stats);
     return result;
 }
 Json settings_json(const Settings& value) {
@@ -191,6 +194,7 @@ Json settings_json(const Settings& value) {
     if (value.fields & AIRPLAY_SETTING_SHOW_ON_CONNECT) set(result.get(), "showOnConnect", value.show_on_connect);
     if (value.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) set(result.get(), "fullscreenOnConnect", value.fullscreen_on_connect);
     if (value.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) set(result.get(), "alwaysOnTop", value.always_on_top);
+    if (value.fields & AIRPLAY_SETTING_PLAYBACK_STATS) set(result.get(), "showPlaybackStats", value.show_playback_stats);
     return result;
 }
 void fill_settings(AirplayReceiverSettings& out, const Settings& value) {
@@ -206,6 +210,7 @@ void fill_settings(AirplayReceiverSettings& out, const Settings& value) {
     if (value.fields & AIRPLAY_SETTING_SHOW_ON_CONNECT) out.show_on_connect = value.show_on_connect;
     if (value.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) out.fullscreen_on_connect = value.fullscreen_on_connect;
     if (value.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) out.always_on_top = value.always_on_top;
+    if (value.fields & AIRPLAY_SETTING_PLAYBACK_STATS) out.show_playback_stats = value.show_playback_stats;
 }
 
 class Receiver;
@@ -477,7 +482,9 @@ private:
         const auto bytes = json_text(settings_json(next).get());
         if (host.preferences && !host.preferences(host.context, bytes.c_str(), error, sizeof(error)))
             throw std::runtime_error(error[0] ? error : "Cannot update platform preferences");
-        settings_ = std::move(next); changed();
+        settings_ = std::move(next);
+        if (player_) airplay_player_set_stats_enabled(player_, settings_.show_playback_stats);
+        changed();
     }
     bool foreground_only() { return boolean(item(metadata_.get(), "capabilities"), "foregroundOnly", false); }
     int video_height() {
@@ -519,6 +526,7 @@ private:
             if (!host.create_player) throw std::runtime_error("Native playback adapter is unavailable");
             player_ = host.create_player(host.context, callbacks, width, height, int(mode), error, sizeof(error));
             if (!player_) throw std::runtime_error(error[0] ? error : "Cannot create native player");
+            airplay_player_set_stats_enabled(player_, settings_.show_playback_stats);
             if (!airplay_player_set_fast_pairing(player_, settings_.fast_pairing) ||
                 !airplay_player_set_video_size(player_, width, height)) throw std::runtime_error("Cannot configure native player");
             receiving_name_ = settings_.name; active_ = settings_;
@@ -559,7 +567,12 @@ private:
     }
     void fail(const std::string& error) { stop(); state(AIRPLAY_RECEIVER_ERROR, error); }
     void receive(const std::string& type, const std::string& detail, int width, int height) {
-        if (type == "client") { client_ = detail; state(AIRPLAY_RECEIVER_STREAMING, "已建立连接，等待第一帧画面"); changed(); }
+        if (type == "playbackStats") {
+            if (settings_.show_playback_stats && width_ > 0 && !paused_) {
+                auto event = json_object(); set(event.get(), "type", "playbackStats");
+                plist_dict_set_item(event.get(), "metrics", parse_json(detail.c_str()).release()); deliver(event.get());
+            }
+        } else if (type == "client") { client_ = detail; state(AIRPLAY_RECEIVER_STREAMING, "已建立连接，等待第一帧画面"); changed(); }
         else if (type == "connecting") { if (!width_) state(AIRPLAY_RECEIVER_STREAMING, "已建立连接，等待第一帧画面"); }
         else if (type == "playing") {
             const auto texture = host.texture_id ? host.texture_id(host.context) : int64_t(-1);

@@ -226,7 +226,7 @@ int main(int argc, char** argv) {
   gtk_window_set_default_size(GTK_WINDOW(window), 980, 680);
   gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
   auto* view = fl_view_new(project);
-  auto window_channel = std::make_unique<WindowChannel>(fl_engine_get_binary_messenger(fl_view_get_engine(view)), GTK_WINDOW(window), false);
+  auto window_channel = std::make_unique<WindowChannel>(fl_engine_get_binary_messenger(fl_view_get_engine(view)), GTK_WINDOW(window));
   auto demo = std::make_unique<SyntheticDemo>(fl_view_get_engine(view), portrait);
   auto* overlay = gtk_overlay_new();
   gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(view));

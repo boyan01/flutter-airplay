@@ -62,11 +62,12 @@ Powered by a shared C++ playback core and [UxPlay](vendor/UxPlay/UPSTREAM.md) pr
 
 - **⚡ Native Hardware Acceleration**: Hardware-accelerated video decoding via Apple VideoToolbox (macOS/iPad) and Android NDK MediaCodec.
 - **📱 Phone, Tablet, TV & Desktop**: Unified Flutter interface adapting seamlessly to handheld screens, desktop window managers, and large TV displays.
-- **📺 Android TV Optimized**: Dedicated 10-foot UI with remote D-pad navigation, dark mode by default, and screen stay-awake support.
+- **📺 Android TV Optimized**: Dedicated 10-foot UI with remote D-pad navigation with one animated white focus ring, dark mode by default, and screen stay-awake support.
 - **🪟 Desktop-Friendly Integration**: Window aspect ratio automatically tracks video stream; supports always-on-top, fullscreen, system tray / menu bar persistence, and launch at login.
 - **🔄 Background Reception**: Android runs as a foreground service with notification controls, continuing reception when switched to the background or screen-off.
 - **🎯 Dynamic Resolution & Auto-negotiation**: Supports "Match Native" (up to 4K 2160p), 1440p, 1080p, and 720p with real-time stream dimension monitoring.
 - **🔒 Zero Bloat & Bundled Dependencies**: No need to install Homebrew packages or GStreamer runtime on macOS.
+- **Playback Statistics**: Enable Settings → Advanced → Playback statistics overlay on any platform. The passive overlay shows codec, decoder backend, decoded size, one-second scheduler submission FPS, cumulative scheduler drops and queue depths. Drops count late, out-of-order and overflow pictures since the last playback reset; they exclude lifecycle cancellation and network loss. Submission does not measure actual screen presentation.
 
 ---
 
@@ -86,7 +87,7 @@ Powered by a shared C++ playback core and [UxPlay](vendor/UxPlay/UPSTREAM.md) pr
 | :--- | :---: | :--- | :--- | :--- |
 | **iPad** | 🧪 Experimental | VideoToolbox (H.264 / HEVC) | AudioConverter (AAC-LC, AAC-ELD, ALAC) | iPadOS 15+. Foreground reception only; stops when switched to background. |
 | **Windows** | 🧪 Experimental | Media Foundation (H.264 / HEVC), FFmpeg fallback | Wasapi / Bundled decoders | Windows 10+ x64. Windows N requires Media Feature Pack. System tray and shortcuts supported. |
-| **Linux Desktop** | 🧪 Experimental | System FFmpeg 6+ (Software) | PulseAudio / PipeWire, ALAC | Requires GTK 3, Avahi mDNS, PulseAudio/PipeWire. System tray requires AppIndicator. |
+| **Linux Desktop** | 🧪 Experimental | System FFmpeg 6+ (Software) | PulseAudio / PipeWire, ALAC | Requires GTK 3, Avahi mDNS, PulseAudio/PipeWire. System tray uses StatusNotifierItem over the session D-Bus. |
 
 > [!NOTE]
 > **DRM Notice**: Screen mirroring protected by FairPlay DRM (such as Netflix, Apple TV+, Disney+) is **not supported** due to hardware DRM chain restrictions. Peer-to-peer (Wi-Fi Direct / Ad-hoc) connection is not supported; both devices must be on the same local network.

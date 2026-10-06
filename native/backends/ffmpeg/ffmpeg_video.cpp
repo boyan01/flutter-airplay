@@ -120,6 +120,8 @@ public:
     // The source's SPS owns the dimensions. A screen-size notification is not
     // a crop request and must not discard references during a rotation.
     void size(int, int) override {}
+    VideoScheduler::Stats stats() const override { return scheduler_.stats(); }
+    const char *decoder_name() const override { return "FFmpeg"; }
     bool can_decode() const override { return scheduler_.can_decode(); }
     int64_t next_deadline() const override { return scheduler_.next_deadline(); }
 

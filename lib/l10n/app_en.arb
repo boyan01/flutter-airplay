@@ -166,5 +166,14 @@
   "audioOutputAAudio": "Low latency",
   "audioOutputTrack": "Compatible",
   "buildVersion": "Version",
-  "buildTime": "Built at"
+  "buildTime": "Built at",
+  "showPlaybackStats": "Playback statistics overlay",
+  "showPlaybackStatsHelp": "Show codec, submission frame rate and scheduler drops while mirroring.",
+  "playbackStatsWaiting": "Waiting for playback statistics…",
+  "playbackStatsFps": "Submission FPS",
+  "playbackStatsDropped": "Scheduler drops",
+  "playbackStatsSubmitted": "Submitted frames",
+  "playbackStatsPending": "Pending frames",
+  "playbackStatsQueued": "Input queue",
+  "playbackStatsHelp": "Submissions are not measured screen presentations. Drops exclude network loss."
 }

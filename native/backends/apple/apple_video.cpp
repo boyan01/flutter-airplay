@@ -15,6 +15,8 @@ public:
         return VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC);
     }
     void size(int, int) override {} // SPS and decoded pixel buffers own actual dimensions.
+    VideoScheduler::Stats stats() const override { return scheduler_.stats(); }
+    const char *decoder_name() const override { return "VideoToolbox"; }
     bool can_decode() const override { return scheduler_.can_decode(); }
     int64_t next_deadline() const override { return scheduler_.next_deadline(); }
     void drain() override {

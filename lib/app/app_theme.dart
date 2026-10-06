@@ -13,12 +13,16 @@ ThemeData receiverTheme(
     seedColor: const Color(0xff23786e),
     brightness: brightness,
   );
-  WidgetStateProperty<BorderSide?> focusBorder(Color color) =>
-      WidgetStateProperty.resolveWith(
-        (states) => television && states.contains(WidgetState.focused)
-            ? BorderSide(color: color, width: 3)
-            : null,
-      );
+  final focusOverlay = television
+      ? WidgetStateProperty.resolveWith<Color?>(
+          (states) =>
+              states.contains(WidgetState.focused) &&
+                  !states.contains(WidgetState.pressed) &&
+                  !states.contains(WidgetState.hovered)
+              ? Colors.transparent
+              : null,
+        )
+      : null;
   final theme = ThemeData(
     useMaterial3: true,
     brightness: brightness,
@@ -26,40 +30,44 @@ ThemeData receiverTheme(
       seedColor: const Color(0xff23786e),
       brightness: brightness,
     ),
+    focusColor: television ? Colors.transparent : null,
     fontFamily: systemFonts.familyFor(platform),
     fontFamilyFallback: systemFonts.fallbacksFor(platform),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(minimumSize: Size(64, television ? 56 : 44))
-          .copyWith(side: focusBorder(scheme.onPrimary)),
+          .copyWith(overlayColor: focusOverlay),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style:
           OutlinedButton.styleFrom(minimumSize: Size(64, television ? 56 : 44))
               .copyWith(
-                side: WidgetStateProperty.resolveWith(
-                  (states) => BorderSide(
-                    color: television && states.contains(WidgetState.focused)
-                        ? scheme.primary
-                        : scheme.outline,
-                    width: television && states.contains(WidgetState.focused)
-                        ? 3
-                        : 1,
-                  ),
-                ),
+                overlayColor: focusOverlay,
+                side: television
+                    ? WidgetStateProperty.resolveWith(
+                        (states) => BorderSide(
+                          color: states.contains(WidgetState.disabled)
+                              ? scheme.onSurface.withValues(alpha: .12)
+                              : scheme.outline,
+                        ),
+                      )
+                    : null,
               ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(minimumSize: Size(64, television ? 56 : 44))
-          .copyWith(side: focusBorder(scheme.primary)),
+          .copyWith(overlayColor: focusOverlay),
     ),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
         minimumSize: Size.square(television ? 56 : 44),
-      ).copyWith(side: focusBorder(scheme.primary)),
+      ).copyWith(overlayColor: focusOverlay),
     ),
-    inputDecorationTheme: const InputDecorationTheme(
+    inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      border: OutlineInputBorder(),
+      border: const OutlineInputBorder(),
+      focusedBorder: television
+          ? OutlineInputBorder(borderSide: BorderSide(color: scheme.outline))
+          : null,
     ),
   );
   return theme.copyWith(

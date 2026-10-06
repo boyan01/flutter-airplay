@@ -25,6 +25,7 @@ class ReceiverSettings {
     this.path = '',
     this.autoStart = true,
     this.fastPairing = true,
+    this.showPlaybackStats = false,
     this.videoQuality = VideoQuality.auto,
     this.audioOutput = AudioOutput.auto,
     this.launchAtLogin = false,
@@ -41,6 +42,7 @@ class ReceiverSettings {
   final String path;
   final bool autoStart;
   final bool fastPairing;
+  final bool showPlaybackStats;
   final VideoQuality videoQuality;
   final AudioOutput audioOutput;
   final bool launchAtLogin;

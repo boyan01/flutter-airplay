@@ -931,6 +931,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Built at'**
   String get buildTime;
+
+  /// No description provided for @showPlaybackStats.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback statistics overlay'**
+  String get showPlaybackStats;
+
+  /// No description provided for @showPlaybackStatsHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Show codec, submission frame rate and scheduler drops while mirroring.'**
+  String get showPlaybackStatsHelp;
+
+  /// No description provided for @playbackStatsWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for playback statistics…'**
+  String get playbackStatsWaiting;
+
+  /// No description provided for @playbackStatsFps.
+  ///
+  /// In en, this message translates to:
+  /// **'Submission FPS'**
+  String get playbackStatsFps;
+
+  /// No description provided for @playbackStatsDropped.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduler drops'**
+  String get playbackStatsDropped;
+
+  /// No description provided for @playbackStatsSubmitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Submitted frames'**
+  String get playbackStatsSubmitted;
+
+  /// No description provided for @playbackStatsPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending frames'**
+  String get playbackStatsPending;
+
+  /// No description provided for @playbackStatsQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Input queue'**
+  String get playbackStatsQueued;
+
+  /// No description provided for @playbackStatsHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Submissions are not measured screen presentations. Drops exclude network loss.'**
+  String get playbackStatsHelp;
 }
 
 class _AppLocalizationsDelegate

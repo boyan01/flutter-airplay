@@ -14,9 +14,14 @@
 #endif
 
 void check_video_resume(void *surface, const char *decoder) {
-    struct Progress { std::atomic<int> frames{0}, pauses{0}, audio{0}, audio_stops{0}; std::atomic<bool> blue{false}; } progress;
+    struct Progress { std::atomic<int> frames{0}, pauses{0}, audio{0}, audio_stops{0}, profiles{0}; std::atomic<bool> blue{false}; } progress;
     AirplayCallbacks cb{}; cb.context = &progress;
-    cb.event = [](void *context, const char *type, const char *, int, int) {
+    cb.event = [](void *context, const char *type, const char *detail, int, int) {
+        if (!strcmp(type, "playbackStats")) {
+            if (!strstr(detail, "\"codec\":\"H.264\"") || !strstr(detail, "\"fps\":") || !strstr(detail, "\"dropped\":"))
+                throw std::runtime_error("playback telemetry lacks copied codec and scheduler measurements");
+            static_cast<Progress *>(context)->profiles.fetch_add(1);
+        }
         if (!strcmp(type, "playing")) static_cast<Progress *>(context)->frames.fetch_add(1);
         if (!strcmp(type, "paused")) static_cast<Progress *>(context)->pauses.fetch_add(1);
         if (!strcmp(type, "audio")) static_cast<Progress *>(context)->audio.fetch_add(1);
@@ -33,6 +38,7 @@ void check_video_resume(void *surface, const char *decoder) {
     };
 #endif
     auto p = std::make_unique<AirplayPlayer>(cb, surface, decoder, "");
+    airplay_player_set_stats_enabled(p.get(), true);
     const auto receive = receiver_callbacks(p.get());
     if (!p->video->supports_hevc() && receive.video_set_codec(receive.cls, VIDEO_CODEC_H265) != -1)
         throw std::runtime_error("unsupported platform accepts HEVC input");
@@ -97,6 +103,15 @@ void check_video_resume(void *surface, const char *decoder) {
     if (progress.audio.load() != 1) throw std::runtime_error("decoded PCM has no single audio UI event");
     receive.audio_flush(receive.cls);
     if (progress.audio_stops.load() != 1) throw std::runtime_error("audio flush has no pause UI event");
+    const auto profile_limit = monotonic_ns() + 2 * kSecond;
+    while (!progress.profiles.load() && monotonic_ns() < profile_limit)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    if (!progress.profiles.load()) throw std::runtime_error("enabled overlay receives no playback telemetry");
+    airplay_player_set_stats_enabled(p.get(), false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto profiles = progress.profiles.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    if (profiles != progress.profiles.load()) throw std::runtime_error("disabled overlay still emits playback telemetry");
 }
 
 #ifdef __APPLE__

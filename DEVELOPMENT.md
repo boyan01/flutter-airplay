@@ -165,13 +165,13 @@ Strawberry Perl 附带的原生 Windows Make 不适用。
 ### Linux
 
 在 Linux 上安装 GTK 3、FFmpeg 6+（`libavcodec >= 60`）、PulseAudio 兼容音频服务、
-Avahi、Ayatana AppIndicator 3、OpenSSL 和 libplist 2.3+ 的开发包。
+Avahi、OpenSSL 和 libplist 2.3+ 的开发包。
 Debian 13 可使用：
 
 ```sh
 sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev \
   libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
-  libpulse-dev libavahi-client-dev libayatana-appindicator3-dev \
+  libpulse-dev libavahi-client-dev \
   libssl-dev libplist-dev libx11-dev libxi-dev
 ```
 
@@ -289,7 +289,7 @@ CI 的编译与合成媒体结果不能替代这些检查。
 GitHub 托管 runner（`GITHUB_ACTIONS=true` 且 `RUNNER_ENVIRONMENT=github-hosted`）
 跳过 macOS 的 30ms 实时到达抖动断言和 Linux 的真实 Flutter 标题拖动/关闭测试：
 虚拟主机调度不能保证实时上限，Xvfb 下的拖动路径出现 GDK event device 错误。
-跳过时输出明确的 `SKIP` 原因；其他视频、暂停恢复、GTK/托盘生命周期测试照常运行。
+跳过时输出明确的 `SKIP` 原因；其他视频、暂停恢复、GTK 宿主生命周期测试照常运行。
 本地及 self-hosted runner 保留这两项检查。
 
 ### Dart
@@ -325,7 +325,7 @@ Kotlin 状态适配层属于 Android native 检查，使用已配置的 `GRADLE_
 | Windows 视频 / 全部 | `bash scripts/test_native.sh windows video` / `windows all` | 显式检查平台、D3D11 纹理转换/硬解及 FFmpeg 视频 decoder，或全部原生 fixture；无可用显卡时 GPU 转换明确跳过 |
 | Windows 纹理宿主 | `bash scripts/test_native.sh windows texture` | 先用 `flutter build windows --debug` 准备宿主，再执行 `cmake --build build/windows/x64 --config Debug --target windows_texture_test`；检查 Flutter GPU 纹理描述的导入、释放、旋转及重连 |
 | Linux 基础 | `./scripts/test_native.sh linux` | Linux 开发依赖；时钟、PCM/音频、H.264 恢复、会话与 loopback；只构建相关 fixture |
-| Linux 视频 / 宿主 / 全部 | `./scripts/test_native.sh linux video` / `linux host` / `linux all` | 视频矩阵需要 ffmpeg/ffprobe 和 Python 3；宿主需要 Flutter engine；all 包括可用的窗口/托盘测试 |
+| Linux 视频 / 宿主 / 全部 | `./scripts/test_native.sh linux video` / `linux host` / `linux all` | 视频矩阵需要 ffmpeg/ffprobe 和 Python 3；宿主需要 Flutter engine；all 包括可用的窗口宿主测试 |
 
 macOS 默认只运行 player，不重新编译 Swift 宿主/纹理 fixture；完整组合使用
 `./scripts/test_native.sh macos all`，窗口测试仍单独选择。
@@ -361,14 +361,33 @@ Linux Flutter 宿主测试在 `linux/flutter/ephemeral/` 已有 engine 库时启
 
 ### 窗口、托盘与输入
 
+桌面窗口的全屏、最大化、最小化、拖动、尺寸、比例、置顶与显示/隐藏统一由
+`WindowController` 调用 `nativeapi`。`DesktopPresentation` 持有托盘、菜单、窗口事件订阅和
+会话自动显示/隐藏的计时器，使用共享接收器状态和 Flutter 本地化。三种桌面宿主均启用
+UI / 平台线程合并，使 FFI 调用和同步事件回调在平台线程执行。
+窗口调用避开 Flutter 当前帧，防止 AppKit 同步调整尺寸时嵌套帧回调。
+普通窗口命令在非合并引擎上可通过 `runOnPlatformThread` 切换线程；托盘事件订阅要求合并线程。
+最大化/还原直接订阅 `WindowManager.addListener`。宿主不重复发送普通尺寸和最大化事件，
+只补充当前插件缺少的全屏完成通知，另保留关闭请求拦截、可靠退出/接收器清理和防休眠。
+macOS 还保留 Dock 激活策略与系统菜单，避免 `nativeapi 0.4` 的 Application 初始化替换 Flutter AppDelegate；
+编辑菜单继续使用系统 responder chain。
+Linux 托盘可用性按 `TrayManager.isSupported()` 判断，不再依赖 Ayatana AppIndicator。
+
+真实桌面回归：`flutter test -d macos integration_test/desktop_window_test.dart`。
+同一用例也可选择 `windows` 或 `linux`；验证标题栏不参与导航、反复进入/退出全屏、
+视频比例/旋转/原始像素尺寸、置顶、播放在全屏中结束、关闭到托盘、连接后显示和延迟隐藏。
+Swift / GTK 原生窗口 fixture 只检查剩余的关闭与状态桥接。
+共享标题栏位于 `MaterialApp.builder` 的导航外层；页面和弹层只更新下面的内容。
+
+
 | 目标 | 命令 | 前置条件 |
 | --- | --- | --- |
 | macOS | `./scripts/test_native.sh macos window` | `flutter run -d macos` 生成的 Debug 产物，以及已登录的 macOS GUI 会话 |
-| Linux GTK 窗口/托盘 | `./scripts/test_native.sh linux all` | 已有 Flutter engine 库，额外安装 `xvfb`、`dbus-x11`；运行在隔离显示和 session bus 中 |
+| Linux GTK 窗口宿主 | `./scripts/test_native.sh linux all` | 已有 Flutter engine 库，额外安装 `xvfb`、`dbus-x11`；运行在隔离显示和 session bus 中 |
 | Linux 实际标题拖动 | `./scripts/test_native.sh linux window` | 已有 Debug bundle，额外安装 `xvfb`、`dbus-x11`、`openbox`、`xdotool`；真实鼠标操作检查拖动后坐标及关闭 |
 
 Linux 拖动测试可接收其他 bundle 路径：`./scripts/test_native.sh linux window <bundle-path>`。
-隔离环境的窗口与合成托盘测试不能替代真实桌面环境兼容性验证。
+隔离环境的 GTK 窗口测试不能替代真实桌面环境兼容性验证；托盘行为由桌面 Flutter 集成测试验证。
 
 ### Android 应用集成测试
 

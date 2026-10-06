@@ -2,11 +2,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../receiver/receiver_model.dart';
 import '../widgets/receiver_strings.dart';
 import '../tv_focus.dart';
+import '../receiver_back.dart';
 
 import 'settings_labels.dart';
 
@@ -33,7 +33,6 @@ class VideoQualityPageState extends State<VideoQualityPage> {
     final autofocus = value == model.videoQuality;
     return model.isTelevision
         ? TvFocus(
-            outline: true,
             child: ListTile(
               key: Key('quality$value'),
               autofocus: autofocus,
@@ -69,15 +68,9 @@ class VideoQualityPageState extends State<VideoQualityPage> {
       return PopScope(
         canPop: !model.busy,
         child: CallbackShortcuts(
-          bindings: {
-            const SingleActivator(LogicalKeyboardKey.escape): () {
-              if (!model.busy) Navigator.pop(context);
-            },
-            if (model.platform != 'android')
-              const SingleActivator(LogicalKeyboardKey.goBack): () {
-                if (!model.busy) Navigator.pop(context);
-              },
-          },
+          bindings: receiverBackShortcuts(model.platform, () {
+            if (!model.busy) Navigator.pop(context);
+          }),
           child: Scaffold(
             appBar: AppBar(title: Text(l10n(context).videoQuality)),
             body: SafeArea(

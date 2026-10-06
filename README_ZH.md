@@ -61,11 +61,12 @@
 
 - **⚡ 原生硬件解码**：macOS / iPad 采用 Apple VideoToolbox，Android 采用 NDK MediaCodec 硬解，流畅低延迟。
 - **📱 全终端界面适配**：统一的 Flutter 界面，无缝适应手机小屏、桌面窗口管理器以及大屏 Android TV。
-- **📺 专为电视打造**：专属 10 尺大屏 UI、遥控器方向键无障碍导航、强制深色主题、前台运行保持屏幕常亮。
+- **📺 专为电视打造**：专属 10 尺大屏 UI、遥控器方向键导航、随焦点移动的统一白色圆角边框、强制深色主题、前台运行保持屏幕常亮。
 - **🪟 桌面深度集成**：播放窗口自适应画面比例；支持窗口置顶、全屏、系统托盘 / 菜单栏后台常驻以及开机自启。
 - **🔄 后台无缝接收**：Android 支持前台服务与系统通知控制，切到后台或息屏后仍可继续接收投屏。
 - **🎯 动态分辨率自协商**：支持“适配本机”（最高请求 4K 2160p）、1440p、1080p 与 720p 档位，实时显示屏幕像素与接收尺寸。
 - **🔒 开箱即用与零膨胀**：macOS 打包内置全部原生依赖，无需通过 Homebrew 安装额外运行时或 GStreamer。
+- **播放统计**：所有平台都可在「设置 → 高级 → 播放统计图层」开启。图层不拦截操作，显示编码格式、解码后端、实际尺寸、每秒调度提交帧率、累计调度丢帧和队列深度。丢帧统计自上次播放重置起的过期、乱序和溢出画面，不包含生命周期取消及网络丢包；提交帧率不代表屏幕实际呈现帧率。
 
 ---
 
@@ -85,7 +86,7 @@
 | :--- | :---: | :--- | :--- | :--- |
 | **iPad** | 🧪 实验性 | VideoToolbox (H.264 / HEVC) | AudioConverter (AAC-LC, AAC-ELD, ALAC) | iPadOS 15+。仅前台接收；切至后台停止接收。音频中断需重新连接。 |
 | **Windows** | 🧪 实验性 | Media Foundation (H.264 / HEVC)，包内 FFmpeg 备用 | Wasapi / 包内解码器 | Windows 10+ x64。Windows N 版本需安装 Media Feature Pack。支持托盘与快捷键。 |
-| **Linux 桌面** | 🧪 实验性 | 系统 FFmpeg 6+ (软解) | PulseAudio / PipeWire, ALAC | 依赖 GTK 3、Avahi mDNS、PulseAudio/PipeWire。托盘需 AppIndicator 支持。 |
+| **Linux 桌面** | 🧪 实验性 | 系统 FFmpeg 6+ (软解) | PulseAudio / PipeWire, ALAC | 依赖 GTK 3、Avahi mDNS、PulseAudio/PipeWire。托盘通过 session D-Bus 的 StatusNotifierItem 显示。 |
 
 > [!NOTE]
 > **DRM 说明**：由于硬件级版权保护链限制，应用**不支持**播放具有 FairPlay DRM 保护的流媒体内容（如 Netflix、Apple TV+、Disney+ 等，投屏时将显示黑屏）。不支持 Wi-Fi Direct 点对点直连，发送端与接收端必须位于同一局域网。

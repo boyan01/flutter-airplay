@@ -165,79 +165,14 @@ bool Win32Window::Show() {
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
-void Win32Window::SetFullscreen(bool enabled) {
-  if (fullscreen_ == enabled) return;
-  if (enabled) {
-    MONITORINFO monitor{sizeof(MONITORINFO)};
-    if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
-    windowed_style_ = GetWindowLongPtrW(window_handle_, GWL_STYLE);
-    GetWindowPlacement(window_handle_, &windowed_placement_);
-    fullscreen_ = true;
-    SetWindowLongPtrW(window_handle_, GWL_STYLE, windowed_style_ & ~WS_OVERLAPPEDWINDOW);
-    SetWindowPos(window_handle_, nullptr, monitor.rcMonitor.left, monitor.rcMonitor.top,
-        monitor.rcMonitor.right - monitor.rcMonitor.left, monitor.rcMonitor.bottom - monitor.rcMonitor.top,
-        SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOOWNERZORDER);
-  } else {
-    fullscreen_ = false;
-    SetWindowLongPtrW(window_handle_, GWL_STYLE, windowed_style_);
-    SetWindowPlacement(window_handle_, &windowed_placement_);
-    SetWindowPos(window_handle_, nullptr, 0, 0, 0, 0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
-    ResizeContent();
-  }
-}
-
-void Win32Window::ToggleMaximize() {
-  if (fullscreen_) { SetFullscreen(false); return; }
-  ShowWindow(window_handle_, IsZoomed(window_handle_) ? SW_RESTORE : SW_MAXIMIZE);
-}
-
-void Win32Window::SetMode(int width, int height) {
-  if (player_width_ == width && player_height_ == height) return;
-  player_width_ = width; player_height_ = height;
-  ResizeContent();
-}
-
-void Win32Window::ResizeContent() {
-  if (fullscreen_ || IsZoomed(window_handle_)) return;
-  MONITORINFO monitor{sizeof(MONITORINFO)};
-  if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
-  RECT previous{}; GetWindowRect(window_handle_, &previous);
-  const auto &work = monitor.rcWork;
-  const double dpi = GetDpiForWindow(window_handle_) / 96.0;
-  double width = 440 * dpi, height = 560 * dpi;
-  if (player_width_ > 0 && player_height_ > 0) {
-    const double ratio = double(player_width_) / player_height_;
-    const double max_width = (work.right - work.left) * 0.8;
-    const double max_height = (work.bottom - work.top) * 0.8;
-    width = std::min(max_width, max_height * ratio);
-    height = width / ratio;
-  }
-  const int w = std::min(static_cast<int>(std::round(width)), int(work.right - work.left));
-  const int h = std::min(static_cast<int>(std::round(height)), int(work.bottom - work.top));
-  const int x = std::clamp(int((previous.left + previous.right - w) / 2), int(work.left), int(work.right) - w);
-  const int y = std::clamp(int((previous.top + previous.bottom - h) / 2), int(work.top), int(work.bottom) - h);
-  SetWindowPos(window_handle_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
-}
-
-void Win32Window::ResizePlayer(bool actual_size) {
-  if (!actual_size) { ResizeContent(); return; }
-  if (fullscreen_ || player_width_ <= 0 || player_height_ <= 0) return;
-  if (IsZoomed(window_handle_)) ShowWindow(window_handle_, SW_RESTORE);
-  MONITORINFO monitor{sizeof(MONITORINFO)};
-  if (!GetMonitorInfoW(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST), &monitor)) return;
-  RECT previous{}; GetWindowRect(window_handle_, &previous);
-  const auto &work = monitor.rcWork;
-  const double scale = std::min(1.0, std::min((work.right - work.left) * 0.8 / player_width_, (work.bottom - work.top) * 0.8 / player_height_));
-  const int w = static_cast<int>(std::round(player_width_ * scale));
-  const int h = static_cast<int>(std::round(player_height_ * scale));
-  const int x = std::clamp(int((previous.left + previous.right - w) / 2), int(work.left), int(work.right) - w);
-  const int y = std::clamp(int((previous.top + previous.bottom - h) / 2), int(work.top), int(work.bottom) - h);
-  SetWindowPos(window_handle_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+bool Win32Window::IsFullscreen() const {
+  // nativeapi removes the frame styles while fullscreen. Observe the actual
+  // OS window instead of maintaining a second fullscreen state.
+  return window_handle_ && !(GetWindowLongPtrW(window_handle_, GWL_STYLE) & WS_THICKFRAME);
 }
 
 LRESULT Win32Window::HitTest(LPARAM position) const {
-  if (fullscreen_ || IsZoomed(window_handle_)) return HTCLIENT;
+  if (IsFullscreen() || IsZoomed(window_handle_)) return HTCLIENT;
   RECT bounds{}; GetWindowRect(window_handle_, &bounds);
   const int border = GetSystemMetricsForDpi(SM_CXSIZEFRAME, GetDpiForWindow(window_handle_))
       + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, GetDpiForWindow(window_handle_));
@@ -285,7 +220,7 @@ Win32Window::MessageHandler(HWND hwnd,
   switch (message) {
     case WM_NCCALCSIZE:
       if (wparam) {
-        if (!fullscreen_ && IsZoomed(hwnd)) {
+        if (!IsFullscreen() && IsZoomed(hwnd)) {
           MONITORINFO monitor{sizeof(MONITORINFO)};
           if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
             reinterpret_cast<NCCALCSIZE_PARAMS *>(lparam)->rgrc[0] = monitor.rcWork;
@@ -297,33 +232,6 @@ Win32Window::MessageHandler(HWND hwnd,
       return DefWindowProc(hwnd, message, wparam, -1);
     case WM_NCHITTEST:
       return HitTest(lparam);
-    case WM_GETMINMAXINFO: {
-      auto *size = reinterpret_cast<MINMAXINFO *>(lparam);
-      const double scale = GetDpiForWindow(hwnd) / 96.0;
-      int width = Scale(player_width_ > 0 ? 160 : 360, scale);
-      int height = Scale(player_width_ > 0 ? 160 : 480, scale);
-      if (player_width_ > 0 && player_height_ > 0) {
-        const double ratio = double(player_width_) / player_height_;
-        width = std::max(width, static_cast<int>(std::ceil(height * ratio)));
-        height = std::max(height, static_cast<int>(std::ceil(width / ratio)));
-      }
-      size->ptMinTrackSize = {width, height};
-      return 0;
-    }
-    case WM_SIZING:
-      if (player_width_ > 0 && player_height_ > 0 && !fullscreen_) {
-        auto *bounds = reinterpret_cast<RECT *>(lparam);
-        const double ratio = double(player_width_) / player_height_;
-        if (wparam == WMSZ_TOP || wparam == WMSZ_BOTTOM) {
-          bounds->right = bounds->left + static_cast<LONG>(std::round((bounds->bottom - bounds->top) * ratio));
-        } else {
-          const LONG height = static_cast<LONG>(std::round((bounds->right - bounds->left) / ratio));
-          if (wparam == WMSZ_TOPLEFT || wparam == WMSZ_TOPRIGHT) bounds->top = bounds->bottom - height;
-          else bounds->bottom = bounds->top + height;
-        }
-        return TRUE;
-      }
-      break;
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

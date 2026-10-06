@@ -10,6 +10,7 @@ import '../../platform/window_controller.dart';
 import '../widgets/receiver_strings.dart';
 import '../widgets/receiver_name_field.dart';
 import '../tv_focus.dart';
+import '../receiver_back.dart';
 
 import 'tv_name_page.dart';
 
@@ -201,7 +202,6 @@ class _SettingsPageState extends State<SettingsPage> {
       final generalEntries = <Widget>[
         if (tv)
           TvFocus(
-            outline: tv,
             child: ListTile(
               key: const Key('tvName'),
               autofocus: true,
@@ -226,7 +226,6 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 12),
         if (tv)
           TvFocus(
-            outline: true,
             child: SwitchListTile(
               key: const Key('autoStart'),
               title: Text(l10n(context).autoStart),
@@ -274,7 +273,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
         if (model.supportsVideoQuality) ...[
           TvFocus(
-            outline: tv,
             child: ListTile(
               key: const Key('videoQuality'),
               focusNode: _qualityFocus,
@@ -297,7 +295,6 @@ class _SettingsPageState extends State<SettingsPage> {
       final systemEntries = <Widget>[
         if (model.platform == 'android') ...[
           TvFocus(
-            outline: tv,
             child: ListTile(
               key: const Key('backgroundLaunch'),
               contentPadding: EdgeInsets.zero,
@@ -309,7 +306,6 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           TvFocus(
-            outline: tv,
             child: ListTile(
               key: const Key('appPermissions'),
               contentPadding: EdgeInsets.zero,
@@ -333,7 +329,6 @@ class _SettingsPageState extends State<SettingsPage> {
           tilePadding: EdgeInsets.zero,
           children: [
             TvFocus(
-              outline: tv,
               child: SwitchListTile(
                 key: const Key('fastPairing'),
                 contentPadding: EdgeInsets.zero,
@@ -353,9 +348,28 @@ class _SettingsPageState extends State<SettingsPage> {
                     : null,
               ),
             ),
+            TvFocus(
+              child: SwitchListTile(
+                key: const Key('showPlaybackStats'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n(context).showPlaybackStats),
+                subtitle: Text(l10n(context).showPlaybackStatsHelp),
+                value: model.showPlaybackStats,
+                onChanged: model.editable
+                    ? (value) async {
+                        await _save();
+                        if (!mounted) return;
+                        await model.save(
+                          model.name,
+                          model.path,
+                          showPlaybackStats: value,
+                        );
+                      }
+                    : null,
+              ),
+            ),
             if (model.platform == 'android')
               TvFocus(
-                outline: tv,
                 child: ListTile(
                   key: const Key('audioOutput'),
                   contentPadding: EdgeInsets.zero,
@@ -414,7 +428,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         if (!desktop)
           TvFocus(
-            outline: tv,
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(l10n(context).logs),
@@ -428,7 +441,6 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         TvFocus(
-          outline: tv,
           child: ListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(l10n(context).licenses),
@@ -535,16 +547,9 @@ class _SettingsPageState extends State<SettingsPage> {
       return PopScope(
         canPop: !model.busy,
         child: CallbackShortcuts(
-          bindings: {
-            const SingleActivator(LogicalKeyboardKey.escape): () {
-              if (!model.busy) Navigator.pop(context);
-            },
-            // Android back keys must reach system navigation without an early pop.
-            if (model.platform != 'android')
-              const SingleActivator(LogicalKeyboardKey.goBack): () {
-                if (!model.busy) Navigator.pop(context);
-              },
-          },
+          bindings: receiverBackShortcuts(model.platform, () {
+            if (!model.busy) Navigator.pop(context);
+          }),
           child: content,
         ),
       );

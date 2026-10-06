@@ -16,7 +16,16 @@ enum ReceiverStatus {
   error,
 }
 
-enum ReceiverEventType { snapshot, state, client, video, media, log, unknown }
+enum ReceiverEventType {
+  snapshot,
+  state,
+  client,
+  video,
+  media,
+  log,
+  playbackStats,
+  unknown,
+}
 
 @JsonSerializable(createToJson: false)
 class ReceiverLog {
@@ -143,6 +152,7 @@ class ReceiverEvent {
     this.audioPlaying = false,
     this.videoPaused = false,
     this.log,
+    this.playbackStats,
   });
   factory ReceiverEvent.fromJson(Map<String, dynamic> json) =>
       _$ReceiverEventFromJson(json);
@@ -162,4 +172,25 @@ class ReceiverEvent {
   final bool videoPaused;
   @JsonKey(name: 'entry')
   final ReceiverLog? log;
+  @JsonKey(name: 'metrics')
+  final PlaybackStats? playbackStats;
+}
+
+/// Scheduler submissions are not measured screen presentations or network losses.
+@JsonSerializable(createToJson: false)
+class PlaybackStats {
+  const PlaybackStats({
+    this.codec = '',
+    this.decoder = '',
+    this.fps = 0,
+    this.submitted = 0,
+    this.dropped = 0,
+    this.pending = 0,
+    this.queued = 0,
+  });
+  factory PlaybackStats.fromJson(Map<String, dynamic> json) =>
+      _$PlaybackStatsFromJson(json);
+  final String codec, decoder;
+  final double fps;
+  final int submitted, dropped, pending, queued;
 }

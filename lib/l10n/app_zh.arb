@@ -159,5 +159,14 @@
   "audioOutputAAudio": "低延迟",
   "audioOutputTrack": "兼容",
   "buildVersion": "版本",
-  "buildTime": "构建时间"
+  "buildTime": "构建时间",
+  "showPlaybackStats": "播放统计图层",
+  "showPlaybackStatsHelp": "投屏时显示编解码、提交帧率和调度丢帧数据。",
+  "playbackStatsWaiting": "等待播放统计…",
+  "playbackStatsFps": "提交帧率",
+  "playbackStatsDropped": "调度丢帧",
+  "playbackStatsSubmitted": "已提交帧",
+  "playbackStatsPending": "待提交帧",
+  "playbackStatsQueued": "输入队列",
+  "playbackStatsHelp": "提交不等于屏幕实际呈现。丢帧不包含网络丢包。"
 }

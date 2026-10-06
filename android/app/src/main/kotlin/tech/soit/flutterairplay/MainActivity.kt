@@ -96,9 +96,9 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
                     }
                     return@setMethodCallHandler
                 }
-                if (call.method != "setMode") { result.notImplemented(); return@setMethodCallHandler }
+                if (call.method != "setPlaybackOrientation") { result.notImplemented(); return@setMethodCallHandler }
                 updateOrientation(call.argument<Int>("width") ?: 0,
-                    call.argument<Int>("height") ?: 0, call.argument<String>("mode") == "player")
+                    call.argument<Int>("height") ?: 0, call.argument<Boolean>("playing") == true)
                 result.success(null)
             }
         }

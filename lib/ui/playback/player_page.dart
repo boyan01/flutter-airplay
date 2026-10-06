@@ -7,7 +7,8 @@ import 'package:flutter/services.dart';
 import '../../receiver/receiver_model.dart';
 import '../widgets/receiver_strings.dart';
 import '../tv_focus.dart';
-import '../widgets/desktop_window_bar.dart';
+import '../receiver_back.dart';
+import 'playback_stats_overlay.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
@@ -16,12 +17,12 @@ class PlayerPage extends StatefulWidget {
     required this.onFullscreen,
     required this.onEscape,
     required this.dialogOpen,
-    this.maximized = false,
+    this.onControlsVisibility,
   });
   final ReceiverModel model;
   final VoidCallback onFullscreen, onEscape;
   final bool dialogOpen;
-  final bool maximized;
+  final ValueChanged<bool>? onControlsVisibility;
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
@@ -48,6 +49,7 @@ class _PlayerPageState extends State<PlayerPage> {
     if (widget.dialogOpen) return;
     final newlyVisible = !_visible;
     setState(() => _visible = true);
+    widget.onControlsVisibility?.call(true);
     _timer?.cancel();
     _timer = Timer(_delay, _hide);
     if (tv && newlyVisible) {
@@ -61,6 +63,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _timer?.cancel();
     if (!mounted) return;
     setState(() => _visible = false);
+    widget.onControlsVisibility?.call(false);
     _surfaceFocus.requestFocus();
   }
 
@@ -126,7 +129,7 @@ class _PlayerPageState extends State<PlayerPage> {
     return Stack(
       key: const Key('playerControls'),
       children: [
-        if (!tv)
+        if (!tv && !widget.model.supportsWindowPreferences)
           Positioned(
             top: 0,
             left: 0,
@@ -144,36 +147,29 @@ class _PlayerPageState extends State<PlayerPage> {
                     colors: [Color(0x99000000), Colors.transparent],
                   ),
                 ),
-                child: widget.model.supportsWindowPreferences
-                    ? DesktopWindowBar(
-                        title: client,
-                        platform: widget.model.platform,
-                        dark: true,
-                        maximized: widget.maximized,
+                child: Row(
+                  children: [
+                    if (phone)
+                      IconButton(
+                        key: const Key('playerBack'),
+                        tooltip: l10n(context).back,
+                        color: Colors.white,
+                        onPressed: _back,
+                        icon: const Icon(Icons.arrow_back),
                       )
-                    : Row(
-                        children: [
-                          if (phone)
-                            IconButton(
-                              key: const Key('playerBack'),
-                              tooltip: l10n(context).back,
-                              color: Colors.white,
-                              onPressed: _back,
-                              icon: const Icon(Icons.arrow_back),
-                            )
-                          else
-                            const SizedBox(width: 60),
-                          Expanded(
-                            child: Text(
-                              client,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                        ],
+                    else
+                      const SizedBox(width: 60),
+                    Expanded(
+                      child: Text(
+                        client,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                        ),
                       ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -183,7 +179,14 @@ class _PlayerPageState extends State<PlayerPage> {
           bottom: 0,
           child: SafeArea(
             child: Container(
-              padding: EdgeInsets.all(tv ? 48 : 20),
+              padding: EdgeInsets.symmetric(
+                horizontal: tv
+                    ? 48
+                    : phone
+                    ? 20
+                    : 12,
+                vertical: tv ? 48 : 20,
+              ),
               decoration: tv || phone
                   ? const BoxDecoration(
                       gradient: LinearGradient(
@@ -232,62 +235,101 @@ class _PlayerPageState extends State<PlayerPage> {
                   else if (phone)
                     _disconnect()
                   else
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xdd202020),
-                        borderRadius: BorderRadius.circular(32),
-                      ),
-                      child: Wrap(
-                        spacing: 8,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          TextButton.icon(
-                            key: const Key('disconnect'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: widget.model.canStop
-                                ? widget.model.disconnect
-                                : null,
-                            icon: const Icon(Icons.eject_rounded),
-                            label: Text(l10n(context).disconnect),
-                          ),
-                          if (widget.model.supportsWindowPreferences)
-                            TextButton.icon(
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final scale =
+                            MediaQuery.textScalerOf(context).scale(14) / 14;
+                        final compact = constraints.maxWidth < 380 * scale;
+                        Widget action(
+                          String key,
+                          String label,
+                          IconData icon,
+                          VoidCallback? onPressed,
+                        ) {
+                          if (compact) {
+                            return IconButton(
+                              key: Key(key),
+                              tooltip: label,
+                              color: Colors.white,
+                              onPressed: onPressed,
+                              icon: Icon(icon),
+                              constraints: const BoxConstraints.tightFor(
+                                width: 48,
+                                height: 48,
+                              ),
+                            );
+                          }
+                          return SizedBox(
+                            height: 48,
+                            child: TextButton.icon(
+                              key: Key(key),
                               style: TextButton.styleFrom(
                                 foregroundColor: Colors.white,
                               ),
-                              onPressed: () => widget.model.save(
-                                widget.model.name,
-                                widget.model.path,
-                                desktopOptions: {
-                                  ...widget.model.desktopOptions,
-                                  'alwaysOnTop': !widget
-                                      .model
-                                      .desktopOptions['alwaysOnTop']!,
-                                },
-                              ),
-                              icon: Icon(
-                                widget.model.desktopOptions['alwaysOnTop']!
-                                    ? Icons.push_pin
-                                    : Icons.push_pin_outlined,
-                              ),
-                              label: Text(l10n(context).alwaysOnTop),
+                              onPressed: onPressed,
+                              icon: Icon(icon),
+                              label: Text(label),
                             ),
-                          IconButton(
-                            tooltip: widget.model.platform != 'macos'
-                                ? l10n(context).fullscreenWindows
-                                : l10n(context).fullscreen,
-                            color: Colors.white,
-                            onPressed: widget.onFullscreen,
-                            icon: const Icon(Icons.fullscreen),
+                          );
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
                           ),
-                        ],
-                      ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xdd202020),
+                            borderRadius: BorderRadius.circular(32),
+                          ),
+                          child: Wrap(
+                            spacing: 4,
+                            runSpacing: 4,
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              action(
+                                'disconnect',
+                                l10n(context).disconnect,
+                                Icons.eject_rounded,
+                                widget.model.canStop
+                                    ? widget.model.disconnect
+                                    : null,
+                              ),
+                              if (widget.model.supportsWindowPreferences)
+                                action(
+                                  'playerAlwaysOnTop',
+                                  l10n(context).alwaysOnTop,
+                                  widget.model.desktopOptions['alwaysOnTop']!
+                                      ? Icons.push_pin
+                                      : Icons.push_pin_outlined,
+                                  () => widget.model.save(
+                                    widget.model.name,
+                                    widget.model.path,
+                                    desktopOptions: {
+                                      ...widget.model.desktopOptions,
+                                      'alwaysOnTop': !widget
+                                          .model
+                                          .desktopOptions['alwaysOnTop']!,
+                                    },
+                                  ),
+                                ),
+                              SizedBox(
+                                width: 48,
+                                height: 48,
+                                child: IconButton(
+                                  tooltip: widget.model.platform != 'macos'
+                                      ? l10n(context).fullscreenWindows
+                                      : l10n(context).fullscreen,
+                                  color: Colors.white,
+                                  onPressed: widget.onFullscreen,
+                                  icon: const Icon(Icons.fullscreen),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                 ],
               ),
@@ -312,9 +354,8 @@ class _PlayerPageState extends State<PlayerPage> {
           return KeyEventResult.ignored;
         }
         final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.escape ||
-            key == LogicalKeyboardKey.goBack) {
-          _back();
+        if (isReceiverBackKey(widget.model.platform, key)) {
+          if (event is KeyDownEvent) _back();
           return KeyEventResult.handled;
         }
         if ({
@@ -363,6 +404,21 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
               ),
             ),
+            if (widget.model.showPlaybackStats)
+              Positioned(
+                top: 60,
+                left: 12,
+                right: 12,
+                bottom: 100,
+                child: SafeArea(
+                  child: IgnorePointer(
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: PlaybackStatsOverlay(model: widget.model),
+                    ),
+                  ),
+                ),
+              ),
             IgnorePointer(
               ignoring: !_visible,
               child: ExcludeFocus(

@@ -130,11 +130,13 @@ void main() {
       'videoQuality': '720',
       'autoStart': false,
       'fastPairing': false,
+      'showPlaybackStats': true,
     });
     final data = await repository(control('macos')).snapshot();
     expect(data.settings.name, 'Saved in Dart');
     expect(data.settings.videoQuality, VideoQuality.p720);
     expect(data.settings.fastPairing, false);
+    expect(data.settings.showPlaybackStats, true);
   });
   test(
     'serialized saves preserve options and canonical native values',

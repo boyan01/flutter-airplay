@@ -8,6 +8,7 @@ import '../../log_export.dart';
 import '../../receiver/receiver_model.dart';
 import '../widgets/receiver_strings.dart';
 import '../tv_focus.dart';
+import '../receiver_back.dart';
 
 class LogsPage extends StatefulWidget {
   const LogsPage({super.key, required this.model});
@@ -67,12 +68,10 @@ class _LogsPageState extends State<LogsPage> {
     final model = widget.model;
     final tv = model.isTelevision;
     return CallbackShortcuts(
-      bindings: {
-        // Android back keys must reach system navigation without an early pop.
-        if (model.platform != 'android')
-          const SingleActivator(LogicalKeyboardKey.goBack): () =>
-              Navigator.pop(context),
-      },
+      bindings: receiverBackShortcuts(
+        model.platform,
+        () => Navigator.pop(context),
+      ),
       child: Scaffold(
         appBar: AppBar(title: Text(l10n(context).logs)),
         body: SafeArea(
@@ -89,7 +88,6 @@ class _LogsPageState extends State<LogsPage> {
                     children: [
                       Builder(
                         builder: (buttonContext) => TvFocus(
-                          outline: tv,
                           child: FilledButton.icon(
                             key: const Key('shareLogs'),
                             autofocus: true,
@@ -106,7 +104,6 @@ class _LogsPageState extends State<LogsPage> {
                         ),
                       ),
                       TvFocus(
-                        outline: tv,
                         child: OutlinedButton(
                           onPressed: model.logs.isEmpty
                               ? null
@@ -122,7 +119,6 @@ class _LogsPageState extends State<LogsPage> {
                         ),
                       ),
                       TvFocus(
-                        outline: tv,
                         child: TextButton(
                           onPressed: model.logs.isEmpty
                               ? null

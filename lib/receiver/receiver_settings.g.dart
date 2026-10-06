@@ -12,6 +12,7 @@ ReceiverSettings _$ReceiverSettingsFromJson(Map<String, dynamic> json) =>
       path: json['path'] as String? ?? '',
       autoStart: json['autoStart'] as bool? ?? true,
       fastPairing: json['fastPairing'] as bool? ?? true,
+      showPlaybackStats: json['showPlaybackStats'] as bool? ?? false,
       videoQuality:
           $enumDecodeNullable(_$VideoQualityEnumMap, json['videoQuality']) ??
           VideoQuality.auto,
@@ -31,6 +32,7 @@ Map<String, dynamic> _$ReceiverSettingsToJson(ReceiverSettings instance) =>
       'path': instance.path,
       'autoStart': instance.autoStart,
       'fastPairing': instance.fastPairing,
+      'showPlaybackStats': instance.showPlaybackStats,
       'videoQuality': _$VideoQualityEnumMap[instance.videoQuality]!,
       'audioOutput': _$AudioOutputEnumMap[instance.audioOutput]!,
       'launchAtLogin': instance.launchAtLogin,

@@ -51,6 +51,8 @@ static void my_application_activate(GApplication* application) {
   gtk_window_set_geometry_hints(window, nullptr, &geometry, GDK_HINT_MIN_SIZE);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
+  // nativeapi window calls must execute on GTK's platform thread.
+  fl_dart_project_set_ui_thread_policy(project, FL_UI_THREAD_POLICY_RUN_ON_PLATFORM_THREAD);
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
@@ -59,9 +61,7 @@ static void my_application_activate(GApplication* application) {
   self->window_channel = new WindowChannel(fl_engine_get_binary_messenger(engine), window);
   self->receiver = new ReceiverHost(fl_engine_get_binary_messenger(engine),
                                    fl_engine_get_texture_registrar(engine),
-                                   [self](FlValue* snapshot) {
-                                     if (self->window_channel) self->window_channel->UpdateSnapshot(snapshot);
-                                   });
+                                   [](FlValue*) {});
   g_signal_connect_swapped(window, "delete-event", G_CALLBACK(+[](MyApplication* app) -> gboolean {
     if (app->window_channel->HideOnClose()) return TRUE;
     delete app->window_channel;
