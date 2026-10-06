@@ -13,8 +13,9 @@
 
 ## 日常开发
 
-命令均从仓库根目录执行，默认使用最新的 Flutter stable SDK。确保 PATH 中的 `flutter`
-来自 stable 通道；切换通道或更新 SDK 时执行 `flutter channel stable` 和 `flutter upgrade`。
+命令均从仓库根目录执行。Flutter stable 版本由 `.flutter-version` 固定；
+确保 PATH 中的 `flutter --version` 与该文件一致。升级时先用新 stable 跑完相关验证，
+再更新 `.flutter-version` 和依赖锁文件。
 会在内部调用 Flutter 的脚本也使用 PATH 中的 SDK。首次设置或依赖变化后执行：
 
 ```sh
@@ -33,11 +34,59 @@ flutter devices
 | Linux | `flutter run -d linux` |
 
 `<device-id>` 替换为 `flutter devices` 列出的目标。默认使用 Debug，Dart UI 改动优先热重载。
-原生源码、依赖和构建配置未变且产物完整时直接复用；变化或产物缺失时自动重建。
+原生产品源码、依赖和构建配置未变且产物完整时直接复用；变化或产物缺失时自动重建。
+Apple Swift 宿主、native 测试和测试素材不参与产品准备指纹，CMake 负责源码的增量编译。
+第三方库仅在 lock、依赖构建脚本或工具链变化时清理缓存。
 原生代码变化后重新执行 `flutter run`；热重载只更新 Dart。首次构建需要联网下载固定依赖。
 macOS / iPad 使用 Xcode scheme 预构建，Android 使用 Gradle `preBuild`，Windows 使用 CMake，
 Linux 继续使用已有 CMake 构建。以下独立脚本保留用于原生调试和构建测试 fixture，无需在日常运行前手动执行。
 当前独立原生构建脚本使用优化配置；这不要求 Flutter 应用也使用 Release。
+
+Dart 接收控制通过 `native/include/airplay/receiver_ffi.h` 的一个 JSON 请求入口提供，
+生成的 FFI 绑定只包含 ABI 版本、订阅管理和 `airplay_receiver_control`。
+请求格式为 `{"method":"snapshot","arguments":{}}`；支持 `snapshot`、`save`、
+`start`、`stop`、`disconnect`、`applySettings` 和 `check`。
+控制操作在原生串行线程执行，结果通过 Dart port 复制发送：
+`{"type":"complete","request":1,"data":{...}}`，失败时携带 `error` 字符串。
+热重启替换订阅后，旧订阅尚未开始的命令及其完成消息会被丢弃。
+查询和 snapshot 事件使用同一个序列化入口，不维护 Dart 专用的 C struct 映射或结果缓存。
+原生宿主继续使用 `receiver.h` 的同步控制、系统生命周期及后台请求函数。
+平台 channel 只处理宿主初始化及系统准备；视频帧仍直接送到纹理或 Surface。
+公共设置以 `ReceiverSettings` 表示，由 `ReceiverSettingsStore` 通过 `shared_preferences` 保存，
+使用独立的 `receiver.settings` key，不读取旧版平台配置。
+C++ 使用明确的设置结构和状态枚举持有运行时数据，JSON 只作为控制边界的数据格式。
+系统登录启动等选项仍通过平台 hook 应用。
+`native/receiver/` 保留接收行为和串行线程，只提供复制事件的出口。
+`native/ffi/` 订阅该出口并管理 Dart port、订阅及 JSON 完成消息；同步宿主接口不依赖 Dart。
+`native/protocol/` 转换 UxPlay 回调、管理连接及发现记录；`native/playback/` 负责
+媒体队列、时钟和调度，解码及输出放在 `native/backends/`。
+Repository 先持久化期望设置，再提交 native；native 拒绝时恢复旧的持久化值。
+Repository 在接收器空闲时请求应用待生效设置，C++ 在同一 worker 上判断会话并执行。
+默认设备名清洗和通用画质档位由 C++ 提供；平台只提交系统名称及硬件能力。
+macOS 与 iOS 共用 `native/apple/` 中的宿主和 Flutter 纹理代码。
+
+修改 C ABI 后，从仓库根目录重新生成并提交绑定：
+
+```sh
+dart run ffigen --config tool/ffigen_receiver.yaml
+```
+
+接收状态、设置、能力、事件和日志对象使用 `json_serializable` 生成 JSON 解析。
+修改这些对象的字段或 JSON 注解后，重新生成并提交 `*.g.dart`：
+
+```sh
+dart run build_runner build
+```
+
+字段默认值和枚举映射定义在对象中。Dart 控制边界使用一个 `airplay_receiver_control` JSON 请求入口，
+查询和事件共享 native 快照序列化。结果直接通过 Dart port 发送 JSON，
+无需取出或释放 C 结果对象。宿主仍使用其同步 C 接口。
+JSON 解析用于命令结果、原生事件和持久化；adapter 兼容快照中的平铺设置格式。
+CI 会检查生成文件是否与对象声明一致。
+
+原生构建需要 PATH 中的 Dart/Flutter SDK，或显式设置 `DART_SDK_ROOT` / `FLUTTER_ROOT`。
+只有 FFI 通信源码和相关测试包含 SDK 头文件。CMake 仅使用 SDK 的公开 `dart_native_api.h`，不链接 Dart VM。Android 交叉编译也读取宿主 SDK。
+Dart 热重启会替换原生消息端口，保留宿主接收器；停止/销毁仍在原生完成。
 
 日常迭代只检查受影响流程或运行针对性测试。不要每次小改都构建所有平台、执行全部回归。
 发布、包内容检查和 Release 特有问题才进入[打包与分发](#打包与分发)。
@@ -53,8 +102,9 @@ Intel 构建未验证。缺少 CMake 时可通过 `brew install cmake` 安装。
 ./scripts/build_receiver.sh
 ```
 
-脚本读取 `android/dependencies.lock.json` 校验源码，构建共享 C++ 播放器及静态 OpenSSL、
-libplist，输出到 `build/macos-native/`。Xcode 负责链接与打包，系统提供 VideoToolbox、
+脚本读取 `native/dependencies.lock.json` 校验源码，构建共享 C++ 播放器及静态 OpenSSL、
+libplist，输出到 `build/macos-native/`。产品入口只构建播放器，测试入口显式启用并构建测试 target。
+Xcode 负责链接与打包，系统提供 VideoToolbox、
 AudioConverter、CoreAudio 和 Bonjour。
 
 ### Android 手机与 TV
@@ -75,7 +125,7 @@ SDK 安装在其他位置时修改 `ANDROID_HOME`，也兼容已有 `ANDROID_SDK
 NDK 版本统一由 `android/gradle.properties` 的 `airplay.ndkVersion` 指定，Gradle、原生脚本和 CI
 共用它。升级 NDK 时修改这一项并验证原生构建与播放。
 原生与 OpenSSL 构建目录按 NDK 版本隔离，避免升级后复用旧工具链产物。
-依赖缓存位于 `android/.cache/`，原生输出位于 `build/android-native-arm64-<ndk-version>/`，JNI 库复制到
+共享依赖源码缓存位于 `build/native-deps/`，Android 交叉编译依赖位于 `android/.cache/`，原生输出位于 `build/android-native-arm64-<ndk-version>/`，JNI 库复制到
 `android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so`。缺失 JNI 库时应用打包会失败。
 
 ### iPad
@@ -132,6 +182,46 @@ sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev \
 
 ## 按改动选择验证
 
+代码位置、编译 target 与验证入口按职责对应：
+
+| 要改的内容 | 代码位置 / target | 影响范围与最小验证 |
+| --- | --- | --- |
+| 公共设置或运行状态 | `lib/receiver/receiver_settings.dart`、`receiver_state.dart`、`native/include/airplay/receiver.h` | 五个平台；更新 codec 和生成绑定，跑 `flutter test test/receiver/` 与 native receiver / FFI 用例 |
+| 接收控制、设置生效或生命周期 | `native/receiver/` / `airplay_receiver_control` | 五个平台；`./scripts/test_native.sh receiver`，再跑宿主及 FFI 用例 |
+| UxPlay 回调、连接或 TXT | `native/protocol/` / `airplay_protocol`，`vendor/UxPlay/` / `receiver_core` | 五个平台；协议、会话和 RTP 用例，加受影响宿主构建 |
+| 媒体队列、时钟或调度 | `native/playback/` / `airplay_player` | 五个平台；对应 player 用例，增加后端恢复检查 |
+| codec、音频设备或帧输出 | `native/backends/<backend>/` | 使用该后端的平台；对应 codec / 输出测试与平台构建 |
+| 窗口或系统操作 | `lib/platform/window_controller.dart`、平台 runner | 对应平台；widget 输入测试和窗口 / 宿主用例 |
+| 页面、主题或焦点 | `lib/ui/`、`lib/app/` | 共用页面的平台；`flutter test test/ui/` 和受影响布局 / 输入流程 |
+| 依赖、源码选择或准备缓存 | `native/CMakeLists.txt`、`native/cmake/`、构建脚本 | 对应 native target；`./scripts/test_native.sh build`，确认变更重建、无变更复用 |
+
+CMake 从实际产品 target 导出 `build/native-preparation/<platform>-sources.txt`，
+外层准备脚本据此检查源码目录，不根据文件名前缀猜测参与构建的平台。源码新增或改名
+由所属目录的指纹检测；CMake 配置与编译负责实际选择和增量。首次没有清单时保守重建。
+依赖缓存单独按 lock、依赖构建脚本和工具链失效，修改产品源码无需清理依赖。
+
+公共控制测试不需要 Dart SDK 或媒体库，可通过 `AIRPLAY_CONTROL_ONLY=ON` 单独配置。
+产品默认 `AIRPLAY_BUILD_FFI=ON`；关闭时只有 Dart transport 被排除，宿主同步控制仍保留。
+CTest labels 使用 `receiver`、`ffi`、`protocol`、`playback` 和 `backend` 标识用例职责。
+
+native 调试配置与 Flutter Debug 独立。以 macOS 为例，保留默认优化产物，
+另建带符号且不优化的目录：
+
+```sh
+cmake -S native -B build/native-debug/macos -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+  -DUXPLAY_SOURCE="$PWD/vendor/UxPlay" -DPLIST_SOURCE="$PWD/build/native-deps/libplist" \
+  -DCRYPTO_PREFIX="$PWD/build/macos-crypto" -DAIRPLAY_BUILD_TESTS=ON
+cmake --build build/native-debug/macos --parallel 8
+ctest --test-dir build/native-debug/macos --output-on-failure
+```
+
+Android、iPad 和 Linux 也可在对应脚本的 CMake 参数基础上选择 `Debug` 或
+`RelWithDebInfo`，并用独立 `-B build/native-debug/<target>` 目录。Windows 使用
+独立构建目录和 `--config Debug`；FFmpeg 的优化依赖不因此重新构建。
+这些目录用于 native 调试和测试；平台应用的自动打包仍读取其默认产品目录。
+
+
 | 改动 | 适合的检查 |
 | --- | --- |
 | 文档 | `git diff --check`、文档链接和命令路径 |
@@ -162,17 +252,21 @@ Dart 使用 Flutter 自带命令，无需额外脚本。Native 入口默认运�
 完整宿主、额外 codec、设备、模拟器和 GUI 检查需通过参数显式选择。
 查看全部参数使用 `./scripts/test_native.sh --help`。构建、打包和资源生成属于其他操作，
 使用前文和后文的对应命令。
-原生自动构建入口的缓存、源码/依赖变化、产物缺失与失败恢复检查使用 `./scripts/test_native.sh build`。
+Dart 用例按 `test/receiver/`、`test/ui/` 组织，fixture 位于对应测试目录。
+共享 native 用例位于 `native/tests/`；真实平台宿主、设备和窗口用例保留在各平台。
+原生自动构建入口的缓存、源码/依赖变化、产物缺失与失败恢复及依赖方向检查使用 `./scripts/test_native.sh build`。
 
 ### GitHub Actions
 
 `CI` 在 PR 和推送到 `main` 时运行，也可在 Actions 页面手动启动全部平台任务。
-各平台使用最新的 Flutter stable，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
+各平台使用 `.flutter-version` 固定的 Flutter stable，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
+每周一的 `Verify new Flutter stable` 任务用最新 stable 检查 Dart 分析、测试、绑定生成及构建规则，
+不会自动修改固定版本。
 独立原生脚本仍使用自身的优化配置。
 
 | 任务 | 覆盖 |
 | --- | --- |
-| Format, analyze and Dart tests | workflow 的 actionlint、原生构建入口回归、Dart format 检查、`flutter analyze --fatal-infos`、完整 `flutter test` |
+| Format, analyze and Dart tests | workflow 的 actionlint、原生构建入口回归、Dart format 检查、FFI 绑定重新生成差异检查、`flutter analyze --fatal-infos`、完整 `flutter test` |
 | macOS | 原生构建、Debug 应用编译、player/host/texture/RTP 回归 |
 | Linux | Debug 应用编译、完整 native suite、Xvfb 中的 GTK/托盘及真实标题拖动、独立 ALAC decoder |
 | Windows | 原生及 Debug 应用编译、像素、兼容层、HTTP 生命周期、音频恢复、平台/GPU/FFmpeg 视频及 Flutter 纹理生命周期回归 |
@@ -180,7 +274,7 @@ Dart 使用 Flutter 自带命令，无需额外脚本。Native 入口默认运�
 | iPad | 设备/模拟器原生归档、模拟器 Debug 应用、iPad 模拟器 XCTest |
 
 轻量检查每次运行。共享代码、依赖、资源或 workflow 变化会触发全部平台；
-平台专用目录变化触发对应平台任务；其他平台也引用的 Android C++ 和依赖配置按共享代码处理。
+平台专用目录变化触发对应平台任务；其他平台也引用的 Android C++ 按共享代码处理。
 纯 Markdown 文档改动只跑轻量检查。
 平台任务在轻量检查通过后开始，同一 PR/分支的新运行会取消旧运行。
 失败时保存已有测试日志或 XCTest 结果，保留 7 天。
@@ -202,7 +296,7 @@ GitHub 托管 runner（`GITHUB_ACTIONS=true` 且 `RUNNER_ENVIRONMENT=github-host
 
 ```sh
 flutter analyze
-flutter test test/receiver_repository_test.dart
+flutter test test/receiver/receiver_repository_test.dart
 # Run the full Flutter suite at a suitable checkpoint.
 flutter test
 ```
@@ -319,7 +413,19 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 
 ## 测试素材与诊断
 
-`native/player-tests/` 与平台测试复用合成素材，没有真实投屏录制：
+运行时诊断在各平台进入同一份接收器日志，可从应用日志页导出。接收、提交和调度统计
+由公共 C++ 播放层输出；解码后端保留自己的队列、耗时和恢复信息。
+macOS 与 iPad 共用 VideoToolbox、AudioUnit 和 Apple 纹理统计。
+Windows 的 GPU/像素纹理与 Linux 像素纹理共用 `TextureStats`。
+公共接收器约每 5 秒采集宿主纹理统计，停止前采集剩余数据；收到过帧后即使画面冻结，
+仍记录零计数区间及 `last_receive_age_ms`、`last_acquire_age_ms`，未取过新帧时后者为 -1。
+`received` 是适配器收到的帧数，`acquired_new` 是 Flutter 取走的新帧数，
+`overwritten_before_acquire` 是被后续帧替换而未取走的帧数。
+通知延迟、帧年龄和取帧间隔用于定位栅格消费之前的阻塞；取帧不代表屏幕实际显示。
+Android 使用原生 Surface，记录 `released_to_surface`、提交失败和最后输入、解码、
+提交距今时长，不套用 Flutter 纹理取帧指标。Surface 提交也不代表实际屏幕呈现。
+
+`native/tests/playback/` 与平台测试复用合成素材，没有真实投屏录制：
 
 - 音频为合成 880 Hz 双声道，ALAC 4096、AAC 1024、AAC-ELD 480/512 样本帧。
   同时构造 352 样本 ALAC 包，检查 PCM、deadline、FLUSH 和坏包恢复。
@@ -345,10 +451,10 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 重排素材生成命令（要求 FFmpeg、ffprobe 和 x264 CLI）：
 
 ```sh
-python3 native/player-tests/generate_reorder_fixtures.py
+python3 native/tests/fixtures/generate_reorder_fixtures.py
 ```
 
-Linux 视频素材由 `linux/tests/generate_video_fixtures.sh` 自动生成，无需日常手动调用。
+Linux 视频素材由 `native/tests/fixtures/generate_video_fixtures.sh` 自动生成，无需日常手动调用。
 Linux 原生测试还生成 `build/linux-native/linux_synthetic_demo`，它使用根 Flutter UI 和
 合成纹理，不启动发现、接收或音频，也不安装进产品。已有 Debug bundle 时可运行：
 
@@ -401,12 +507,12 @@ swift scripts/generate_icons.swift
 | 脚本 | 调用方 / 用途 |
 | --- | --- |
 | `scripts/ensure_native.py` | Gradle / Xcode scheme / Windows CMake；准备原生播放器，校验构建输入与产物并复用缓存，要求 Python 3.9+ |
-| `android/scripts/fetch_deps.py` | macOS、Android、iPad 原生构建；按 lock 文件获取并校验共享依赖 |
+| `scripts/fetch_native_deps.py` | macOS、Android、iPad 原生构建；按 lock 文件获取并校验共享依赖 |
 | `windows/scripts/build_ffmpeg.sh` | Windows 原生构建；构建包内 FFmpeg |
 | `scripts/embed_player.sh` | macOS Xcode 构建；嵌入播放器库 |
 | `scripts/audit_macos.py` | macOS 打包；检查包内依赖、签名与许可证 |
 | `scripts/build_info.cmake`、`scripts/write_build_time.cmake`、`scripts/write_build_time.sh` | 宿主构建；生成构建时间 |
-| `linux/tests/generate_video_fixtures.sh` | FFmpeg/Linux 视频测试；生成合成素材 |
+| `native/tests/fixtures/generate_video_fixtures.sh` | FFmpeg/Linux 视频测试；生成合成素材 |
 
 原生产物、缓存和 Flutter 构建产物保存在 ignored 输出目录。
 本地日志、截图、设备标识和单次验证报告保存在 ignored `artifacts/`。

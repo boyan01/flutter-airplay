@@ -3,8 +3,9 @@
 
 #include <flutter_linux/flutter_linux.h>
 #include <cstdint>
+#include <string>
 
-#include "native/player/linux_video.h"
+#include "../../native/backends/linux/linux_video.h"
 
 // Register/Notify/destruction belong to GTK's main thread. Receive and Clear may
 // be called by a worker; they only replace the pending, owned RGBA pixels.
@@ -20,6 +21,8 @@ class FrameTexture {
   bool Receive(const AirplayLinuxVideoFrame& frame);
   void Clear();
   void Notify();
+  void NotificationRequested();
+  std::string Diagnostics();
 
  private:
   FlTextureRegistrar* registrar_;

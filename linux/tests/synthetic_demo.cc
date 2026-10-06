@@ -1,21 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Developer-only visual fixture. Loads the existing root Flutter app bundle and
-// replaces its receiver channels with an explicitly synthetic test adapter.
+// replaces its receiver bootstrap and FFI commands with a synthetic adapter.
 // No receiver, Avahi client, network listener or audio output is started.
 // Usage: linux_synthetic_demo /absolute/path/to/flutter/bundle [portrait]
 #include "linux/runner/frame_texture.h"
 #include "linux/runner/window_channel.h"
-#include "native/player/platform.h"
-#include "native/player-tests/video_fixtures.h"
+#include "../../native/playback/platform.h"
+#include "../../native/include/airplay/receiver_ffi.h"
+#include <dart_native_api.h>
+#include "../../native/tests/fixtures/video_fixtures.h"
 
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>
 
 #include <cstdio>
 #include <memory>
+#include <mutex>
+#include <map>
+#include <functional>
 #include <string>
 
 namespace {
+class SyntheticDemo;
+SyntheticDemo* active_demo = nullptr;
+int64_t dart_port = 0;
+uint64_t subscription = 0;
+bool (*post_object)(Dart_Port, Dart_CObject*) = nullptr;
+std::mutex results_lock;
 void String(FlValue* map, const char* key, const char* value) {
   fl_value_set_string_take(map, key, fl_value_new_string(value));
 }
@@ -44,44 +55,42 @@ class SyntheticDemo {
       }, [](const char* text) { std::fprintf(stderr, "Synthetic decoder: %s\n", text); }
     });
     g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-    methods_ = fl_method_channel_new(messenger_, "org.airplayreceiver/control", FL_METHOD_CODEC(codec));
-    events_ = fl_event_channel_new(messenger_, "org.airplayreceiver/events", FL_METHOD_CODEC(codec));
-    fl_method_channel_set_method_call_handler(methods_,
-        [](FlMethodChannel*, FlMethodCall* call, gpointer self) {
-          static_cast<SyntheticDemo*>(self)->Method(call);
-        }, this, nullptr);
-    fl_event_channel_set_stream_handlers(events_,
-        [](FlEventChannel*, FlValue*, gpointer data) -> FlMethodErrorResponse* {
-          auto* self = static_cast<SyntheticDemo*>(data);
-          self->listening_ = true;
-          // Defer the first event until the listen response has reached Dart.
-          if (!self->snapshot_source_) self->snapshot_source_ = g_idle_add([](gpointer data) -> gboolean {
-            auto* demo = static_cast<SyntheticDemo*>(data);
-            demo->snapshot_source_ = 0;
-            demo->Publish();
-            return G_SOURCE_REMOVE;
-          }, self);
-          return nullptr;
-        }, [](FlEventChannel*, FlValue*, gpointer data) -> FlMethodErrorResponse* {
-          static_cast<SyntheticDemo*>(data)->listening_ = false;
-          return nullptr;
-        }, this, nullptr);
+    methods_ = fl_method_channel_new(messenger_, "org.airplayreceiver/platform", FL_METHOD_CODEC(codec));
+    fl_method_channel_set_method_call_handler(methods_, [](FlMethodChannel*, FlMethodCall* call, gpointer data) {
+      auto* self = static_cast<SyntheticDemo*>(data);
+      if (strcmp(fl_method_call_get_name(call), "bootstrap")) { fl_method_call_respond_not_implemented(call, nullptr); return; }
+      self->texture_->Register();
+      g_autoptr(FlValue) reply = fl_value_new_map(); Integer(reply, "handle", 1);
+      fl_method_call_respond_success(call, reply, nullptr);
+    }, this, nullptr);
+    { std::lock_guard<std::mutex> guard(results_lock); active_demo = this; }
   }
 
   ~SyntheticDemo() {
-    if (snapshot_source_) g_source_remove(snapshot_source_);
+    { std::lock_guard<std::mutex> guard(results_lock); active_demo = nullptr; dart_port = 0; post_object = nullptr; ++subscription; }
     fl_method_channel_set_method_call_handler(methods_, nullptr, nullptr, nullptr);
-    fl_event_channel_set_stream_handlers(events_, nullptr, nullptr, nullptr, nullptr);
-    fl_binary_messenger_set_message_handler_on_channel(messenger_, "org.airplayreceiver/control",
-                                                        nullptr, nullptr, nullptr);
-    fl_binary_messenger_set_message_handler_on_channel(messenger_, "org.airplayreceiver/events",
-                                                        nullptr, nullptr, nullptr);
     decoder_.reset();
     texture_.reset();
     g_object_unref(methods_);
-    g_object_unref(events_);
     g_object_unref(messenger_);
   }
+
+  static void Send(FlValue* message, uint64_t expected_subscription = 0) {
+    std::lock_guard<std::mutex> guard(results_lock);
+    if (expected_subscription && expected_subscription != subscription) return;
+    if (!dart_port || !post_object) return;
+    g_autoptr(FlJsonMessageCodec) codec = fl_json_message_codec_new();
+    g_autoptr(GBytes) bytes = fl_message_codec_encode_message(FL_MESSAGE_CODEC(codec), message, nullptr);
+    gsize length = 0; auto* data = static_cast<const char*>(g_bytes_get_data(bytes, &length));
+    std::string json(data, length); Dart_CObject object{}; object.type = Dart_CObject_kString; object.value.as_string = json.c_str();
+    post_object(dart_port, &object);
+  }
+  FlValue* ReadSnapshot() {
+    if (!initialized_) { initialized_ = true; running_ = Decode(); }
+    return Snapshot();
+  }
+  void Start() { running_ = Decode(); Publish(); }
+  void Stop() { running_ = false; decoder_->reset(); texture_->Clear(); texture_->Notify(); Publish(); }
 
  private:
   bool Decode() {
@@ -131,59 +140,64 @@ class SyntheticDemo {
   }
 
   void Publish() {
-    if (!listening_) return;
-    g_autoptr(FlValue) event = fl_value_new_map();
-    String(event, "type", "snapshot");
-    fl_value_set_string_take(event, "data", Snapshot());
-    fl_event_channel_send(events_, event, nullptr, nullptr);
-  }
-
-  void Method(FlMethodCall* call) {
-    const std::string method = fl_method_call_get_name(call);
-    if (method == "snapshot") {
-      if (!initialized_) {
-        initialized_ = true;
-        running_ = Decode();
-        if (!running_) {
-          fl_method_call_respond_error(call, "fixture_error", "Synthetic H.264 decode failed", nullptr, nullptr);
-          return;
-        }
-      }
-      g_autoptr(FlValue) data = Snapshot();
-      fl_method_call_respond_success(call, data, nullptr);
-    } else if (method == "start") {
-      running_ = Decode();
-      if (!running_) fl_method_call_respond_error(call, "fixture_error", "Synthetic H.264 decode failed", nullptr, nullptr);
-      else fl_method_call_respond_success(call, nullptr, nullptr);
-      Publish();
-    } else if (method == "stop") {
-      running_ = false;
-      decoder_->reset();
-      texture_->Clear();
-      texture_->Notify();
-      fl_method_call_respond_success(call, nullptr, nullptr);
-      Publish();
-    } else if (method == "save" || method == "check") {
-      fl_method_call_respond_error(call, "fixture_only", "This is a read-only synthetic visual fixture", nullptr, nullptr);
-    } else {
-      fl_method_call_respond_not_implemented(call, nullptr);
-    }
+    g_autoptr(FlValue) event = fl_value_new_map(); String(event, "type", "snapshot");
+    fl_value_set_string_take(event, "data", Snapshot()); Send(event);
   }
 
   FlBinaryMessenger* messenger_;
   std::unique_ptr<FrameTexture> texture_;
   std::unique_ptr<airplay::VideoOutput> decoder_;
   FlMethodChannel* methods_ = nullptr;
-  FlEventChannel* events_ = nullptr;
   bool portrait_;
   bool running_ = false;
   bool initialized_ = false;
-  bool listening_ = false;
   int width_ = 0;
   int height_ = 0;
-  guint snapshot_source_ = 0;
 };
 }  // namespace
+
+// Fixture-local JSON ABI exports take precedence over the shared library.
+extern "C" uint32_t airplay_receiver_abi_version() { return 3; }
+extern "C" uint64_t airplay_receiver_attach(uint64_t handle, int64_t port, void* callback) {
+  std::lock_guard<std::mutex> guard(results_lock);
+  if (handle != 1 || !active_demo) return 0;
+  dart_port = port; post_object = reinterpret_cast<bool (*)(Dart_Port, Dart_CObject*)>(callback); return ++subscription;
+}
+extern "C" bool airplay_receiver_detach(uint64_t, uint64_t token) {
+  std::lock_guard<std::mutex> guard(results_lock);
+  if (token != subscription) return false;
+  dart_port = 0; post_object = nullptr; ++subscription; return true;
+}
+extern "C" bool airplay_receiver_control(uint64_t handle, uint64_t token, int64_t id, const char* json, size_t size) {
+  { std::lock_guard<std::mutex> guard(results_lock); if (handle != 1 || !active_demo || token != subscription) return false; }
+  if (!json || size > 1024 * 1024) return false;
+  struct Request { uint64_t token; int64_t id; std::string bytes; };
+  auto* value = new Request{token, id, std::string(json, size)};
+  g_idle_add_full(G_PRIORITY_DEFAULT, [](gpointer data) -> gboolean {
+    auto* request = static_cast<Request*>(data);
+    { std::lock_guard<std::mutex> guard(results_lock); if (!active_demo || request->token != subscription) return G_SOURCE_REMOVE; }
+    g_autoptr(FlValue) completion = fl_value_new_map(); String(completion, "type", "complete"); Integer(completion, "request", request->id);
+    g_autoptr(FlJsonMessageCodec) codec = fl_json_message_codec_new();
+    g_autoptr(GBytes) bytes = g_bytes_new(request->bytes.data(), request->bytes.size());
+    g_autoptr(FlValue) input = fl_message_codec_decode_message(FL_MESSAGE_CODEC(codec), bytes, nullptr);
+    const char* method = nullptr;
+    if (input && fl_value_get_type(input) == FL_VALUE_TYPE_MAP) {
+      auto* field = fl_value_lookup_string(input, "method");
+      if (field && fl_value_get_type(field) == FL_VALUE_TYPE_STRING) method = fl_value_get_string(field);
+    }
+    if (!method) String(completion, "error", "Invalid receiver command");
+    else if (!strcmp(method, "snapshot")) fl_value_set_string_take(completion, "data", active_demo->ReadSnapshot());
+    else {
+      g_autoptr(FlValue) result = fl_value_new_map();
+      if (!strcmp(method, "start") || !strcmp(method, "disconnect")) active_demo->Start();
+      else if (!strcmp(method, "stop")) active_demo->Stop();
+      else if (!strcmp(method, "applySettings")) Boolean(result, "applied", false);
+      else if (strcmp(method, "save") && strcmp(method, "check")) String(completion, "error", "Unknown receiver command");
+      fl_value_set_string_take(completion, "data", fl_value_ref(result));
+    }
+    SyntheticDemo::Send(completion, request->token); return G_SOURCE_REMOVE;
+  }, value, [](gpointer data) { delete static_cast<Request*>(data); }); return true;
+}
 
 int main(int argc, char** argv) {
   if (argc < 2 || argc > 3 || !g_path_is_absolute(argv[1])) {
@@ -192,6 +206,11 @@ int main(int argc, char** argv) {
   }
   const bool portrait = argc == 3 && g_strcmp0(argv[2], "portrait") == 0;
   const std::string bundle = argv[1];
+  // Keep the visual fixture's new settings key separate from product settings.
+  g_autofree gchar* preferences_dir = g_dir_make_tmp("flutter-airplay-fixture-XXXXXX", nullptr);
+  if (!preferences_dir) return 2;
+  g_setenv("XDG_CONFIG_HOME", preferences_dir, TRUE);
+  g_setenv("XDG_DATA_HOME", preferences_dir, TRUE);
   gtk_init(nullptr, nullptr);
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   g_autofree gchar* assets = g_build_filename(bundle.c_str(), "data", "flutter_assets", nullptr);

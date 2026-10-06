@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/foundation.dart';
-import 'package:flutter_airplay/main.dart';
+import 'package:flutter_airplay/app/receiver_app.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter_airplay/receiver/receiver_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,11 +29,11 @@ void main() {
       expect(model.status, status, reason: model.message);
       expect(model.commandError, isNull);
       final snapshot = await repository.snapshot();
-      expect(snapshot['status'], status);
+      expect(snapshot.status.name, status);
       if (status == 'waiting') {
-        expect(snapshot['pid'], greaterThan(0));
+        expect(snapshot.pid, greaterThan(0));
         expect(
-          snapshot['textureId'],
+          snapshot.textureId,
           -1,
           reason: 'Android uses a native SurfaceView',
         );
@@ -49,8 +49,8 @@ void main() {
         await waitFor('waiting');
         expect(model.name, 'Rename Regression $cycle');
         final applied = await repository.snapshot();
-        expect((applied['activeSettings'] as Map)['name'], model.name);
-        expect(applied['receivingName'], contains(model.name));
+        expect(applied.activeSettings!.name, model.name);
+        expect(applied.receivingName, contains(model.name));
 
         await model.stop();
         await waitFor('stopped');

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Exercise the production receive callback bindings without a test-only player API.
-#include "../../native/player/player.cpp"
-#include "resume_fixtures.h"
-#include "audio_fixtures.h"
+#include "../../native/playback/player_internal.h"
+#include "../../native/protocol/uxplay_callbacks.h"
+#include "../../native/tests/fixtures/resume_fixtures.h"
+#include "../../native/tests/fixtures/audio_fixtures.h"
 #include <stdexcept>
-#include "linux_video.h"
+#include "../../native/backends/linux/linux_video.h"
 
 void check_video_resume(void *surface, const char *decoder) {
     struct Progress { std::atomic<int> frames{0}, pauses{0}, audio{0}, audio_stops{0}; std::atomic<bool> blue{false}; } progress;

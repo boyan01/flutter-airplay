@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "platform.h"
-#include "audio_decoder_tests.h"
-#include "video_fixtures.h"
-#include "hevc_fixtures.h"
+#include "../../native/playback/platform.h"
+#include "../../native/tests/playback/audio_decoder_tests.h"
+#include "../../native/tests/fixtures/video_fixtures.h"
+#include "../../native/tests/fixtures/hevc_fixtures.h"
 #include <TargetConditionals.h>
 #import <XCTest/XCTest.h>
 #import <AVFAudio/AVFAudio.h>

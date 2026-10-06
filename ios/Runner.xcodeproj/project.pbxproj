@@ -65,9 +65,9 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1A1A1A10000000000000000 /* ReceiverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverHost.swift; sourceTree = "<group>"; };
+		A1A1A1A10000000000000000 /* ReceiverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../native/apple/ReceiverHost.swift; sourceTree = "<group>"; };
 		A1A1A1A10000000000000001 /* ReceiverBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverBridge.swift; sourceTree = "<group>"; };
-		A1A1A1A10000000000000002 /* FrameTexture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameTexture.swift; sourceTree = "<group>"; };
+		A1A1A1A10000000000000002 /* FrameTexture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../native/apple/FrameTexture.swift; sourceTree = "<group>"; };
 		A3A3A3A30000000000000000 /* AirplayPlayer.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = AirplayPlayer.xcframework; path = "../build/ios-native/AirplayPlayer.xcframework"; sourceTree = SOURCE_ROOT; };
 		A6A6A6A60000000000000000 /* MediaTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MediaTests.mm; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -408,7 +408,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = tech.soit.flutterairplay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
+				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-Wl,-u,_airplay_receiver_attach", "-Wl,-u,_airplay_receiver_detach", "-Wl,-u,_airplay_receiver_abi_version", "-Wl,-u,_airplay_receiver_control", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -421,8 +421,8 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../native/player", "$(SRCROOT)/../native/player-tests");
-				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
+				HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../native/playback", "$(SRCROOT)/../native/tests/playback");
+				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-Wl,-u,_airplay_receiver_attach", "-Wl,-u,_airplay_receiver_detach", "-Wl,-u,_airplay_receiver_abi_version", "-Wl,-u,_airplay_receiver_control", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -442,8 +442,8 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../native/player", "$(SRCROOT)/../native/player-tests");
-				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
+				HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../native/playback", "$(SRCROOT)/../native/tests/playback");
+				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-Wl,-u,_airplay_receiver_attach", "-Wl,-u,_airplay_receiver_detach", "-Wl,-u,_airplay_receiver_abi_version", "-Wl,-u,_airplay_receiver_control", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -461,8 +461,8 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../native/player", "$(SRCROOT)/../native/player-tests");
-				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
+				HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../native/playback", "$(SRCROOT)/../native/tests/playback");
+				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-Wl,-u,_airplay_receiver_attach", "-Wl,-u,_airplay_receiver_detach", "-Wl,-u,_airplay_receiver_abi_version", "-Wl,-u,_airplay_receiver_control", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -602,7 +602,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = tech.soit.flutterairplay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
+				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-Wl,-u,_airplay_receiver_attach", "-Wl,-u,_airplay_receiver_detach", "-Wl,-u,_airplay_receiver_abi_version", "-Wl,-u,_airplay_receiver_control", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -625,7 +625,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = tech.soit.flutterairplay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
+				OTHER_LDFLAGS = ("$(inherited)", "-lc++", "-Wl,-u,_airplay_receiver_attach", "-Wl,-u,_airplay_receiver_detach", "-Wl,-u,_airplay_receiver_abi_version", "-Wl,-u,_airplay_receiver_control", "-framework", AudioToolbox, "-framework", AVFAudio, "-framework", CoreMedia, "-framework", CoreVideo, "-framework", VideoToolbox, "-framework", CoreFoundation);
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";

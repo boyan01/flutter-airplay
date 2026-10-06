@@ -7,6 +7,7 @@ environment:
   sdk: ^3.13.2
 
 dependencies:
+  ffi: ^2.2.0
   archive: ^4.3.0
   flutter:
     sdk: flutter
@@ -21,18 +22,23 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^13.3.1
   window_manager: ^0.5.2
+  shared_preferences: ^2.5.6
+  json_annotation: ^4.12.0
 
 dev_dependencies:
+  ffigen: ^20.1.1
   flutter_test:
     sdk: flutter
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  json_serializable: ^6.14.1
+  build_runner: ^2.16.1
 
 flutter:
   generate: true
   uses-material-design: true
   assets:
-    - android/app/src/main/assets/licenses/
+    - assets/licenses/
     - lib/l10n/app_en.arb
     - lib/l10n/app_zh.arb

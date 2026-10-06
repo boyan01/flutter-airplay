@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/foundation.dart';
-import 'package:flutter_airplay/main.dart';
+import 'package:flutter_airplay/app/receiver_app.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter_airplay/receiver/receiver_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,7 +31,8 @@ void main() {
     }
 
     try {
-      if (original['autoStart'] == false && original['status'] == 'stopped') {
+      if (original.settings.autoStart == false &&
+          original.status.name == 'stopped') {
         await waitFor('stopped');
         await model.start(model.name, model.path);
       }
@@ -46,23 +47,19 @@ void main() {
         await model.save(model.name, model.path, videoQuality: quality);
         await waitFor('waiting');
         var saved = await repository.snapshot();
-        expect(saved['videoQuality'], quality);
-        expect((saved['activeSettings'] as Map)['videoQuality'], quality);
-        expect(
-          saved['videoWidth'],
-          0,
-          reason: 'A request is not a decoded frame',
-        );
-        expect(saved['videoHeight'], 0);
+        expect(saved.settings.videoQuality.value, quality);
+        expect(saved.activeSettings!.videoQuality.value, quality);
+        expect(saved.videoWidth, 0, reason: 'A request is not a decoded frame');
+        expect(saved.videoHeight, 0);
         await model.stop();
         await waitFor('stopped');
         await model.start(model.name, model.path);
         await waitFor('waiting');
         saved = await repository.snapshot();
-        expect(saved['videoQuality'], quality);
-        expect((saved['activeSettings'] as Map)['videoQuality'], quality);
+        expect(saved.settings.videoQuality.value, quality);
+        expect(saved.activeSettings!.videoQuality.value, quality);
         expect(
-          saved['textureId'],
+          saved.textureId,
           -1,
           reason: 'Android uses a native SurfaceView',
         );
@@ -70,10 +67,10 @@ void main() {
     } finally {
       await repository.stop();
       await repository.save(
-        original['name'] as String,
+        original.settings.name,
         '',
-        autoStart: original['autoStart'] as bool,
-        videoQuality: original['videoQuality'] as String? ?? 'auto',
+        autoStart: original.settings.autoStart,
+        videoQuality: original.settings.videoQuality.value,
       );
     }
   }, skip: defaultTargetPlatform != TargetPlatform.android);

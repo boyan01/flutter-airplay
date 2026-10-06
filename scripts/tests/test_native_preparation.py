@@ -26,8 +26,9 @@ class NativePreparationTest(unittest.TestCase):
         self.root_patch = patch.object(native, "ROOT", self.root)
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
-        for file in ("android/dependencies.lock.json", "android/gradle.properties",
-                     "android/scripts/build_native.sh", "native/player/player.cpp"):
+        for file in ("native/dependencies.lock.json", "android/gradle.properties",
+                     "android/scripts/build_native.sh", "android/scripts/build_crypto.sh",
+                     "native/CMakeLists.txt", "scripts/fetch_native_deps.py", "native/playback/player.cpp"):
             path = self.root / file
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("original")
@@ -51,9 +52,42 @@ class NativePreparationTest(unittest.TestCase):
 
     def test_source_change_rebuilds(self):
         native.ensure("android")
-        (self.root / "native/player/player.cpp").write_text("changed")
+        (self.root / "native/playback/player.cpp").write_text("changed")
         native.ensure("android")
         self.assertEqual(self.command.call_count, 2)
+
+    def test_host_and_test_changes_reuse_product(self):
+        native.ensure("android")
+        for name in ("native/apple/ReceiverHost.swift", "native/tests/ffi/receiver_control_test.cpp", "native/tests/fixture.bin"):
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text("changed")
+        native.ensure("android")
+        self.assertEqual(self.command.call_count, 1)
+
+    def test_product_script_change_retains_dependencies(self):
+        native.prepare_dependencies("android")
+        cache = self.root / "android/.cache/crypto-arm64-v8a-test"; cache.mkdir(parents=True)
+        (self.root / "android/scripts/build_native.sh").write_text("new CMake flags")
+        native.prepare_dependencies("android")
+        self.assertTrue(cache.is_dir())
+        (self.root / "android/scripts/build_crypto.sh").write_text("new OpenSSL flags")
+        native.prepare_dependencies("android")
+        self.assertFalse(cache.exists())
+
+    def test_platform_backends_only_affect_applicable_products(self):
+        for name in ("scripts/build_receiver.sh", "scripts/build_macos_crypto.sh",
+                     "ios/scripts/build_native.sh", "windows/scripts/build_native.ps1"):
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text("original")
+        manifest = self.root / "build/native-preparation"
+        manifest.mkdir(parents=True, exist_ok=True)
+        for target in ("android", "macos", "ios", "windows"):
+            (manifest / f"{target}-sources.txt").write_text(f"native/playback\nnative/backends/{'apple' if target in ('macos', 'ios') else target}\n")
+        with patch.object(native, "host_toolchain", return_value="fixture"):
+            before = {target: native.inputs(target) for target in ("android", "macos", "ios", "windows")}
+            backend = self.root / "native/backends/android/video.cpp"
+            backend.parent.mkdir(parents=True, exist_ok=True)
+            backend.write_text("Android backend changed")
+            for target, fingerprint in before.items():
+                self.assertEqual(native.inputs(target) != fingerprint, target == "android")
 
     def test_deleted_and_modified_artifacts_rebuild(self):
         native.ensure("android")
@@ -65,7 +99,7 @@ class NativePreparationTest(unittest.TestCase):
 
     def test_failed_build_is_retried(self):
         native.ensure("android")
-        (self.root / "native/player/player.cpp").write_text("changed")
+        (self.root / "native/playback/player.cpp").write_text("changed")
         self.command.side_effect = subprocess.CalledProcessError(1, "builder")
         with self.assertRaises(subprocess.CalledProcessError):
             native.ensure("android")
@@ -86,10 +120,10 @@ class NativePreparationTest(unittest.TestCase):
         cache.mkdir(parents=True)
         native.prepare_dependencies("android")
         self.assertTrue(cache.is_dir())
-        (self.root / "android/dependencies.lock.json").write_text("new pin")
+        (self.root / "native/dependencies.lock.json").write_text("new pin")
         native.prepare_dependencies("android")
         self.assertFalse(cache.exists())
-        self.assertTrue((self.root / "native/player/player.cpp").is_file())
+        self.assertTrue((self.root / "native/playback/player.cpp").is_file())
 
     def test_xcode_environment_does_not_mix_platform_targets(self):
         values = {"IPHONEOS_DEPLOYMENT_TARGET": "18.5", "XROS_DEPLOYMENT_TARGET": "1.3",
@@ -114,7 +148,7 @@ class WindowsMakePreparationTest(unittest.TestCase):
         root_patch.start()
         self.addCleanup(root_patch.stop)
         self.package = b"verified package"
-        lock = self.root / "android/dependencies.lock.json"
+        lock = self.root / "native/dependencies.lock.json"
         lock.parent.mkdir(parents=True)
         lock.write_text(json.dumps({"windows-make": {
             "version": "test", "url": "https://example.invalid/make.pkg.tar.zst",

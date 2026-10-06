@@ -69,8 +69,8 @@
          </TestableReference>
       </Testables>
       <CommandLineArguments>
-         <CommandLineArgument argument = "-receiverAutoStart" isEnabled = "YES"/>
-         <CommandLineArgument argument = "NO" isEnabled = "YES"/>
+         <CommandLineArgument argument = "-receiver.settings" isEnabled = "YES"/>
+         <CommandLineArgument argument = "{&quot;autoStart&quot;:false}" isEnabled = "YES"/>
       </CommandLineArguments>
    </TestAction>
    <LaunchAction

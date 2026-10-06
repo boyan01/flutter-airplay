@@ -16,8 +16,8 @@ Android architecture and the libplist source-build approach were studied from
 and renderer provenance is recorded separately in `NOTICE`. The adapter preserves the upstream base's TXT
 generation rather than using the reference project's newer UxPlay structures.
 
-Native dependencies are pinned in `dependencies.lock.json`: libplist 2.6.0
+Native dependencies are pinned in `../native/dependencies.lock.json`: libplist 2.6.0
 (LGPL-2.1-or-later), OpenSSL 3.6.4 (Apache-2.0). Their corresponding source can
-be fetched with `scripts/fetch_deps.py`. License texts are packaged in APK assets. Redistributing the application
+be fetched with `../scripts/fetch_native_deps.py`. License texts are packaged in APK assets. Redistributing the application
 requires the corresponding source and applicable license obligations; the APK
 alone is not a source distribution.

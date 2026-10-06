@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "frame_texture.h"
+#include "../../native/playback/texture_stats.h"
 
 #include <cstring>
 #include <memory>
@@ -14,6 +15,8 @@ struct Pixels {
 };
 struct TextureData {
   std::mutex mutex;
+  airplay::TextureStats stats;
+  int64_t notification_ns = 0;
   std::shared_ptr<const Pixels> pending = std::make_shared<Pixels>();
   // Only the raster thread changes this reference. Producer updates and Clear
   // cannot free the buffer Flutter uploads after CopyPixels returns.
@@ -40,7 +43,7 @@ static gboolean CopyPixels(FlPixelBufferTexture* texture, const uint8_t** buffer
   auto* data = reinterpret_cast<AirplayFrameTexture*>(texture)->data;
   {
     std::lock_guard<std::mutex> lock(data->mutex);
-    data->raster = data->pending;
+    data->raster = data->pending; data->stats.acquire();
   }
   *buffer = data->raster->rgba.data();
   *width = data->raster->width;
@@ -105,17 +108,35 @@ bool FrameTexture::Receive(const AirplayLinuxVideoFrame& frame) {
   if (!pixels) return false;
   auto* data = reinterpret_cast<AirplayFrameTexture*>(texture_)->data;
   std::lock_guard<std::mutex> lock(data->mutex);
-  data->pending = std::move(pixels);
+  data->pending = std::move(pixels); data->stats.receive();
   return true;
 }
 
 void FrameTexture::Clear() {
   auto* data = reinterpret_cast<AirplayFrameTexture*>(texture_)->data;
   std::lock_guard<std::mutex> lock(data->mutex);
-  data->pending = std::make_shared<Pixels>();
+  data->pending = std::make_shared<Pixels>(); data->stats.clear(); data->notification_ns = 0;
+}
+
+void FrameTexture::NotificationRequested() {
+  auto* data = reinterpret_cast<AirplayFrameTexture*>(texture_)->data;
+  std::lock_guard<std::mutex> lock(data->mutex);
+  data->notification_ns = airplay::TimingSamples::now_ns();
+}
+
+std::string FrameTexture::Diagnostics() {
+  auto* data = reinterpret_cast<AirplayFrameTexture*>(texture_)->data;
+  std::lock_guard<std::mutex> lock(data->mutex);
+  return data->stats.report("Linux pixel", data->pending->width, data->pending->height);
 }
 
 void FrameTexture::Notify() {
+  auto* data = reinterpret_cast<AirplayFrameTexture*>(texture_)->data;
+  {
+    std::lock_guard<std::mutex> lock(data->mutex);
+    if (data->notification_ns) data->stats.notify_delay.add(airplay::TimingSamples::now_ns() - data->notification_ns);
+    data->notification_ns = 0;
+  }
   if (registered_)
     fl_texture_registrar_mark_texture_frame_available(registrar_, FL_TEXTURE(texture_));
 }

@@ -9,43 +9,36 @@ import 'package:mixin_logger/mixin_logger.dart';
 
 import 'receiver_repository.dart';
 
-class ReceiverLog {
-  ReceiverLog(Map data)
-    : id = data['id'] as int,
-      time = data['time'] as String,
-      text = data['text'] as String;
-  final int id;
-  final String time;
-  final String text;
-  String get display =>
-      '${time.length >= 19 ? time.substring(11, 19) : time}  $text';
-}
-
 class ReceiverModel extends ChangeNotifier {
   ReceiverModel(this.repository);
   final ReceiverRepository repository;
-  StreamSubscription<Map<String, dynamic>>? _subscription;
+  StreamSubscription<ReceiverEvent>? _subscription;
   final _logs = <ReceiverLog>[];
   int _lastWrittenLogID = 0;
   String status = 'stopped';
   String message = 'off';
   String name = 'Flutter AirPlay';
   String defaultName = 'Flutter AirPlay';
-  Map<String, dynamic> _activeSettings = {};
-  bool _applyQueued = false;
+  ReceiverSettings? _activeSettings;
   // Add future receiver-run settings here. Immediate application/window
   // preferences do not require a receiver restart.
-  Map<String, dynamic> get _receiverSettings => {
-    'name': name,
-    'path': path,
-    'fastPairing': fastPairing,
-    if (supportsVideoQuality) 'videoQuality': videoQuality,
-    if (platform == 'android') 'audioOutput': audioOutput,
-  };
+  ReceiverSettings get _receiverSettings => ReceiverSettings(
+    name: name,
+    path: path,
+    fastPairing: fastPairing,
+    videoQuality: VideoQuality.values.firstWhere(
+      (value) => value.value == videoQuality,
+    ),
+    audioOutput: AudioOutput.values.byName(audioOutput),
+  );
   bool get settingsPending =>
       active &&
-      _activeSettings.isNotEmpty &&
-      !mapEquals(_activeSettings, _receiverSettings);
+      _activeSettings != null &&
+      !_activeSettings!.matchesRuntime(
+        _receiverSettings,
+        videoQualitySupported: supportsVideoQuality,
+        androidAudio: platform == 'android',
+      );
   String? _receivingName;
   String get receivingName => active ? _receivingName ?? name : name;
   String path = '';
@@ -123,60 +116,52 @@ class ReceiverModel extends ChangeNotifier {
     }
   }
 
-  void _snapshot(Map<String, dynamic> data) {
-    final capabilities = data['capabilities'];
-    if (capabilities is Map) {
-      _platform = capabilities['platform'] as String? ?? _platform;
-      isTelevision = capabilities['isTelevision'] as bool? ?? false;
-      _supportsExecutablePath = capabilities['supportsExecutablePath'] as bool?;
-      supportsLaunchAtLogin =
-          capabilities['supportsLaunchAtLogin'] as bool? ?? false;
+  void _snapshot(ReceiverState data) {
+    final capabilities = data.capabilities;
+    if (capabilities.platform.isNotEmpty) _platform = capabilities.platform;
+    isTelevision = capabilities.isTelevision;
+    _supportsExecutablePath = capabilities.supportsExecutablePath;
+    supportsLaunchAtLogin = capabilities.supportsLaunchAtLogin;
+    if (status != data.status.name || message != data.message) {
+      i('[Receiver state] ${data.status.name}: ${data.message}');
     }
-    if (status != data['status'] || message != data['message']) {
-      i('[Receiver state] ${data['status']}: ${data['message']}');
+    status = data.status.name;
+    message = data.message;
+    pid = data.pid;
+    final settings = data.settings;
+    name = settings.name;
+    path = settings.path;
+    autoStart = settings.autoStart;
+    fastPairing = settings.fastPairing;
+    videoQuality = settings.videoQuality.value;
+    audioOutput = settings.audioOutput.name;
+    desktopOptions.addAll(settings.desktopOptions);
+    defaultName = data.defaultName;
+    if (data.receivingName.trim().isNotEmpty) {
+      _receivingName = data.receivingName.trim();
     }
-    status = data['status'] as String;
-    message = data['message'] as String;
-    pid = data['pid'] as int? ?? 0;
-    name = data['name'] as String;
-    defaultName = data['defaultName'] as String? ?? defaultName;
-    final receivingName = (data['receivingName'] as String?)?.trim();
-    if (receivingName?.isNotEmpty ?? false) _receivingName = receivingName;
-    path = data['path'] as String? ?? '';
-    autoStart = data['autoStart'] as bool? ?? true;
-    fastPairing = data['fastPairing'] as bool? ?? false;
-    videoQuality = data['videoQuality'] as String? ?? videoQuality;
-    audioOutput = data['audioOutput'] as String? ?? audioOutput;
-    buildTime = data['buildTime'] as String? ?? buildTime;
-    buildVersion = data['buildVersion'] as String? ?? buildVersion;
-    videoQualities =
-        (data['videoQualities'] as List?)?.cast<String>() ?? videoQualities;
-    screenWidth = data['screenWidth'] as int? ?? screenWidth;
-    screenHeight = data['screenHeight'] as int? ?? screenHeight;
-    final activeSettings = data['activeSettings'];
-    if (activeSettings is Map) {
-      _activeSettings = Map<String, dynamic>.from(activeSettings);
+    buildTime = data.buildTime;
+    buildVersion = data.buildVersion;
+    videoQualities = data.videoQualities;
+    screenWidth = data.screenWidth;
+    screenHeight = data.screenHeight;
+    _activeSettings = data.activeSettings;
+    clientName = data.clientName.trim();
+    if (clientName!.isEmpty) clientName = null;
+    textureId = data.textureId;
+    if (data.videoWidth > 0 &&
+        data.videoHeight > 0 &&
+        (data.videoWidth != videoWidth || data.videoHeight != videoHeight)) {
+      i(
+        '[Receiver video] Decoded frame ready: ${data.videoWidth}x${data.videoHeight}',
+      );
     }
-    clientName = (data['clientName'] as String?)?.trim();
-    if (clientName?.isEmpty ?? false) clientName = null;
-    for (final key in desktopOptions.keys.toList()) {
-      desktopOptions[key] = data[key] as bool? ?? desktopOptions[key]!;
-    }
-    textureId = data['textureId'] as int? ?? -1;
-    final nextWidth = data['videoWidth'] as int? ?? 0;
-    final nextHeight = data['videoHeight'] as int? ?? 0;
-    if (nextWidth > 0 &&
-        nextHeight > 0 &&
-        (nextWidth != videoWidth || nextHeight != videoHeight)) {
-      i('[Receiver video] Decoded frame ready: ${nextWidth}x$nextHeight');
-    }
-    videoWidth = nextWidth;
-    videoHeight = nextHeight;
-    audioPlaying = data['audioPlaying'] as bool? ?? false;
-    videoPaused = data['videoPaused'] as bool? ?? false;
+    videoWidth = data.videoWidth;
+    videoHeight = data.videoHeight;
+    audioPlaying = data.audioPlaying;
+    videoPaused = data.videoPaused;
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
-    for (final entry in data['logs'] as List? ?? const []) {
-      final log = ReceiverLog(entry as Map);
+    for (final log in data.logs) {
       _writeLog(log);
       byID[log.id] = log;
     }
@@ -186,18 +171,17 @@ class ReceiverModel extends ChangeNotifier {
     loaded = true;
     _trim();
     _notify();
-    _scheduleSettingsApply();
   }
 
-  void _event(Map<String, dynamic> event) {
-    switch (event['type']) {
-      case 'snapshot':
-        _snapshot(Map<String, dynamic>.from(event['data'] as Map));
-      case 'state':
-        i('[Receiver state] ${event['status']}: ${event['message']}');
-        status = event['status'] as String;
-        message = event['message'] as String;
-        pid = event['pid'] as int? ?? 0;
+  void _event(ReceiverEvent event) {
+    switch (event.type) {
+      case ReceiverEventType.snapshot:
+        _snapshot(event.snapshot!);
+      case ReceiverEventType.state:
+        i('[Receiver state] ${event.status.name}: ${event.message}');
+        status = event.status.name;
+        message = event.message;
+        pid = event.pid;
         if ({'stopped', 'stopping', 'error', 'waiting'}.contains(status)) {
           clientName = null;
           videoWidth = 0;
@@ -206,32 +190,33 @@ class ReceiverModel extends ChangeNotifier {
           videoPaused = false;
         }
         _notify();
-        _scheduleSettingsApply();
-      case 'client':
-        clientName = (event['name'] as String?)?.trim();
+      case ReceiverEventType.client:
+        clientName = event.name.trim();
         if (clientName?.isEmpty ?? false) clientName = null;
         _notify();
-      case 'video':
-        if ((event['videoWidth'] as int) > 0 &&
-            (event['videoHeight'] as int) > 0 &&
-            (videoWidth != event['videoWidth'] ||
-                videoHeight != event['videoHeight'])) {
+      case ReceiverEventType.video:
+        if ((event.videoWidth) > 0 &&
+            (event.videoHeight) > 0 &&
+            (videoWidth != event.videoWidth ||
+                videoHeight != event.videoHeight)) {
           i(
             '[Receiver video] Decoded frame ready: '
-            '${event['videoWidth']}x${event['videoHeight']}',
+            '${event.videoWidth}x${event.videoHeight}',
           );
         }
-        textureId = event['textureId'] as int;
-        videoWidth = event['videoWidth'] as int;
-        videoHeight = event['videoHeight'] as int;
+        textureId = event.textureId;
+        videoWidth = event.videoWidth;
+        videoHeight = event.videoHeight;
         if (hasVideo) videoPaused = false;
         _notify();
-      case 'media':
-        audioPlaying = event['audioPlaying'] as bool;
-        videoPaused = event['videoPaused'] as bool;
+      case ReceiverEventType.media:
+        audioPlaying = event.audioPlaying;
+        videoPaused = event.videoPaused;
         _notify();
-      case 'log':
-        final entry = ReceiverLog(event['entry'] as Map);
+      case ReceiverEventType.unknown:
+        break;
+      case ReceiverEventType.log:
+        final entry = event.log!;
         _writeLog(entry);
         if (!_logs.any((item) => item.id == entry.id)) _logs.add(entry);
         _trim();
@@ -273,7 +258,6 @@ class ReceiverModel extends ChangeNotifier {
     } finally {
       busy = false;
       _notify();
-      _scheduleSettingsApply();
     }
   }
 
@@ -285,41 +269,6 @@ class ReceiverModel extends ChangeNotifier {
       return 'nameInvalid';
     }
     return null;
-  }
-
-  // macOS stop acknowledges the request before its owned process exits.
-  Future<void> _stopAndWait() async {
-    final stopped = Completer<void>();
-    void changed() {
-      if (status == 'stopped' && !stopped.isCompleted) stopped.complete();
-    }
-
-    addListener(changed);
-    try {
-      await repository.stop();
-      changed();
-      await stopped.future.timeout(const Duration(seconds: 8));
-    } finally {
-      removeListener(changed);
-    }
-  }
-
-  Future<void> _waitUntilReady() async {
-    final ready = Completer<void>();
-    void changed() {
-      if (status != 'starting' && !ready.isCompleted) ready.complete();
-    }
-
-    addListener(changed);
-    try {
-      changed();
-      await ready.future.timeout(const Duration(seconds: 8));
-      if (status != 'waiting' && status != 'streaming') {
-        throw PlatformException(code: 'receiver_error', message: message);
-      }
-    } finally {
-      removeListener(changed);
-    }
   }
 
   Future<void> save(
@@ -335,7 +284,7 @@ class ReceiverModel extends ChangeNotifier {
         ? null
         : Map<String, bool>.of(desktopOptions);
     return _pendingSave = _pendingSave.then((_) async {
-      if (!editable || _disposed) return;
+      if (!loaded || _disposed) return;
       final error = validateName(nextName);
       if (error != null) {
         notice = error;
@@ -371,12 +320,7 @@ class ReceiverModel extends ChangeNotifier {
   // The current native protocol has no session-only disconnect command.
   Future<void> disconnect() async {
     if (!canStop) return;
-    await _command(() async {
-      await _stopAndWait();
-      _receivingName = name;
-      _activeSettings = _receiverSettings;
-      await repository.start(name, path);
-    });
+    await _command(repository.disconnect);
   }
 
   Future<void> start(String nextName, String nextPath) async {
@@ -389,11 +333,13 @@ class ReceiverModel extends ChangeNotifier {
     }
     await _command(() async {
       _receivingName = nextName.trim();
-      _activeSettings = {
-        ..._receiverSettings,
-        'name': nextName.trim(),
-        'path': nextPath.trim(),
-      };
+      _activeSettings = ReceiverSettings(
+        name: nextName.trim(),
+        path: nextPath.trim(),
+        fastPairing: fastPairing,
+        videoQuality: _receiverSettings.videoQuality,
+        audioOutput: _receiverSettings.audioOutput,
+      );
       await repository.start(nextName.trim(), nextPath.trim());
       name = nextName.trim();
       _receivingName = name;
@@ -425,38 +371,11 @@ class ReceiverModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _scheduleSettingsApply() {
-    if (_disposed ||
-        !settingsPending ||
-        status != 'waiting' ||
-        busy ||
-        _applyQueued) {
-      return;
-    }
-    _applyQueued = true;
-    _pendingSave = _pendingSave.then((_) async {
-      try {
-        if (_disposed || status != 'waiting' || !settingsPending) return;
-        await _command(() async {
-          final applied = await repository.applySettings();
-          // Read the host's actual runtime settings, including deferred updates
-          // and discovery name changes, rather than assuming the restart won.
-          _snapshot(await repository.snapshot());
-          if (applied && status == 'starting') {
-            await _waitUntilReady();
-            _snapshot(await repository.snapshot());
-          }
-        });
-      } finally {
-        _applyQueued = false;
-      }
-    });
-  }
-
   @override
   void dispose() {
     _disposed = true;
     _subscription?.cancel();
+    repository.dispose();
     super.dispose();
   }
 }

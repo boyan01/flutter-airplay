@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "receiver.h"
+#include "../../native/include/airplay/receiver.h"
 #include "dns_sd.h"
 #include <arpa/inet.h>
 #include <sys/socket.h>

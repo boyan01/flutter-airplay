@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
 
 permissions:
   contents: read
@@ -22,6 +24,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      flutter_version: ${{ steps.sdk.outputs.version }}
       shared: ${{ steps.changes.outputs.shared }}
       macos: ${{ steps.changes.outputs.macos }}
       linux: ${{ steps.changes.outputs.linux }}
@@ -42,13 +45,13 @@ jobs:
             shared:
               - '.github/**'
               - 'pubspec.*'
+              - '.flutter-version'
               - 'lib/**'
               - 'assets/**'
               - 'native/**'
               - 'vendor/**'
               - 'scripts/**'
-              - 'android/dependencies.lock.json'
-              - 'android/scripts/fetch_deps.py'
+              - 'tool/**'
               - 'android/app/src/main/cpp/**'
               - 'android/app/src/main/assets/**'
               - '!**/*.md'
@@ -71,11 +74,25 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Test native build preparation
         run: ./scripts/test_native.sh build
+      - name: Read pinned Flutter SDK
+        id: sdk
+        run: echo "version=$(cat .flutter-version)" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ steps.sdk.outputs.version }}
           cache: true
       - run: flutter pub get --enforce-lockfile
+      - name: Check generated JSON serializers
+        run: |
+          dart run build_runner build
+          git diff --exit-code -- lib/receiver/receiver_settings.g.dart lib/receiver/receiver_state.g.dart lib/receiver/native/receiver_codec.g.dart
+      - name: Install FFI generator dependencies
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - name: Check generated FFI bindings
+        run: |
+          dart run ffigen --config tool/ffigen_receiver.yaml
+          git diff --exit-code -- lib/receiver/native/generated/receiver_bindings.dart
       - name: Check Dart format
         run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver
       - name: Analyze Dart
@@ -100,6 +117,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ needs.quality.outputs.flutter_version }}
           cache: true
       - run: flutter pub get --enforce-lockfile
       - name: Compile Debug app
@@ -136,6 +154,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ needs.quality.outputs.flutter_version }}
           cache: true
       - run: flutter pub get --enforce-lockfile
       - name: Compile Debug app and prepare Flutter engine
@@ -182,6 +201,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ needs.quality.outputs.flutter_version }}
           cache: true
       - run: flutter pub get --enforce-lockfile
       - name: Compile Debug app with automatic native preparation
@@ -232,6 +252,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ needs.quality.outputs.flutter_version }}
           cache: true
       - run: flutter pub get --enforce-lockfile
       - name: Install project Android native toolchain
@@ -274,6 +295,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ needs.quality.outputs.flutter_version }}
           cache: true
       - run: flutter pub get --enforce-lockfile
       - name: Prepare simulator Debug app
@@ -286,3 +308,25 @@ jobs:
           name: ios-test-results
           path: artifacts/ios/
           retention-days: 7
+
+  flutter-stable:
+    name: Verify new Flutter stable
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart run build_runner build
+      - run: git diff --exit-code -- lib/receiver/receiver_settings.g.dart lib/receiver/receiver_state.g.dart lib/receiver/native/receiver_codec.g.dart
+      - run: flutter analyze
+      - run: flutter test
+      - run: dart run ffigen --config tool/ffigen_receiver.yaml
+      - run: git diff --exit-code -- lib/receiver/native/generated/receiver_bindings.dart
+      - run: ./scripts/test_native.sh build

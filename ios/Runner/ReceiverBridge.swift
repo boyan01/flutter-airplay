@@ -3,12 +3,10 @@ import Flutter
 import UIKit
 import AVFAudio
 
-final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
+final class ReceiverBridge: NSObject, NetServiceDelegate {
     let host = ReceiverHost()
     private var video: FrameTexture?
-    private var eventSink: FlutterEventSink?
     private var methods: FlutterMethodChannel?
-    private var events: FlutterEventChannel?
     private var services = [NetService]()
     private var serviceGeneration = 0
     private var observers = [NSObjectProtocol]()
@@ -18,15 +16,12 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         let output = FrameTexture(registry: registrar.textures())
         video = output; output.register(); host.videoOutput = output
         host.foreground = UIApplication.shared.applicationState != .background
-        methods = FlutterMethodChannel(name: "org.airplayreceiver/control", binaryMessenger: registrar.messenger())
-        events = FlutterEventChannel(name: "org.airplayreceiver/events", binaryMessenger: registrar.messenger())
-        events?.setStreamHandler(self)
-        host.onEvent = { [weak self] event in
+        methods = FlutterMethodChannel(name: "org.airplayreceiver/platform", binaryMessenger: registrar.messenger())
+        host.onEvent = { event in
+            guard event["type"] as? String == "snapshot", let snapshot = event["data"] as? [String: Any] else { return }
             DispatchQueue.main.async {
-                self?.eventSink?(event)
-                if event["type"] as? String == "state", let state = event["status"] as? String {
-                    UIApplication.shared.isIdleTimerDisabled = UIApplication.shared.applicationState != .background && ["starting", "waiting", "streaming"].contains(state)
-                }
+                let state = snapshot["status"] as? String ?? "stopped"
+                UIApplication.shared.isIdleTimerDisabled = UIApplication.shared.applicationState != .background && ["starting", "waiting", "streaming"].contains(state)
             }
         }
         host.publish = { [weak self] name, identity, port, videoTXT, audioTXT, token in
@@ -35,31 +30,15 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         host.unpublish = { [weak self] in DispatchQueue.main.async { self?.stopServices() } }
         methods?.setMethodCallHandler { [weak self] call, result in
             guard let self = self else { return }
+            guard call.method == "bootstrap" else { result(FlutterMethodNotImplemented); return }
             let foreground = UIApplication.shared.applicationState != .background
             let bounds = UIScreen.main.nativeBounds
-            let screenSize = (width: Int(bounds.width), height: Int(bounds.height))
             self.host.queue.async {
-                self.host.screenSize = screenSize
+                self.host.foreground = foreground
+                self.host.screenSize = (Int(bounds.width), Int(bounds.height))
                 do {
-                    let args = call.arguments as? [String: Any] ?? [:]
-                    var value: Any?
-                    switch call.method {
-                    case "snapshot": value = self.host.snapshot()
-                    case "applySettings": value = try self.host.applySettings()
-                    case "save":
-                        try self.host.save(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "",
-                                           autoStart: args["autoStart"] as? Bool, videoQuality: args["videoQuality"] as? String,
-                                           fastPairing: args["fastPairing"] as? Bool)
-                        let snapshot = self.host.snapshot()
-                        DispatchQueue.main.async { self.eventSink?(["type": "snapshot", "data": snapshot]) }
-                    case "check": try self.host.check(path: args["path"] as? String ?? "")
-                    case "start":
-                        try self.host.start(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "",
-                                            foreground: foreground)
-                    case "stop": self.host.userStop()
-                    default: DispatchQueue.main.async { result(FlutterMethodNotImplemented) }; return
-                    }
-                    DispatchQueue.main.async { result(value) }
+                    let handle = try self.host.bootstrap()
+                    DispatchQueue.main.async { result(["handle": handle]) }
                 } catch {
                     DispatchQueue.main.async { result(FlutterError(code: "receiver_error", message: error.localizedDescription, details: nil)) }
                 }
@@ -134,15 +113,6 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler, NetServiceDelegate {
         stopServices(); host.shutdown()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll(); video?.dispose(); video = nil
-        methods?.setMethodCallHandler(nil); events?.setStreamHandler(nil)
+        methods?.setMethodCallHandler(nil)
     }
-    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
-        eventSink = events
-        host.queue.async {
-            let snapshot = self.host.snapshot()
-            DispatchQueue.main.async { events(["type": "snapshot", "data": snapshot]) }
-        }
-        return nil
-    }
-    func onCancel(withArguments arguments: Any?) -> FlutterError? { eventSink = nil; return nil }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "platform.h"
-#include "audio_clock.h"
+#include "../../native/playback/platform.h"
+#include "../../native/playback/audio_clock.h"
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>

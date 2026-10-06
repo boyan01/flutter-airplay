@@ -180,28 +180,18 @@
 ## 🏗️ 技术架构
 
 ```text
-+-------------------------------------------------------------+
-|                     Flutter UI 展现层                       |
-|   (lib/ui/ - 响应式布局：电视遥控 / 手机手势 / 桌面窗口管理)     |
-+-------------------------------------------------------------+
-                              │ MethodChannel / Events
-+-------------------------------------------------------------+
-|                   接收器状态与仓储层                         |
-|             (lib/receiver/ - 生命周期与业务状态)             |
-+-------------------------------------------------------------+
-                              │ Native Bridge (JNI / C-FFI / ObjC)
-+-------------------------------------------------------------+
-|            共享 C++ 播放器核心 (native/player/)              |
-|    - 时间戳对齐与音画同步 (Jitter Buffer)                     |
-|    - 会话状态机管理与异常恢复                                 |
-+-------------------------------------------------------------+
-               │                                      │
-+──────────────────────────────+      +───────────────────────────────+
-|      UxPlay 协议引擎         |      |       各平台原生硬件输出      |
-|      (vendor/UxPlay/)        |      | - VideoToolbox / CoreAudio    |
-| - AirPlay 镜像服务端实现      |      | - NDK MediaCodec / Oboe       |
-| - RTSP, RTP, FairPlay 握手    |      | - Media Foundation / FFmpeg   |
-+──────────────────────────────+      +───────────────────────────────+
+Flutter UI / ReceiverModel
+          |
+ReceiverRepository (设置持久化 / native 操作)
+          |
+lib/receiver/native + native/ffi (C ABI / Dart port)
+          |
+native/receiver (状态 / 期望与生效设置 / 生命周期)
+          |                          |
+native/protocol                native/playback
+          |                          |
+     vendor/UxPlay             native/backends
+                               Apple / Android / Windows / Linux / FFmpeg
 ```
 
 关于本地开发环境搭建、各平台构建命令、原生测试矩阵与 CI 工作流，请参考 [开发指南 (DEVELOPMENT.md)](DEVELOPMENT.md)。代码设计规范与贡献约定参见 [AGENTS.md](AGENTS.md)。

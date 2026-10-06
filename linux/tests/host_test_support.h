@@ -17,7 +17,7 @@
 #include <vector>
 
 namespace {
-constexpr char kControl[] = "org.airplayreceiver/control";
+constexpr char kControl[] = "org.airplayreceiver/platform";
 constexpr char kEvents[] = "org.airplayreceiver/events";
 constexpr char kWindow[] = "tech.soit.flutterairplay/window";
 std::thread::id main_thread;

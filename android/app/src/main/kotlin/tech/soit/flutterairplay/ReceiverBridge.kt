@@ -1,369 +1,144 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package tech.soit.flutterairplay
 
+import android.app.Activity
 import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
-import android.media.MediaCodecList
-import android.media.MediaFormat
-import android.os.Process
-import android.app.Activity
 import android.Manifest
 import android.os.Build
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-/** Keeps the native receiver and shared Dart API independent of layout/input. */
-internal class ReceiverBridge(private val context: Context, engine: FlutterEngine) :
-    EventChannel.StreamHandler, AutoCloseable {
+/** Platform bootstrap and Android foreground-service/surface integration. */
+internal class ReceiverBridge(private val context: Context, engine: FlutterEngine) : AutoCloseable {
     private val preferences = context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
-    private val state = ReceiverState()
-    private var sink: EventChannel.EventSink? = null
     private var closed = false
     private var activity: Activity? = null
     private var surfaceOwner: MainActivity? = null
-    private var pendingStart: Pair<String, MethodChannel.Result>? = null
+    private val pendingPrepare = mutableListOf<MethodChannel.Result>()
+    private var preparing = false
+    private var data: Map<String, Any> = mapOf("status" to "stopped", "videoWidth" to 0, "videoHeight" to 0)
     var service: ReceiverService? = null
-    val isActive: Boolean get() = host.isActive || pendingStart != null
-    private val host = PlaybackHost(context) { event ->
-        if (!closed) { state.accept(event); publish(); reconcileLifecycle() }
+    private val host = PlaybackHost(context, ::nativeEvent)
+    private fun nativeEvent(event: Map<String, Any>) {
+        if (!closed && event["type"] == "snapshot") {
+            @Suppress("UNCHECKED_CAST")
+            val next = event["data"] as Map<String, Any>
+            // Discard old stopped snapshots after a replacement run has started.
+            val current = host.currentSnapshot
+            if ((next["generation"] as? Number)?.toLong() == (current["generation"] as? Number)?.toLong()) {
+                data = next
+                publish(); lifecycle.reconcile()
+            }
+        }
     }
-    private val lifecycle = ReceiverLifecycle(
-        active = { isActive },
-        start = ::startForLifecycle,
-    )
-    private val foreground: Boolean get() = lifecycle.foreground
-    private val control = MethodChannel(engine.dartExecutor.binaryMessenger, "org.airplayreceiver/control")
-    private val events = EventChannel(engine.dartExecutor.binaryMessenger, "org.airplayreceiver/events")
-
-    init {
-        if (preferences.getString("name", null) == null) saveName(defaultName())
-        control.setMethodCallHandler(::command)
-        events.setStreamHandler(this)
-    }
+    val isActive: Boolean get() = preparing || host.prepared || (data["pid"] as? Number)?.toLong()?.let { it != 0L } == true
+    private val lifecycle = ReceiverLifecycle({ isActive }, { if (host.handle != 0L) host.requestStart() })
+    private val foreground get() = lifecycle.foreground
+    private val control = MethodChannel(engine.dartExecutor.binaryMessenger, "org.airplayreceiver/platform")
+    init { control.setMethodCallHandler(::command) }
 
     private fun defaultName(): String {
         val deviceName = try {
             Settings.Global.getString(context.contentResolver, "device_name")
         } catch (_: SecurityException) { null }
-        for (candidate in listOf(deviceName, Build.MODEL, "Flutter AirPlay")) {
-            val clean = StringBuilder()
-            var bytes = 0
-            val source = candidate?.trim().orEmpty()
-            var index = 0
-            while (index < source.length) {
-                val codePoint = source.codePointAt(index)
-                index += Character.charCount(codePoint)
-                if (Character.isISOControl(codePoint)) continue
-                val character = String(Character.toChars(codePoint))
-                val size = character.toByteArray(Charsets.UTF_8).size
-                if (bytes + size > 50) break
-                clean.append(character)
-                bytes += size
-            }
-            if (clean.isNotBlank()) return clean.toString().trim()
-        }
-        return "Flutter AirPlay"
+        return deviceName?.takeIf { it.isNotBlank() } ?: Build.MODEL
     }
 
-    private fun name(): String = preferences.getString("name", "Flutter AirPlay")!!
-
-    fun snapshot(): Map<String, Any> {
-        val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
-            .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        return state.snapshot(name(), if (isActive) Process.myPid() else 0, television) +
-            mapOf("autoStart" to preferences.getBoolean("autoStart", true),
-                "fastPairing" to preferences.getBoolean("fastPairing", false),
-                "defaultName" to defaultName(),
-                "activeSettings" to host.activeSettings,
-                "receivingName" to (host.receivingName ?: pendingStart?.first ?: name())) + host.videoSettings()
-    }
-
+    fun snapshot(): Map<String, Any> = data
     private fun publish() {
-        val data = snapshot()
-        val television = (data["capabilities"] as Map<*, *>)["isTelevision"] == true
-        val awake = foreground && (television || isActive)
+        val caps = data["capabilities"] as? Map<*, *>
+        val awake = foreground && (caps?.get("isTelevision") == true || isActive)
         activity?.window?.let { window ->
             if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
-        (activity as? MainActivity)?.renderVideo(data)
-        sink?.success(mapOf("type" to "snapshot", "data" to data))
-        service?.update(data, foreground)
+        (activity as? MainActivity)?.renderVideo(data); service?.update(data, foreground)
     }
-
     fun onForeground(activity: Activity) {
         this.activity = activity
-        lifecycle.onForeground(preferences.getBoolean("autoStart", true))
-        nativeSurfaceReady(activity as? MainActivity)
-        publish()
+        lifecycle.onForeground(data["autoStart"] as? Boolean ?: false)
+        host.update(mapOf("foreground" to true)); nativeSurfaceReady(activity as? MainActivity); publish()
     }
-
     fun onBackground(activity: Activity) {
         if (this.activity !== activity) return
-        lifecycle.onBackground(); publish()
+        lifecycle.onBackground(); host.update(mapOf("foreground" to false)); publish()
     }
-
-    fun detach(activity: Activity) {
-        if (this.activity !== activity) return
-        onBackground(activity)
-        this.activity = null
-    }
-
-    fun onDisplayChanged() { if (host.isActive) host.logDisplayInfo(); publish() }
+    fun detach(activity: Activity) { if (this.activity === activity) { onBackground(activity); this.activity = null } }
+    fun onDisplayChanged() { host.update(host.videoMetadata()); host.logDisplayInfo(); publish() }
     fun refresh() { publish() }
-
-    private fun reconcileLifecycle() { if (!closed) lifecycle.reconcile() }
-
-    private fun startForLifecycle() {
-        if (closed) return
-        try {
-            checkPlayback()
-            requestStart(name(), object : MethodChannel.Result {
-                override fun success(value: Any?) {}
-                override fun error(code: String, message: String?, details: Any?) {}
-                override fun notImplemented() {}
-            })
-        } catch (error: Exception) { state.error(error.message ?: "启动接收失败"); publish() }
-    }
-
-    private fun requestStart(name: String, result: MethodChannel.Result) {
-        state.startRequested()
-        pendingStart = name to result
-        try {
-            ReceiverService.start(context)
-        } catch (error: Exception) {
-            pendingStart = null
-            state.error(error.message ?: "启动后台接收失败")
-            publish()
-            result.error("service", error.message, null)
-            return
-        }
-        if (Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
-            !preferences.getBoolean("notificationRequested", false)) {
-            activity?.let {
-                preferences.edit().putBoolean("notificationRequested", true).apply()
-                it.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
-            }
-        }
-        publish()
-    }
-
-    /** Called only after the Service has posted its foreground notification. */
-    fun startPending() {
-        val request = pendingStart ?: return
-        val owner = activity as? MainActivity
-        val surface = owner?.playbackSurface?.takeIf { it.isValid }
-        surfaceOwner = if (surface != null) owner else null
-        pendingStart = null
-        host.start(request.first, completion(request.second, starting = true), surface)
-        publish()
-    }
-
-    fun nativeSurfaceReady(owner: MainActivity?) {
-        if (owner == null || owner !== activity) return
-        val surface = owner.playbackSurface ?: return
-        if (host.setSurface(surface)) surfaceOwner = owner
-        else stopAfterSurfaceFailure()
-    }
-
-    fun nativeSurfaceDestroyed(owner: MainActivity) {
-        if (surfaceOwner !== owner) return
-        surfaceOwner = null
-        // Move output before SurfaceHolder destroys the visible buffer queue.
-        // The background consumer preserves decoder references and reception.
-        if (!host.setSurface(null)) stopAfterSurfaceFailure()
-    }
-
-    private fun stopAfterSurfaceFailure() {
-        stop(object : MethodChannel.Result {
-            override fun success(value: Any?) {}
-            override fun error(code: String, message: String?, details: Any?) {}
-            override fun notImplemented() {}
-        })
-        host.awaitSurfaceStop()
-        state.error("Video surface switch failed; reconnect screen mirroring")
-        publish()
-    }
-
-    fun stop(result: MethodChannel.Result) {
-        lifecycle.cancelResume()
-        pendingStart?.second?.error("cancelled", "接收启动已取消", null)
-        pendingStart = null
-        if (!host.isActive) {
-            state.accept(mapOf("state" to "stopped", "message" to "接收器已停止"))
-            publish()
-            result.success(null)
-            return
-        }
-        state.stopRequested()
-        host.stop(completion(result, starting = false))
-        publish()
-    }
-
-    fun onServiceDestroyed(owner: ReceiverService) {
-        if (service !== owner) return
-        service = null
-        // Dart can queue a replacement start before the stopped Service is
-        // destroyed. The replacement Service must retain that pending request.
-        if (pendingStart != null) return
-        lifecycle.cancelResume()
-        if (host.isActive) {
-            state.stopRequested()
-            host.stop(completion(object : MethodChannel.Result {
-                override fun success(value: Any?) {}
-                override fun error(code: String, message: String?, details: Any?) {}
-                override fun notImplemented() {}
-            }, starting = false))
-        }
-        publish()
-    }
-
     private fun command(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
-                "snapshot" -> result.success(snapshot())
-                "applySettings" -> applySettings(result)
-                "save" -> {
-                    requireEmbeddedPath(call)
-                    val nextName = requestedName(call)
-                    val quality = call.argument<String>("videoQuality")
-                    if (quality != null) {
-                        host.validateVideoQuality(quality)
-                    }
-                    val audioOutput = call.argument<String>("audioOutput")
-                    require(audioOutput == null || audioOutput in listOf("auto", "aaudio", "audiotrack")) {
-                        "Invalid audio output selection"
-                    }
-                    if (audioOutput != null) preferences.edit().putString("audioOutput", audioOutput).apply()
-                    call.argument<Boolean>("fastPairing")?.let {
-                        preferences.edit().putBoolean("fastPairing", it).apply()
-                    }
-                    // Shared ReceiverModel applies saved receiver settings when idle.
-                    saveName(nextName)
-                    if (quality != null) preferences.edit().putString("videoQuality", quality).apply()
-                    call.argument<Boolean>("autoStart")?.let {
-                        preferences.edit().putBoolean("autoStart", it).apply()
-                    }
-                    // Root ReceiverModel updates its editable fields after save succeeds.
-                    result.success(null)
+                "bootstrap" -> {
+                    val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+                    val metadata = mapOf("defaultName" to defaultName(), "foreground" to foreground,
+                        "capabilities" to mapOf("platform" to "android", "supportsExecutablePath" to false,
+                            "supportsLaunchAtLogin" to false, "isTelevision" to television, "nativeVideoSurface" to true))
+                    result.success(mapOf("handle" to host.bootstrap(metadata)))
                 }
-                "check" -> {
-                    requireIdle()
-                    requireEmbeddedPath(call)
-                    checkPlayback()
-                    state.log("内置接收库已加载；设备提供 H.264 / AAC 解码器。实际播放需连接发送端验证。")
-                    publish()
-                    result.success(null)
-                }
-                "start" -> {
-                    check(foreground) { "请在应用前台启动接收。" }
+                "prepareReception" -> {
+                    check(foreground || isActive) { "请在应用前台启动接收。" }
                     lifecycle.cancelResume()
-                    requireIdle()
-                    requireEmbeddedPath(call)
-                    val name = requestedName(call)
-                    checkPlayback()
-                    saveName(name)
-                    requestStart(name, result)
-                }
-                "stop" -> {
-                    stop(result)
+                    if (host.prepared && service != null) { result.success(null); return }
+                    pendingPrepare.add(result); preparing = true
+                    ReceiverService.start(context)
+                    if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !preferences.getBoolean("notificationRequested", false)) {
+                        activity?.let { preferences.edit().putBoolean("notificationRequested", true).apply(); it.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100) }
+                    }
                 }
                 else -> result.notImplemented()
             }
         } catch (error: Exception) {
-            result.error("receiver_error", error.message ?: "原生接收器操作失败", null)
+            if (call.method == "prepareReception") failPreparation(error.message ?: "Cannot prepare receiver service")
+            else result.error("receiver_error", error.message, null)
         }
     }
-
-    private fun applySettings(result: MethodChannel.Result) {
-        if (state.status != "waiting" || !host.isActive || pendingStart != null || !host.prepareRestart()) {
-            result.success(false)
-            return
-        }
-        // Retain the foreground Service across an idle restart, including when
-        // the Activity is in the background. A user stop cancels this request.
-        val restart = object : MethodChannel.Result {
-            override fun success(value: Any?) { result.success(true) }
-            override fun error(code: String, message: String?, details: Any?) {
-                result.error(code, message, details)
-            }
-            override fun notImplemented() { result.notImplemented() }
-        }
-        pendingStart = name() to restart
-        state.stopRequested()
-        host.stop(object : MethodChannel.Result {
-            override fun success(value: Any?) {
-                if (closed || pendingStart == null) return
-                state.startRequested()
-                startPending()
-            }
-            override fun error(code: String, message: String?, details: Any?) {
-                pendingStart = null
-                state.error(message ?: "原生接收器操作失败")
-                publish()
-                result.error(code, message, details)
-            }
-            override fun notImplemented() { pendingStart = null; result.notImplemented() }
-        })
-        publish()
+    private fun failPreparation(message: String) {
+        preparing = false; host.cleanupSurface()
+        val replies = pendingPrepare.toList(); pendingPrepare.clear()
+        replies.forEach { it.error("receiver_error", message, null) }; publish()
     }
-
-    private fun completion(result: MethodChannel.Result, starting: Boolean) = object : MethodChannel.Result {
-        override fun success(value: Any?) {
-            if (closed) return
-            if (starting) state.started(value as Map<*, *>)
-            publish()
-            result.success(null)
-            reconcileLifecycle()
-        }
-        override fun error(code: String, message: String?, details: Any?) {
-            if (closed) return
-            if (code != "cancelled") state.error(message ?: "原生接收器操作失败")
-            publish()
-            result.error(code, message, details)
-        }
-        override fun notImplemented() { if (!closed) result.notImplemented() }
+    /** Complete preparation only after the foreground notification is posted. */
+    fun startPending() {
+        if (!preparing) return
+        try {
+            val owner = activity as? MainActivity; val surface = owner?.playbackSurface?.takeIf { it.isValid }
+            host.prepare(surface); surfaceOwner = if (surface != null) owner else null
+            val replies = pendingPrepare.toList(); pendingPrepare.clear(); preparing = false
+            replies.forEach { it.success(null) }; publish()
+        } catch (error: Exception) { failPreparation(error.message ?: "Cannot prepare playback surface") }
     }
-
-    private fun requireIdle() { check(!isActive) { "请先停止接收器再修改设置或重新启动。" } }
-    private fun requireEmbeddedPath(call: MethodCall) {
-        require(call.argument<String>("path").orEmpty().isBlank()) {
-            "Android 使用内置接收核心，无需填写 UxPlay 路径。"
-        }
+    fun nativeSurfaceReady(owner: MainActivity?) {
+        if (owner == null || owner !== activity) return
+        val surface = owner.playbackSurface ?: return
+        if (host.setSurface(surface)) surfaceOwner = owner else stopAfterSurfaceFailure()
     }
-    private fun requestedName(call: MethodCall): String {
-        val value = call.argument<String>("name").orEmpty().trim()
-        require(ReceiverState.validName(value)) { "设备名需要 1–50 个 UTF-8 字节，不能含控制字符。" }
-        return value
+    fun nativeSurfaceDestroyed(owner: MainActivity) {
+        if (surfaceOwner !== owner) return
+        surfaceOwner = null
+        if (!host.setSurface(null)) stopAfterSurfaceFailure()
     }
-    private fun saveName(value: String) { preferences.edit().putString("name", value).apply() }
-
-    private fun checkPlayback() {
-        // Enumeration only: no codec allocation, listener, audio stream or volume changes.
-        val decoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder }
-        for (mime in listOf(MediaFormat.MIMETYPE_VIDEO_AVC, MediaFormat.MIMETYPE_AUDIO_AAC)) {
-            check(decoders.any { codec -> codec.supportedTypes.any { it.equals(mime, ignoreCase = true) } }) {
-                "设备缺少 $mime 解码器，请使用支持 H.264 / AAC 的 Android 设备。"
-            }
-        }
+    private fun stopAfterSurfaceFailure() { lifecycle.cancelResume(); host.awaitSurfaceStop(); host.cleanupSurface() }
+    fun stop(result: MethodChannel.Result) {
+        lifecycle.cancelResume()
+        if (preparing) failPreparation("Receiver start has been cancelled")
+        host.requestStop(); result.success(null)
     }
-
-    override fun onListen(arguments: Any?, events: EventChannel.EventSink) { sink = events; publish() }
-    override fun onCancel(arguments: Any?) { sink = null }
+    fun onServiceDestroyed(owner: ReceiverService) {
+        if (service !== owner) return
+        service = null
+        if (preparing) return
+        lifecycle.cancelResume(); host.requestStop()
+    }
     override fun close() {
-        closed = true
-        lifecycle.close()
-        control.setMethodCallHandler(null)
-        events.setStreamHandler(null)
-        sink = null
-        host.close()
+        closed = true; lifecycle.close(); control.setMethodCallHandler(null)
+        pendingPrepare.forEach { it.error("cancelled", "Receiver has closed", null) }; pendingPrepare.clear(); host.close()
     }
 }
 

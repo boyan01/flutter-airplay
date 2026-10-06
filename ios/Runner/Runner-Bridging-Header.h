@@ -1,3 +1,3 @@
 #import "GeneratedPluginRegistrant.h"
 
-#import "../../native/player/player.h"
+#import "../../native/include/airplay/receiver.h"

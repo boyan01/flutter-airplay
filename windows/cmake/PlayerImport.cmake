@@ -23,7 +23,7 @@ add_library(airplay_player_import SHARED IMPORTED)
 set_target_properties(airplay_player_import PROPERTIES
   IMPORTED_LOCATION "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll"
   IMPORTED_IMPLIB "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.lib"
-  INTERFACE_INCLUDE_DIRECTORIES "${AIRPLAY_ROOT}/native/player")
+  INTERFACE_INCLUDE_DIRECTORIES "${AIRPLAY_ROOT}/native/include/airplay")
 add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/airplay_player.dll" "$<TARGET_FILE_DIR:${BINARY_NAME}>")
@@ -42,4 +42,4 @@ install(DIRECTORY "${AIRPLAY_WINDOWS_PLAYER_DIR}/Release/ffmpeg-licenses/"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses/FFmpeg" COMPONENT Runtime)
 install(FILES "${AIRPLAY_ROOT}/LICENSE" "${AIRPLAY_ROOT}/THIRD_PARTY_NOTICES.md"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)
-install(DIRECTORY "${AIRPLAY_ROOT}/android/app/src/main/assets/licenses/" DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)
+install(DIRECTORY "${AIRPLAY_ROOT}/assets/licenses/" DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses" COMPONENT Runtime)

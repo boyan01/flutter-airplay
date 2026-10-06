@@ -10,8 +10,21 @@ are described in [README.md](README.md); iPad, Windows and Linux are experimenta
 - `lib/receiver/receiver_model.dart`: shared receiver state and application actions.
 - `lib/receiver/receiver_repository.dart`: receiver control and event contract with
   native hosts. Extend this contract consistently across hosts when needed.
-- `native/player/`: shared C++ playback, timing and receiver lifecycle.
-- Platform hosts: discovery, codecs/output, video surfaces, windows and OS lifecycle.
+- `lib/app/`: app widget, theme and logging; `main.dart` initializes dependencies.
+- `lib/receiver/native/`: FFI transport and JSON/C conversion; generated bindings
+  live in its `generated/` directory. UI/model consume typed state and settings.
+- `lib/platform/window_controller.dart`: window/system commands and host events.
+- `native/include/airplay/`: public C host/player headers; `receiver_ffi.h` adds
+  the Dart adapter contract. Host runners do not inherit private include roots.
+- `native/receiver/`: receiver state, desired/active settings and serial lifecycle.
+  Its copied event outlet has no Dart SDK or transport dependency.
+- `native/protocol/`: UxPlay callback conversion, connections and discovery records.
+- `native/playback/`: shared media queues, timing, decode scheduling and recovery.
+- `native/backends/`: platform codec/output adapters and shared FFmpeg support.
+- `native/tests/`: shared receiver, FFI, protocol, playback and media fixtures.
+  Real host/device/window tests live in their platform projects.
+- Platform hosts: discovery, video surfaces, windows and OS lifecycle. Apple
+  hosts share `native/apple/`; codecs and audio devices belong in backends.
 - `vendor/UxPlay/`: shared receive protocol core. Edit it directly, preserve GPL
   notices and record upstream updates in `vendor/UxPlay/UPSTREAM.md`.
 

@@ -66,7 +66,7 @@ int main() {
               frames.stats.overwritten == 1 && frames.stats.repeated == 1,
               "Diagnostics distinguish replaced, newly acquired and repeated textures");
         frames.clear();
-        check(frames.stats.received == 0 && frames.last_acquire_ns == 0,
+        check(frames.stats.received == 0 && frames.stats.last_acquire_ns == 0,
               "Clear resets diagnostics without carrying a reconnect gap");
         std::puts("PASS: Windows Flutter GPU descriptor import, release, rotation, clear and reconnect");
         return 0;

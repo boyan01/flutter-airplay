@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "platform.h"
-#include "audio_decoder.h"
-#include "audio_clock_tests.h"
+#include "../../native/playback/platform.h"
+#include "../../native/playback/audio_decoder.h"
+#include "../../native/tests/playback/audio_clock_tests.h"
 #include <cstdio>
-#include "audio_fixtures.h"
-#include "audio_decoder_tests.h"
-#include "video_fixtures.h"
-#include "linux_video.h"
+#include "../../native/tests/fixtures/audio_fixtures.h"
+#include "../../native/tests/playback/audio_decoder_tests.h"
+#include "../../native/tests/fixtures/video_fixtures.h"
+#include "../../native/backends/linux/linux_video.h"
 #include <stdexcept>
 #include <thread>
 #include <filesystem>

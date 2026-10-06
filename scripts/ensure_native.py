@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def prepare_windows_make():
     """Fetch a verified POSIX Make without depending on Flutter build output."""
-    entry = json.loads((ROOT / "android/dependencies.lock.json").read_text())["windows-make"]
+    entry = json.loads((ROOT / "native/dependencies.lock.json").read_text())["windows-make"]
     folder = ROOT / "windows/.cache/tools"
     folder.mkdir(parents=True, exist_ok=True)
     archive = folder / f"make-{entry['version']}.pkg.tar.zst"
@@ -104,13 +104,13 @@ def build_lock(target):
 def prepare_dependencies(target):
     """Invalidate generated dependency libraries when their pinned inputs change."""
     stamp = ROOT / f"build/native-preparation/{target}-dependencies.txt"
-    script = ROOT / ("scripts/build_receiver.sh" if target == "macos" else
-                     f"{target}/scripts/build_native." + ("ps1" if target == "windows" else "sh"))
-    paths = [ROOT / "android/dependencies.lock.json", script]
-    if target == "android":
-        paths += [ROOT / "android/gradle.properties"]
-    if target == "windows":
-        paths += [ROOT / "windows/scripts/build_ffmpeg.sh"]
+    recipes = {
+        "macos": ["scripts/build_macos_crypto.sh"],
+        "ios": ["ios/scripts/build_crypto.sh"],
+        "android": ["android/scripts/build_crypto.sh", "android/gradle.properties"],
+        "windows": ["windows/scripts/build_dependencies.ps1", "windows/scripts/build_ffmpeg.sh"],
+    }
+    paths = [ROOT / "native/dependencies.lock.json"] + [ROOT / name for name in recipes[target]]
     fingerprint = digest(paths) + host_toolchain(target)
     if stamp.is_file() and stamp.read_text() == fingerprint:
         return
@@ -142,19 +142,31 @@ def digest(paths):
 
 
 def inputs(target):
-    paths = {Path(__file__), ROOT / "android/dependencies.lock.json"}
-    folders = ["native", "vendor", f"{target}/scripts"]
+    paths = {Path(__file__), ROOT / "native/dependencies.lock.json"}
+    paths.add(ROOT / "native/CMakeLists.txt")
+    paths.add(ROOT / "scripts/fetch_native_deps.py")
+    manifest = ROOT / f"build/native-preparation/{target}-sources.txt"
+    if manifest.is_file():
+        folders = manifest.read_text().splitlines()
+        paths.add(manifest)
+    else:
+        # Bootstrap conservatively; CMake exports the selected product roots on
+        # the first build. Never infer compilation from a filename prefix.
+        folders = ["native/include", "native/receiver", "native/protocol", "native/playback",
+                   "native/ffi", "native/backends", "native/cmake", "native/compat", "vendor"]
+    folders += [f"{target}/scripts"]
     if target == "android":
         folders += ["android/app/src/main/cpp"]
         paths.add(ROOT / "android/gradle.properties")
     if target == "windows":
         folders += ["windows/cmake", "windows/compat"]
-    else:
-        folders += ["android/scripts"]
     if target == "macos":
-        paths.add(ROOT / "scripts/build_receiver.sh")
+        paths.update(ROOT / name for name in ("scripts/build_receiver.sh", "scripts/build_macos_crypto.sh"))
     for folder in folders:
-        for path in (ROOT / folder).rglob("*"):
+        source_root = ROOT / folder
+        if not source_root.resolve().is_relative_to(ROOT.resolve()):
+            raise SystemExit(f"Native input manifest escapes the checkout: {folder}")
+        for path in source_root.rglob("*"):
             if path.is_file() and not any(part in (".git", "__pycache__") for part in path.parts):
                 paths.add(path)
     # Resolve host SDK changes as well as source/configuration changes.
@@ -162,7 +174,7 @@ def inputs(target):
     environment = {key: native_env.get(key, "") for key in
                    ("ANDROID_HOME", "ANDROID_SDK_ROOT", "DEVELOPER_DIR", "SDKROOT")}
     tools = {}
-    for name in ("cmake", "python3", "perl"):
+    for name in ("cmake", "python3", "perl", "dart"):
         executable = shutil.which(name)
         if executable:
             tools[name] = (executable, Path(executable).stat().st_mtime_ns)
@@ -190,7 +202,9 @@ def outputs(target):
         paths = [folder / "Info.plist"]
         for slice_name in ("ios-arm64", "ios-arm64-simulator"):
             paths += [folder / slice_name / "libAirplayPlayer.a",
-                      folder / slice_name / "Headers/player.h"]
+                      folder / slice_name / "Headers/player.h",
+                      folder / slice_name / "Headers/receiver.h",
+                      folder / slice_name / "Headers/receiver_ffi.h"]
     return paths if all(path.is_file() for path in paths) else []
 
 
@@ -221,7 +235,7 @@ def ensure(target):
     if not artifacts:
         raise SystemExit(f"{target}: native build did not produce all required artifacts")
     stamp.parent.mkdir(parents=True, exist_ok=True)
-    stamp.write_text(json.dumps({"inputs": source_hash, "outputs": digest(artifacts)}))
+    stamp.write_text(json.dumps({"inputs": inputs(target), "outputs": digest(artifacts)}))
 
 
 if __name__ == "__main__":

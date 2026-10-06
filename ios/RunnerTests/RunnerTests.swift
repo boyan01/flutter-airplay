@@ -10,6 +10,7 @@ final class RunnerTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
     private var host: ReceiverHost!
+    private var support: URL!
 
     override func setUpWithError() throws {
         let active = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -22,11 +23,13 @@ final class RunnerTests: XCTestCase {
         // the isolated suite should exercise persisted settings independently.
         defaults.setVolatileDomain([:], forName: UserDefaults.argumentDomain)
         defaults.removePersistentDomain(forName: suiteName)
-        host = ReceiverHost(defaults: defaults)
+        support = FileManager.default.temporaryDirectory.appendingPathComponent(suiteName)
+        host = ReceiverHost(defaults: defaults, supportDirectory: support)
     }
 
     override func tearDownWithError() throws {
         host.shutdown()
+        try? FileManager.default.removeItem(at: support)
         defaults.removePersistentDomain(forName: suiteName)
         host = nil
         defaults = nil
@@ -38,7 +41,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
         let name = snapshot["name"] as? String
-        XCTAssertEqual(name, defaults.string(forKey: "receiverName"))
+        XCTAssertNil(defaults.string(forKey: "receiverName"))
         XCTAssertEqual(name, snapshot["defaultName"] as? String)
         XCTAssertFalse(name?.isEmpty ?? true)
         XCTAssertLessThanOrEqual(name?.utf8.count ?? 0, 50)
@@ -52,10 +55,10 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(capabilities?["supportsExecutablePath"] as? Bool, false)
         XCTAssertEqual(capabilities?["supportsLaunchAtLogin"] as? Bool, false)
         XCTAssertEqual(capabilities?["foregroundOnly"] as? Bool, true)
-        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertEqual(defaults.data(forKey: "receiverIdentity")?.count, 6)
     }
 
-    func testVideoQualityPersistsAndControlsRequestedSize() throws {
+    func testVideoQualityChangesRuntimeAndControlsRequestedSize() throws {
         try host.queue.sync {
             host.screenSize = (width: 2732, height: 2048)
             try host.save(name: "Quality iPad", path: "", videoQuality: "auto")
@@ -65,10 +68,9 @@ final class RunnerTests: XCTestCase {
             for (quality, width, height) in [("720", 1280, 720), ("1080", 1920, 1080),
                                             ("1440", 2560, 1440), ("2160", 3840, 2160)] {
                 try host.save(name: "Quality iPad", path: "", videoQuality: quality)
-                let restored = ReceiverHost(defaults: defaults, screenSize: host.screenSize)
-                XCTAssertEqual(restored.snapshot()["videoQuality"] as? String, quality)
-                XCTAssertEqual(restored.requestedVideoSize().width, width)
-                XCTAssertEqual(restored.requestedVideoSize().height, height)
+                XCTAssertNil(defaults.string(forKey: "videoQuality"))
+                XCTAssertEqual(host.requestedVideoSize().width, width)
+                XCTAssertEqual(host.requestedVideoSize().height, height)
             }
             XCTAssertThrowsError(try host.save(name: "Rejected", path: "", videoQuality: "invalid"))
             XCTAssertEqual(host.snapshot()["name"] as? String, "Quality iPad")
@@ -76,7 +78,7 @@ final class RunnerTests: XCTestCase {
         }
     }
 
-    func testSaveTrimsNameAndPersistsPreferencesWithoutStarting() throws {
+    func testSaveTrimsNameWithoutPersistingOrStarting() throws {
         let defaultName = host.queue.sync { host.snapshot()["defaultName"] as? String }
         XCTAssertFalse(try host.queue.sync { try host.applySettings() })
         try host.queue.sync {
@@ -88,7 +90,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(snapshot["autoStart"] as? Bool, false)
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
-        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertEqual(defaults.data(forKey: "receiverIdentity")?.count, 6)
     }
 
     func testSaveValidatesUTF8ByteLimitAndControlCharacters() throws {
@@ -100,13 +102,13 @@ final class RunnerTests: XCTestCase {
             XCTAssertThrowsError(try host.queue.sync {
                 try host.save(name: invalid, path: "", autoStart: true)
             }, "Invalid name was accepted: \(invalid.debugDescription)")
-            XCTAssertEqual(defaults.string(forKey: "receiverName"), accepted)
-            XCTAssertEqual(defaults.object(forKey: "receiverAutoStart") as? Bool, false)
+            XCTAssertEqual(host.snapshot()["name"] as? String, accepted)
+            XCTAssertEqual(host.snapshot()["autoStart"] as? Bool, false)
         }
         let acceptedUnicode = String(repeating: "中", count: 16) + "ab"
         XCTAssertEqual(acceptedUnicode.utf8.count, 50)
         try host.queue.sync { try host.save(name: acceptedUnicode, path: "") }
-        XCTAssertEqual(defaults.string(forKey: "receiverName"), acceptedUnicode)
+        XCTAssertEqual(host.snapshot()["name"] as? String, acceptedUnicode)
     }
 
     func testExecutablePathFailsWithoutChangingSavedPreferences() throws {
@@ -115,8 +117,8 @@ final class RunnerTests: XCTestCase {
             try host.save(name: "Replacement", path: "/tmp/receiver", autoStart: true)
         })
         XCTAssertThrowsError(try host.queue.sync { try host.check(path: "/tmp/receiver") })
-        XCTAssertEqual(defaults.string(forKey: "receiverName"), "Saved iPad")
-        XCTAssertEqual(defaults.object(forKey: "receiverAutoStart") as? Bool, false)
+        XCTAssertEqual(host.snapshot()["name"] as? String, "Saved iPad")
+        XCTAssertEqual(host.snapshot()["autoStart"] as? Bool, false)
     }
 
     func testBackgroundStartFailsBeforeCreatingMediaOrReceiver() {
@@ -130,7 +132,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertThrowsError(try host.queue.sync { try host.start(name: "Test iPad", path: "", foreground: false) })
         XCTAssertEqual(video.beginCount, 0)
         XCTAssertEqual(defaults.string(forKey: "receiverName"), initialName)
-        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertEqual(defaults.data(forKey: "receiverIdentity")?.count, 6)
         let snapshot = host.queue.sync { host.snapshot() }
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
@@ -152,8 +154,8 @@ final class RunnerTests: XCTestCase {
         }
         XCTAssertEqual(video.beginCount, 1)
         XCTAssertTrue(host.queue.sync { host.foreground })
-        XCTAssertEqual(host.queue.sync { host.snapshot()["status"] as? String }, "stopped")
-        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertEqual(host.queue.sync { host.snapshot()["status"] as? String }, "error")
+        XCTAssertEqual(defaults.data(forKey: "receiverIdentity")?.count, 6)
     }
 
     func testForegroundResumeRetriesActivationAfterBackgroundAudioInterruption() throws {
@@ -237,7 +239,7 @@ final class RunnerTests: XCTestCase {
         }
         XCTAssertEqual(video.beginCount, 0)
         XCTAssertEqual(host.queue.sync { host.snapshot()["status"] as? String }, "stopped")
-        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertEqual(defaults.data(forKey: "receiverIdentity")?.count, 6)
     }
 }
 

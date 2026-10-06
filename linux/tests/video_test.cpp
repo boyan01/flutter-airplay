@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Synthetic platform-adapter regression; no display, audio device or sender.
-#include "platform.h"
-#include "linux_video.h"
-#include "video_fixtures.h"
-#include "resume_fixtures.h"
-#include "hevc_fixtures.h"
-#include "ffmpeg_colors_test.h"
-#include "video_scheduler_test.h"
+#include "../../native/playback/platform.h"
+#include "../../native/backends/linux/linux_video.h"
+#include "../../native/tests/fixtures/video_fixtures.h"
+#include "../../native/tests/fixtures/resume_fixtures.h"
+#include "../../native/tests/fixtures/hevc_fixtures.h"
+#include "../../native/tests/playback/ffmpeg_colors_test.h"
+#include "../../native/tests/playback/video_scheduler_test.h"
 #include <thread>
 #include <algorithm>
 #include <array>

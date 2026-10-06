@@ -181,29 +181,21 @@ Logs are written using `mixin_logger` (retaining up to 10 files, 5 MiB each) and
 ## 🏗️ Technical Architecture
 
 ```text
-+-------------------------------------------------------------+
-|                     Flutter UI Layer                        |
-|  (lib/ui/ - Responsive design for TV, Mobile, and Desktop)  |
-+-------------------------------------------------------------+
-                              │ MethodChannel / Events
-+-------------------------------------------------------------+
-|              Receiver Repository & Model                    |
-|             (lib/receiver/ - Lifecycle & State)             |
-+-------------------------------------------------------------+
-                              │ Native Bridge (JNI / C-FFI / ObjC)
-+-------------------------------------------------------------+
-|            Shared C++ Player Core (native/player/)          |
-|    - Timestamp synchronization & Jitter buffer              |
-|    - Session recovery & Lifecycle management                |
-+-------------------------------------------------------------+
-               │                                      │
-+──────────────────────────────+      +───────────────────────────────+
-|   UxPlay Protocol Engine     |      |    Platform Hardware Output   |
-|   (vendor/UxPlay/)           |      | - VideoToolbox / CoreAudio    |
-| - AirPlay Mirroring Server   |      | - NDK MediaCodec / Oboe       |
-| - RTSP, RTP, FairPlay Handshake |   | - Media Foundation / FFmpeg   |
-+──────────────────────────────+      +───────────────────────────────+
+Flutter UI / ReceiverModel
+          |
+ReceiverRepository (settings persistence / native actions)
+          |
+lib/receiver/native + native/ffi (C ABI / Dart port)
+          |
+native/receiver (state / desired and active settings / lifecycle)
+          |                          |
+native/protocol                native/playback
+          |                          |
+     vendor/UxPlay             native/backends
+                               Apple / Android / Windows / Linux / FFmpeg
 ```
+
+Common settings are persisted by Dart. Native hosts supply video surfaces, discovery and OS lifecycle hooks. MethodChannel is used for host bootstrap and OS integration, including Android foreground-service preparation.
 
 For environment setup, local compilation, tests, and CI packaging, please refer to the [Development Guide (DEVELOPMENT.md)](DEVELOPMENT.md). Codebase architecture and coding standards are documented in [AGENTS.md](AGENTS.md).
 

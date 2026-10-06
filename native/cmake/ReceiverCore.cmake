@@ -1,21 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 set(core "${UXPLAY_SOURCE}/lib")
-if(PLIST_SOURCE)
-    set(plist "${PLIST_SOURCE}/src")
-    set(cnary "${PLIST_SOURCE}/libcnary")
-    add_library(plist STATIC
-        ${plist}/base64.c ${plist}/bplist.c ${plist}/bytearray.c ${plist}/hashtable.c
-        ${plist}/jplist.c ${plist}/jsmn.c ${plist}/oplist.c ${plist}/out-default.c
-        ${plist}/out-limd.c ${plist}/out-plutil.c ${plist}/plist.c ${plist}/ptrarray.c
-        ${plist}/time64.c ${plist}/xplist.c
-        ${cnary}/cnary.c ${cnary}/node.c ${cnary}/node_list.c)
-    target_include_directories(plist PUBLIC ${PLIST_SOURCE}/include PRIVATE ${plist} ${cnary}/include)
-    target_compile_definitions(plist PRIVATE _GNU_SOURCE HAVE_STRNDUP PACKAGE_VERSION="2.6.0")
-else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(PLIST REQUIRED IMPORTED_TARGET libplist-2.0>=2.3)
-    add_library(plist INTERFACE)
-    target_link_libraries(plist INTERFACE PkgConfig::PLIST)
+if(NOT TARGET plist)
+    include(${CMAKE_CURRENT_LIST_DIR}/Plist.cmake)
 endif()
 add_library(llhttp STATIC ${core}/llhttp/api.c ${core}/llhttp/http.c ${core}/llhttp/llhttp.c)
 target_include_directories(llhttp PUBLIC ${core}/llhttp)
@@ -25,8 +11,8 @@ target_include_directories(playfair PUBLIC ${core}/playfair)
 file(GLOB core_sources CONFIGURE_DEPENDS "${core}/*.c")
 add_library(receiver_core STATIC ${core_sources})
 if(ANDROID OR AIRPLAY_DNS_STUB)
-    target_sources(receiver_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../android/app/src/main/cpp/dns_sd.c)
-    target_include_directories(receiver_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../android/app/src/main/cpp)
+    target_sources(receiver_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../compat/dns_sd.c)
+    target_include_directories(receiver_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../compat)
 endif()
 target_include_directories(receiver_core PUBLIC ${core})
 if(CRYPTO_PREFIX)

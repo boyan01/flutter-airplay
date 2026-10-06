@@ -14,42 +14,126 @@ import android.os.Build
 import android.util.Log
 import android.view.Display
 import android.view.Surface
-import io.flutter.plugin.common.MethodChannel
 import tech.soit.flutterairplay.renderer.DecoderSelector
+import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.security.SecureRandom
-import java.util.concurrent.Executors
 
-/** Owns one receiver, playback surface and its two discovery registrations. */
-class PlaybackHost(private val context: Context,
-                   private val emit: (Map<String, Any>) -> Unit) {
+/** Android surfaces/codecs/discovery only; commands and state live in C++. */
+class PlaybackHost(private val context: Context, private val emit: (Map<String, Any>) -> Unit) {
     companion object { init { System.loadLibrary("airplay_player") } }
     private val main = Handler(Looper.getMainLooper())
-    private val worker = Executors.newSingleThreadExecutor()
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     private val registrations = mutableListOf<Registration>()
-    private var surface: Surface? = null
-    private var backgroundSurface: BackgroundSurface? = null
+    @Volatile private var backgroundSurface: BackgroundSurface? = null
     private var multicast: WifiManager.MulticastLock? = null
-    private var pendingStart: MethodChannel.Result? = null
-    private var busy = false
-    private var running = false
-    var activeSettings: Map<String, Any> = emptyMap()
+    @Volatile private var generation = 0L
+    private var closed = false
+    private val resourcesLock = Any()
+    @Volatile var currentSnapshot: Map<String, Any> = emptyMap()
         private set
-    val receivingName: String? get() = registrations.firstOrNull()?.info?.serviceName
-    private var generation = 0
-    private var frames = 0L
-    private var decodedWidth = 0
-    private var decodedHeight = 0
-    // Accessed by the bridge only on the Android main thread. A live JNI host
-    // must remain stoppable even if its decoder reports an error.
-    val isActive: Boolean get() = busy || running
-    private fun send(message: String, state: String = "waiting", epoch: Int = generation) {
-        main.post { if (epoch == generation) emit(mapOf("state" to state, "message" to message)) }
-    }
+    var handle = 0L
+        private set
+    val prepared get() = backgroundSurface != null
     private fun diagnostic(message: String) {
         Log.i("AirPlayPlayback", message)
-        main.post { emit(mapOf("log" to message)) }
+        if (handle != 0L) logNative(handle, message)
+    }
+    fun bootstrap(metadata: Map<String, Any>): Long {
+        check(!closed) { "Native host has closed" }; if (handle != 0L) return handle
+        val prefs = context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
+        val hex = prefs.getString("identity", null) ?: ByteArray(6).also {
+            SecureRandom().nextBytes(it); it[0] = ((it[0].toInt() or 2) and 254).toByte()
+        }.joinToString("") { "%02X".format(it.toInt() and 255) }.also { prefs.edit().putString("identity", it).apply() }
+        val identity = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        handle = createNative(JSONObject(metadata + videoMetadata()).toString(), identity,
+            File(context.filesDir, "airplay-pairing.pem").absolutePath)
+        check(handle != 0L) { "Cannot create native receiver" }; return handle
+    }
+    fun requestStart() { if (handle != 0L && !closed) requestStartNative(handle) }
+    fun requestStop() { if (handle != 0L && !closed) requestStopNative(handle) }
+    private fun objectMap(value: JSONObject): Map<String, Any> = value.keys().asSequence().associateWith {
+        when (val item = value.get(it)) {
+            is JSONObject -> objectMap(item)
+            is JSONArray -> (0 until item.length()).map { i -> item.get(i) }
+            else -> item
+        }
+    }
+    fun update(metadata: Map<String, Any>) { if (handle != 0L) updateNative(handle, JSONObject(metadata).toString()) }
+    fun prepare(visible: Surface?) {
+        synchronized(resourcesLock) {
+        if (backgroundSurface == null) {
+            backgroundSurface = BackgroundSurface()
+            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            multicast = wifi.createMulticastLock("FlutterAirPlayDiscovery").also { it.setReferenceCounted(false); it.acquire() }
+        }
+        }
+        check(setSurface(visible)) { "Cannot prepare Android playback surface" }
+        logDisplayInfo(); logAudioSystemInfo()
+    }
+    fun setSurface(visible: Surface?): Boolean {
+        if (!prepared || handle == 0L) return true
+        val target = visible ?: backgroundSurface!!.surface
+        return setSurfaceNative(handle, target)
+    }
+    fun awaitSurfaceStop() { if (handle != 0L) stopNative(handle) }
+    fun cleanupSurface() { endVideo(false) }
+    fun endVideo(restarting: Boolean) {
+        if (restarting) return
+        synchronized(resourcesLock) {
+        backgroundSurface?.close(); backgroundSurface = null
+        multicast?.let { if (it.isHeld) it.release() }; multicast = null
+        }
+    }
+    private val videoDecoder by lazy { DecoderSelector().avc() }
+    private fun supportsVideoSize(width: Int, height: Int): Boolean = runCatching {
+        videoDecoder?.getCapabilitiesForType(DecoderSelector.AVC)?.videoCapabilities
+            ?.areSizeAndRateSupported(width, height, 60.0) == true
+    }.getOrDefault(false)
+    fun videoMetadata(): Map<String, Any> {
+        val mode = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(Display.DEFAULT_DISPLAY)?.mode
+        val metrics = context.resources.displayMetrics
+        val height = mode?.physicalHeight ?: metrics.heightPixels
+        return mapOf("buildTime" to BuildConfig.BUILD_TIME,
+            "screenWidth" to (mode?.physicalWidth ?: metrics.widthPixels), "screenHeight" to height,
+            "autoVideoHeight" to VideoQuality.height("auto", height, ::supportsVideoSize),
+            "videoQualities" to VideoQuality.presets.filter { it == "auto" || VideoQuality.supported(it.toInt(), ::supportsVideoSize) })
+    }
+    // Invoked on the shared native worker; never waits for Android main.
+    fun selectDecoders(width: Int, height: Int): Array<String> {
+        val selector = DecoderSelector().also { it.onDiagnostic = ::diagnostic }
+        val wide = VideoQuality.decoderWidth(height); val high = (height + 15) / 16 * 16
+        return arrayOf(videoDecoder?.name ?: error("No H.264 decoder available"),
+            selector.software(DecoderSelector.AVC, wide, high)?.name ?: "", selector.hevc(wide, high)?.name ?: "")
+    }
+    fun onNativeEvent(bytes: ByteArray) {
+        val event = objectMap(JSONObject(bytes.toString(Charsets.UTF_8)))
+        if (event["type"] == "snapshot") {
+            @Suppress("UNCHECKED_CAST")
+            val snapshot = event["data"] as Map<String, Any>
+            currentSnapshot = snapshot
+        }
+        main.post { if (!closed) emit(event) }
+    }
+    fun publishNative(epoch: Long, label: ByteArray, identity: ByteArray, port: Int, video: ByteArray, audio: ByteArray) {
+        generation = epoch
+        val name = label.toString(Charsets.UTF_8); val hex = identity.joinToString("") { "%02X".format(it.toInt() and 255) }
+        main.post {
+            if (closed || epoch != generation) return@post
+            try {
+                val done = {
+                    if (registrations.size == 2 && registrations.all { it.registered })
+                        discoveryNative(handle, epoch, true, "", registrations[0].info.serviceName)
+                }
+                register(name, "_airplay._tcp", port, parseTxt(video), epoch, done)
+                register("$hex@$name", "_raop._tcp", port, parseTxt(audio), epoch, done)
+            } catch (error: Exception) { discoveryNative(handle, epoch, false, error.message ?: "Discovery failed", "") }
+        }
+    }
+    fun unpublishNative() {
+        ++generation
+        main.post { registrations.forEach { it.cancel() }; registrations.clear() }
     }
     fun logDisplayInfo() {
         val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
@@ -76,123 +160,6 @@ class PlaybackHost(private val context: Context,
                 "availableOutputs=[$devices]")
         }.onFailure { diagnostic("Android media audio query failed: ${it.javaClass.simpleName}") }
     }
-    private val videoDecoder by lazy { DecoderSelector().avc() }
-    private fun supportsVideoSize(width: Int, height: Int): Boolean = runCatching {
-        videoDecoder?.getCapabilitiesForType(DecoderSelector.AVC)?.videoCapabilities
-            ?.areSizeAndRateSupported(width, height, 60.0) == true
-    }.getOrDefault(false)
-
-    private val videoQualities by lazy {
-        VideoQuality.presets.filter { it == "auto" || VideoQuality.supported(it.toInt(), ::supportsVideoSize) }
-    }
-
-    fun videoSettings(): Map<String, Any> {
-        val mode = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
-            .getDisplay(Display.DEFAULT_DISPLAY)?.mode
-        val metrics = context.resources.displayMetrics
-        return mapOf(
-            "buildTime" to BuildConfig.BUILD_TIME,
-            "fastPairing" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
-                .getBoolean("fastPairing", false),
-            "audioOutput" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
-                .getString("audioOutput", "auto")!!,
-            "videoQuality" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
-                .getString("videoQuality", "auto")!!,
-            "screenWidth" to (mode?.physicalWidth ?: metrics.widthPixels),
-            "screenHeight" to (mode?.physicalHeight ?: metrics.heightPixels),
-            "videoQualities" to videoQualities,
-        )
-    }
-
-    fun validateVideoQuality(value: String) {
-        val settings = videoSettings()
-        VideoQuality.height(value, settings["screenHeight"] as Int, ::supportsVideoSize)
-    }
-
-    fun start(requestedName: String, result: MethodChannel.Result, nativeSurface: Surface?) {
-        if (busy || running) { result.error("busy", "接收器已启动或正在操作", null); return }
-        val name = requestedName.trim()
-        if (name.isEmpty() || name.toByteArray(Charsets.UTF_8).size > 50 ||
-            name.any { it.code < 32 || it.code == 127 }) {
-            result.error("name", "设备名需要 1–50 个 UTF-8 字节，不能含控制字符", null); return
-        }
-        val settings = videoSettings()
-        val requestHeight: Int
-        try {
-            requestHeight = VideoQuality.height(settings["videoQuality"] as String,
-                settings["screenHeight"] as Int, ::supportsVideoSize)
-        } catch (error: Exception) {
-            result.error("video_quality", error.message, null); return
-        }
-        val requestWidth = VideoQuality.width(requestHeight)
-        activeSettings = mapOf("name" to name, "path" to "",
-            "videoQuality" to settings["videoQuality"]!!,
-            "audioOutput" to settings["audioOutput"]!!,
-            "fastPairing" to settings["fastPairing"]!!)
-        pendingStart = result
-        busy = true
-        val epoch = ++generation
-        frames = 0
-        try {
-            logDisplayInfo()
-            logAudioSystemInfo()
-            diagnostic("Audio output selection: ${settings["audioOutput"]}; applies for this receiver run")
-            diagnostic("Receiver request: quality=${settings["videoQuality"]}, ${requestWidth}x${requestHeight}, maxFPS=60; sender chooses actual codec/size/rate")
-            diagnostic("Video output: native SurfaceView")
-            backgroundSurface = BackgroundSurface()
-            surface = nativeSurface ?: backgroundSurface!!.surface
-            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicast = wifi.createMulticastLock("FlutterAirPlayDiscovery").also { it.setReferenceCounted(false); it.acquire() }
-        } catch (e: Exception) {
-            cleanupSurface(); busy=false
-            pendingStart = null
-            result.error("playback", e.message, null);return
-        }
-        send("正在启动接收器", "starting")
-        worker.execute {
-            try {
-                val selector = DecoderSelector().also { it.onDiagnostic = ::diagnostic }
-                val decoder = videoDecoder?.name ?: error("No H.264 decoder available")
-                val fallback = selector.software(DecoderSelector.AVC, VideoQuality.decoderWidth(requestHeight), (requestHeight + 15) / 16 * 16)?.name ?: ""
-                val hevc = selector.hevc(VideoQuality.decoderWidth(requestHeight), (requestHeight + 15) / 16 * 16)?.name ?: ""
-                diagnostic("HEVC receiver capability: ${if (hevc.isEmpty()) "unavailable for this size/rate" else hevc}")
-                val prefs=context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
-                val hex=prefs.getString("identity",null) ?: ByteArray(6).also {
-                    SecureRandom().nextBytes(it); it[0]=((it[0].toInt() or 2) and 254).toByte()
-                }.joinToString("") { "%02X".format(it.toInt() and 255) }.also {
-                    prefs.edit().putString("identity",it).apply()
-                }
-                val identity=hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath,
-                    surface!!, decoder, fallback, hevc, epoch, requestWidth, requestHeight,
-                    when (settings["audioOutput"]) { "aaudio" -> 1; "audiotrack" -> 2; else -> 0 },
-                    settings["fastPairing"] as Boolean)
-                val videoTxt=parseTxt(txtNative(false)); val audioTxt=parseTxt(txtNative(true))
-                main.post {
-                    if(epoch!=generation) return@post
-                    running=true
-                    val done= { if(registrations.size==2 && registrations.all { it.registered }) {
-                        busy=false
-                        send("在 iPhone 屏幕镜像中选择「${registrations[0].info.serviceName}」", "ready")
-                    } }
-                    try {
-                        register(name,"_airplay._tcp",port,videoTxt,epoch,done)
-                        register("${hex.uppercase()}@$name","_raop._tcp",port,audioTxt,epoch,done)
-                        pendingStart = null
-                        result.success(mapOf("textureId" to -1L, "width" to 1920,"height" to 1080, "name" to name))
-                    } catch(e:Exception) {
-                        busy=false
-                        pendingStart = null
-                        result.error("discovery", e.message,null)
-                        stopInternal(null)
-                    }
-                }
-            } catch (e: Exception) {
-                stopNative()
-                main.post { if(epoch==generation) { cleanupSurface();busy=false;pendingStart=null;send(e.message?:"启动失败","error");result.error("start",e.message,null) } }
-            }
-        }
-    }
     private fun parseTxt(data:ByteArray):Map<String,ByteArray> {
         val items=linkedMapOf<String,ByteArray>();var i=0
         while(i<data.size) {
@@ -204,7 +171,7 @@ class PlaybackHost(private val context: Context,
         }
         return items
     }
-    private fun register(name:String,type:String,port:Int,txt:Map<String,ByteArray>,epoch:Int,done:()->Unit) {
+    private fun register(name:String,type:String,port:Int,txt:Map<String,ByteArray>,epoch:Long,done:()->Unit) {
         val info=NsdServiceInfo().apply {
             serviceName=name;serviceType=type;setPort(port)
             txt.forEach { (k,v)->setAttribute(k,String(v,Charsets.UTF_8)) }
@@ -213,7 +180,7 @@ class PlaybackHost(private val context: Context,
         registrations.add(registration)
         nsd.registerService(info,NsdManager.PROTOCOL_DNS_SD,registration)
     }
-    private inner class Registration(var info:NsdServiceInfo,val epoch:Int,val done:()->Unit):NsdManager.RegistrationListener {
+    private inner class Registration(var info:NsdServiceInfo,val epoch:Long,val done:()->Unit):NsdManager.RegistrationListener {
         var registered=false;var cancelled=false
         private fun unregister() { try { nsd.unregisterService(this) } catch (_:Exception) {} }
         fun cancel() { cancelled=true;if(registered)unregister() }
@@ -222,81 +189,25 @@ class PlaybackHost(private val context: Context,
             if(cancelled || epoch!=generation)unregister() else done()
         } }
         override fun onRegistrationFailed(value:NsdServiceInfo,code:Int) { main.post {
-            if(!cancelled && epoch==generation) { send("设备发现失败 ($code)，请停止后重试","error");stopInternal(null) }
+            if(!cancelled && epoch==generation) { discoveryNative(handle, epoch, false, "Discovery registration failed ($code)", "") }
         } }
         override fun onServiceUnregistered(value:NsdServiceInfo) { registered=false }
         override fun onUnregistrationFailed(value:NsdServiceInfo,code:Int) { main.post {
             diagnostic("设备发现注销失败 ($code)")
         } }
     }
-    fun prepareRestart(): Boolean = worker.submit<Boolean> { prepareRestartNative() }.get()
-    private external fun prepareRestartNative(): Boolean
-
-    fun stop(result:MethodChannel.Result) {
-        stopInternal(result)
+    fun close() {
+        closed = true; ++generation
+        registrations.forEach { it.cancel() }; registrations.clear()
+        disposeNative(handle); handle = 0L; cleanupSurface()
     }
-    private fun stopInternal(result:MethodChannel.Result?) {
-        pendingStart?.error("cancelled", "接收启动已取消", null)
-        pendingStart = null
-        ++generation;busy=true;running=false
-        registrations.forEach { it.cancel() };registrations.clear()
-        worker.execute {
-            stopNative()
-            main.post { cleanupSurface();busy=false;send("接收器已停止","stopped");result?.success(null) }
-        }
-    }
-    // SurfaceHolder requires all rendering to stop before surfaceDestroyed returns.
-    // Native shutdown runs on the same serialized worker and never waits on main.
-    fun setSurface(visible: Surface?): Boolean {
-        if (!isActive) return true
-        val target = visible ?: backgroundSurface?.surface ?: return true
-        val changed = worker.submit<Boolean> { setSurfaceNative(target) }.get()
-        diagnostic("Video surface: ${if (visible == null) "background" else "visible"}, switched=$changed")
-        return changed
-    }
-    fun awaitSurfaceStop() { worker.submit { stopNative() }.get() }
-    private fun cleanupSurface() {
-        // SurfaceHolder owns this surface; native shutdown releases its window reference.
-        surface=null
-        backgroundSurface?.close();backgroundSurface=null
-        multicast?.let { if(it.isHeld)it.release() };multicast=null
-    }
-    fun close() { stopInternal(null); worker.shutdown() }
-    // Epochs are immutable in JNI and checked after dispatch to the main thread.
-    fun onNativeLog(epoch: Int, level: Int, bytes: ByteArray) {
-        val text = bytes.toString(Charsets.UTF_8)
-        main.post { if (epoch == generation) diagnostic("[Native level=$level] $text") }
-    }
-    fun onNativeEvent(epoch: Int, type: String, bytes: ByteArray, width: Int, height: Int) {
-        val detail = bytes.toString(Charsets.UTF_8)
-        main.post {
-            if (epoch != generation) return@post
-            when (type) {
-                "audio", "audio_stopped", "paused", "reset", "error" -> {
-                    diagnostic("[Native event=$type] $detail")
-                    if (type == "audio") logAudioSystemInfo()
-                }
-            }
-            when (type) {
-                "client" -> emit(mapOf("clientName" to detail, "state" to "connecting"))
-                "connecting" -> send("已建立连接，等待第一帧画面", "connecting")
-                "playing" -> {
-                    if (frames == 0L || width != decodedWidth || height != decodedHeight) {
-                        decodedWidth = width; decodedHeight = height
-                        emit(mapOf("width" to width, "height" to height))
-                    }
-                    if (frames++ == 0L) send("正在播放屏幕镜像", "playing")
-                }
-                "paused", "reset" -> { frames = 0; emit(mapOf("width" to 0, "height" to 0, "state" to type)) }
-                "audio", "audio_stopped" -> emit(mapOf("state" to type))
-                "waiting" -> send("等待 iPhone 屏幕镜像", "waiting")
-                "error" -> { frames = 0; send(detail, "error") }
-            }
-        }
-    }
-    private external fun startNative(name: String, identity: ByteArray, keyPath: String,
-                                     surface: Surface, decoder: String, fallback: String, hevcDecoder: String, epoch: Int, width: Int, height: Int, audioMode: Int, fastPairing: Boolean): Int
-    private external fun txtNative(raop: Boolean): ByteArray
-    private external fun setSurfaceNative(surface: Surface): Boolean
-    private external fun stopNative()
+    private external fun createNative(metadata: String, identity: ByteArray, key: String): Long
+    private external fun stopNative(handle: Long)
+    private external fun requestStartNative(handle: Long)
+    private external fun requestStopNative(handle: Long)
+    private external fun logNative(handle: Long, message: String)
+    private external fun discoveryNative(handle: Long, epoch: Long, ready: Boolean, error: String, name: String)
+    private external fun updateNative(handle: Long, metadata: String)
+    private external fun setSurfaceNative(handle: Long, surface: Surface?): Boolean
+    private external fun disposeNative(handle: Long)
 }

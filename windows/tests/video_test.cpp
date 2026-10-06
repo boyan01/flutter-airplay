@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "platform.h"
-#include "ffmpeg_video.h"
-#include "windows_video.h"
-#include "windows_gpu.h"
-#include "video_fixtures.h"
-#include "hevc_fixtures.h"
-#include "ffmpeg_colors_test.h"
-#include "video_scheduler_test.h"
+#include "../../native/playback/platform.h"
+#include "../../native/backends/ffmpeg/ffmpeg_video.h"
+#include "../../native/backends/windows/windows_video.h"
+#include "../../native/backends/windows/windows_gpu.h"
+#include "../../native/tests/fixtures/video_fixtures.h"
+#include "../../native/tests/fixtures/hevc_fixtures.h"
+#include "../../native/tests/playback/ffmpeg_colors_test.h"
+#include "../../native/tests/playback/video_scheduler_test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>

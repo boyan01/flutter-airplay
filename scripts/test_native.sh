@@ -30,6 +30,8 @@ Without a target, run the current OS's basic native suite.
       Standalone decoder (ALAC_SANITIZE=ON optional).
   ffmpeg
       Shared video adapter (FFMPEG_SANITIZE=ON optional).
+  receiver
+      Shared control without Dart SDK, protocol or media backends.
   build
       Native preparation cache, invalidation and failed-build recovery.
 
@@ -46,7 +48,9 @@ require_macos_player() {
 
 macos_player() {
     require_macos_player
-    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error "$@"
+    cmake -S "$project_root/native" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
+    cmake --build "$project_root/build/macos-native" --target player_tests session_tests receiver_control_tests receiver_tests --parallel 8
+    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -L 'receiver|ffi|playback' "$@"
 }
 
 macos_host() (
@@ -55,7 +59,7 @@ macos_host() (
     swiftc -import-objc-header "$project_root/macos/Runner/Receiver-Bridging-Header.h" \
         -L "$project_root/build/macos-native" -lairplay_player \
         -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
-        "$project_root/macos/Runner/ReceiverHost.swift" "$project_root/native/tests/main.swift" \
+        "$project_root/native/apple/ReceiverHost.swift" "$project_root/macos/tests/host/main.swift" \
         -o "$project_root/build/native-tests/receiver-tests"
     "$project_root/build/native-tests/receiver-tests"
 )
@@ -65,26 +69,21 @@ macos_texture() (
     test_root="$project_root/build/texture-tests"
     mkdir -p "$test_root"
     swiftc -emit-library -emit-module -module-name FlutterMacOS \
-        "$project_root/native/texture-tests/FlutterMacOS.swift" -o "$test_root/libFlutterMacOS.dylib"
+        "$project_root/macos/tests/texture/FlutterMacOS.swift" -o "$test_root/libFlutterMacOS.dylib"
     swiftc -import-objc-header "$project_root/macos/Runner/Receiver-Bridging-Header.h" \
         -I "$test_root" -L "$test_root" -lFlutterMacOS \
         -L "$project_root/build/macos-native" -lairplay_player \
         -Xlinker -rpath -Xlinker "$test_root" -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
-        "$project_root/macos/Runner/ReceiverHost.swift" "$project_root/macos/Runner/FrameTexture.swift" \
-        "$project_root/native/texture-tests/main.swift" -o "$test_root/texture-tests"
+        "$project_root/native/apple/ReceiverHost.swift" "$project_root/native/apple/FrameTexture.swift" \
+        "$project_root/macos/tests/texture/main.swift" -o "$test_root/texture-tests"
     "$test_root/texture-tests"
 )
 
 macos_rtp() (
     require_macos_player
-    mkdir -p "$project_root/build/rtp-tests"
-    clang -I "$project_root/vendor/UxPlay/lib" -I "$project_root/build/macos-crypto/include" \
-        -I "$project_root/android/.cache/deps/libplist/include" -DPLIST_210 -DPLIST_230 \
-        "$project_root/native/rtp-tests/main.c" "$project_root/build/macos-native/libreceiver_core.a" \
-        "$project_root/build/macos-native/libplayfair.a" "$project_root/build/macos-native/libllhttp.a" \
-        "$project_root/build/macos-native/libplist.a" "$project_root/build/macos-crypto/lib/libcrypto.a" \
-        -lpthread -o "$project_root/build/rtp-tests/rtp-tests"
-    "$project_root/build/rtp-tests/rtp-tests"
+    cmake -S "$project_root/native" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
+    cmake --build "$project_root/build/macos-native" --target protocol_rtp_tests --parallel 8
+    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -R '^rtp$'
 )
 
 macos_window() (
@@ -96,7 +95,7 @@ macos_window() (
     fi
     mkdir -p "$test_root"
     # Same-file extensions access private test seams without rewriting production code.
-    cat "$project_root/macos/Runner/MainFlutterWindow.swift" "$project_root/native/window-tests/main.swift" > "$test_root/main.swift"
+    cat "$project_root/macos/Runner/MainFlutterWindow.swift" "$project_root/macos/tests/window/main.swift" > "$test_root/main.swift"
     swiftc -F "$framework_root" -framework FlutterMacOS \
       -Xlinker -rpath -Xlinker "$framework_root" "$test_root/main.swift" -o "$test_root/window-tests"
     # Requires a logged-in macOS GUI session. AppKit performs real fullscreen transitions.
@@ -105,44 +104,27 @@ macos_window() (
 
 alac_tests() (
     output="$project_root/build/alac-tests"
-    mkdir -p "$output"
-    flags=(-g -O1 -fwrapv -fno-strict-aliasing -DTARGET_RT_LITTLE_ENDIAN=1 -I "$project_root/vendor/alac")
-    if [[ "${ALAC_SANITIZE:-OFF}" == ON ]]; then flags+=(-fsanitize=address -fno-omit-frame-pointer); fi
-    for source in ALACBitUtilities EndianPortable ag_dec dp_dec matrix_dec; do
-        clang "${flags[@]}" -c "$project_root/vendor/alac/$source.c" -o "$output/$source.o"
-    done
-    clang++ -std=c++17 "${flags[@]}" -c "$project_root/vendor/alac/ALACDecoder.cpp" -o "$output/ALACDecoder.o"
-    clang++ -std=c++17 "${flags[@]}" -I "$project_root/native/player" -I "$project_root/native/player-tests" \
-        "$project_root/native/player-tests/alac_test.cpp" "$output/"*.o -o "$output/alac-tests"
-    "$output/alac-tests"
+    cmake -S "$project_root/native/tests" -B "$output" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DAIRPLAY_SANITIZE="${ALAC_SANITIZE:-OFF}" -DAIRPLAY_TEST_FFMPEG=OFF
+    cmake --build "$output" --target alac_tests --parallel 8
+    ctest --test-dir "$output" --output-on-failure --no-tests=error
 )
 
 ffmpeg_tests() (
     output="$project_root/build/ffmpeg-video-tests"
-    mkdir -p "$output"
-    pkg-config --exists libavcodec libavutil libswscale || {
-        echo 'Install FFmpeg 6+ development libraries and pkg-config first.' >&2; exit 1;
-    }
-    flags=(-std=c++17)
-    if [[ ${FFMPEG_SANITIZE:-OFF} == ON ]]; then
-        flags+=(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
-    fi
-    "$project_root/linux/tests/generate_video_fixtures.sh" "$output/fixtures"
-    "${CXX:-c++}" "${flags[@]}" -I "$project_root/native/player" -I "$project_root/native/player-tests" \
-        $(pkg-config --cflags libavcodec libavutil libswscale) \
-        "$project_root/native/player/linux_video.cpp" "$project_root/native/player/ffmpeg_video.cpp" \
-        "$project_root/linux/tests/video_test.cpp" $(pkg-config --libs libavcodec libavutil libswscale) \
-        -o "$output/video-tests"
-    "$output/video-tests" "$output/fixtures"
+    cmake -S "$project_root/native/tests" -B "$output" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DAIRPLAY_SANITIZE="${FFMPEG_SANITIZE:-OFF}" -DAIRPLAY_TEST_FFMPEG=ON
+    cmake --build "$output" --target ffmpeg_video_tests --parallel 8
+    ctest --test-dir "$output" --output-on-failure --no-tests=error
 )
 
 android_host() (
-    python3 "$project_root/android/scripts/fetch_deps.py"
+    python3 "$project_root/scripts/fetch_native_deps.py"
     mkdir -p "$project_root/artifacts/android"
     cmake -S "$project_root/android/tests" -B "$project_root/build/android-core-host" -DCMAKE_BUILD_TYPE=Debug \
         -DHOST_SANITIZE="${HOST_SANITIZE:-OFF}" \
         -DUXPLAY_SOURCE="$project_root/vendor/UxPlay" \
-        -DPLIST_SOURCE="$project_root/android/.cache/deps/libplist" -DCRYPTO_PREFIX="${HOST_CRYPTO_PREFIX:-}"
+        -DPLIST_SOURCE="$project_root/build/native-deps/libplist" -DCRYPTO_PREFIX="${HOST_CRYPTO_PREFIX:-}"
     if [[ "${1:-host}" == rtp ]]; then
         cmake --build "$project_root/build/android-core-host" --target rtp_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1 || {
             cat "$project_root/artifacts/android/native-host.log" >&2; exit 1;
@@ -173,19 +155,17 @@ android_player() (
     tools="$sdk/build-tools/36.0.0"
     output="$project_root/build/android-player-tests"
     mkdir -p "$output/classes" "$output/lib/arm64-v8a" "$project_root/artifacts/android"
-    "$toolchain/clang++" --target=aarch64-linux-android26 \
-        -std=c++17 -shared -fPIC -static-libstdc++ -Wl,-z,max-page-size=16384 \
-        -I "$project_root/native/player" -I "$project_root/native/player-tests" \
-        -I "$project_root/vendor/UxPlay/lib" \
-        -I "$project_root/android/.cache/deps/oboe/include" \
-        "$project_root/native/player-tests/android/player_test.cpp" \
-        "$project_root/native/player-tests/session_test.cpp" \
-        -L "$project_root/android/app/src/main/jniLibs/arm64-v8a" -lairplay_player -landroid -lmediandk -llog \
-        -o "$output/lib/arm64-v8a/libplayer_regression.so"
+    ndk_version=$(sed -n 's/^airplay\.ndkVersion=//p' "$project_root/android/gradle.properties")
+    native_output="$project_root/build/android-native-arm64-$ndk_version"
+    [[ -f "$native_output/CMakeCache.txt" ]] || fail 'Build the Android native player first.'
+    cmake="$sdk/cmake/3.22.1/bin/cmake"
+    "$cmake" -S "$project_root/android/app/src/main/cpp" -B "$native_output" -DAIRPLAY_ANDROID_BUILD_TESTS=ON
+    "$cmake" --build "$native_output" --target player_regression --parallel 8
+    cp "$native_output/libplayer_regression.so" "$output/lib/arm64-v8a/"
     cp "$project_root/android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so" "$output/lib/arm64-v8a/"
     javac -source 17 -target 17 -cp "$sdk/platforms/android-36/android.jar" \
-        -d "$output/classes" "$project_root/native/player-tests/android/"*.java \
-        "$project_root/native/player/android/tech/soit/flutterairplay/audio/"*.java
+        -d "$output/classes" "$project_root/android/tests/player/"*.java \
+        "$project_root/native/backends/android/java/tech/soit/flutterairplay/audio/"*.java
     "$tools/d8" --min-api 26 --output "$output" "$output/classes/tech/soit/flutterairplay/player_regression/"*.class \
         "$output/classes/tech/soit/flutterairplay/audio/"*.class
     cat > "$output/AndroidManifest.xml" <<'MANIFEST'
@@ -258,8 +238,8 @@ linux_tests() (
     test_args=(--no-tests=error)
     case "$suite" in
         player)
-            targets=(linux_player_tests linux_session_tests linux_audio_decoder_tests linux_audio_output_tests)
-            test_args+=(-R '^linux_(playback|sender_resume|audio_decode_recovery|audio_unavailable_cleanup)$')
+            targets=(linux_player_tests linux_session_tests linux_audio_decoder_tests linux_audio_output_tests receiver_control_tests)
+            test_args+=(-R '^(linux_(playback|sender_resume|audio_decode_recovery|audio_unavailable_cleanup)|receiver_control)$')
             ;;
         video) targets=(linux_video_tests); test_args+=(-R '^linux_video_reorder_recovery$') ;;
         host) targets=(linux_host_tests); test_args+=(-R '^linux_flutter_host_lifecycle$') ;;
@@ -333,7 +313,7 @@ windows_tests() {
         return
     fi
     case "$suite" in
-        player) test_args+=(-R '^windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery)$') ;;
+        player) test_args+=(-R '^(windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery)|receiver_control)$') ;;
         video) test_args+=(-R '^windows_(video|video_gpu|hevc_software)$') ;;
         all) ;;
         *) fail "Unknown Windows suite: $suite. Use --help." ;;
@@ -360,9 +340,27 @@ case "$target" in
     build)
         [[ $# -eq 0 ]] || fail 'build does not accept extra arguments.'
         case "$(uname -s)" in
-            MINGW*|MSYS*|CYGWIN*) python "$project_root/scripts/tests/test_native_preparation.py" ;;
-            *) python3 "$project_root/scripts/tests/test_native_preparation.py" ;;
+            MINGW*|MSYS*|CYGWIN*)
+                python "$project_root/tool/check_boundaries.py"
+                python "$project_root/scripts/tests/test_native_preparation.py"
+                ;;
+            *)
+                python3 "$project_root/tool/check_boundaries.py"
+                python3 "$project_root/scripts/tests/test_native_preparation.py"
+                ;;
         esac
+        ;;
+    receiver)
+        receiver_configure=(cmake -S "$project_root/native" -B "$project_root/build/receiver-control")
+        case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) receiver_configure+=(-G 'Visual Studio 17 2022' -A x64 -T ClangCL) ;;
+        esac
+        "${receiver_configure[@]}" \
+            -DCMAKE_BUILD_TYPE=Debug -DAIRPLAY_CONTROL_ONLY=ON \
+            -DUXPLAY_SOURCE="$project_root/vendor/UxPlay" \
+            -DPLIST_SOURCE="$project_root/build/native-deps/libplist"
+        cmake --build "$project_root/build/receiver-control" --config Debug --target receiver_tests --parallel 8
+        ctest --test-dir "$project_root/build/receiver-control" -C Debug --output-on-failure --no-tests=error
         ;;
     macos) macos_tests "$@" ;;
     linux)

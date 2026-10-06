@@ -19,10 +19,10 @@ The shared player retains derived AirPlay audio configuration and device-loss
 handling. The Android decoder selector also derives from
 https://github.com/jqssun/android-airplay-server.
 Copied paths and the upstream commit are recorded in
-[dependencies.lock.json](android/dependencies.lock.json).
+[dependencies.lock.json](native/dependencies.lock.json).
 Source notices are retained in [NOTICE](android/NOTICE),
 [CORE_NOTICE.md](android/CORE_NOTICE.md) and the bundled
-[license assets](android/app/src/main/assets/licenses/).
+[license assets](assets/licenses/).
 
 ## Apple ALAC decoder
 
@@ -35,14 +35,14 @@ and Linux.
 The encoder and conversion utility are excluded. Original copyright and license
 notices remain with the source. Local input-bound checks are recorded in
 [UPSTREAM.md](vendor/alac/UPSTREAM.md). The license is bundled in
-[ALAC-Apache-2.0.txt](android/app/src/main/assets/licenses/ALAC-Apache-2.0.txt).
+[ALAC-Apache-2.0.txt](assets/licenses/ALAC-Apache-2.0.txt).
 
 ## FFmpeg media decoding
 
-Windows and Linux share `native/player/ffmpeg_audio_decoder.cpp` and
-`native/player/ffmpeg_video.cpp`. Windows builds
+Windows and Linux share `native/backends/ffmpeg/ffmpeg_audio_decoder.cpp` and
+`native/backends/ffmpeg/ffmpeg_video.cpp`. Windows builds
 FFmpeg n7.1.5 from source commit `3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587`,
-pinned in [dependencies.lock.json](android/dependencies.lock.json).
+pinned in [dependencies.lock.json](native/dependencies.lock.json).
 Source: https://github.com/FFmpeg/FFmpeg.
 The Windows configuration enables the native float AAC and HEVC decoders in shared
 libavcodec, libavutil, libswresample and libswscale, without GPL/nonfree components
@@ -50,7 +50,7 @@ or external codecs. HEVC software decoding backs up the system Media Foundation
 decoder. The upstream source is unmodified. Build options are recorded in
 [build_ffmpeg.sh](windows/scripts/build_ffmpeg.sh) and included in Windows packages.
 The LGPL-2.1-or-later license and source/build notices are bundled in the existing
-[license assets](android/app/src/main/assets/licenses/).
+[license assets](assets/licenses/).
 Redistributions must retain the corresponding source and exact build configuration.
 
 ## Linux system dependencies

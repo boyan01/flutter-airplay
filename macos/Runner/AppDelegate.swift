@@ -26,7 +26,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuDelegate, NSMenuItemValidation {
   private var active: Bool { ["checking", "starting", "waiting", "streaming", "stopping"].contains(snapshot["status"] as? String ?? "stopped") }
   private var transitioning: Bool { ["checking", "starting", "stopping"].contains(snapshot["status"] as? String ?? "stopped") }
   func text(_ key: String) -> String { strings[key] ?? key }
-  func preference(_ key: String, default fallback: Bool) -> Bool { snapshot[key] as? Bool ?? UserDefaults.standard.object(forKey: key) as? Bool ?? fallback }
+  func preference(_ key: String, default fallback: Bool) -> Bool { snapshot[key] as? Bool ?? fallback }
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
     super.applicationDidFinishLaunching(notification)
@@ -39,7 +39,6 @@ class AppDelegate: FlutterAppDelegate, NSMenuDelegate, NSMenuItemValidation {
     receiver.onSnapshot = { [weak self] value in self?.update(value) }
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let menu = NSMenu(); menu.delegate = self; statusItem?.menu = menu
-    receiver.nativeAction { _ in }
   }
 
   private func update(_ value: [String: Any]) {
@@ -163,7 +162,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuDelegate, NSMenuItemValidation {
   @objc func disconnectSession() { receiver.nativeAction { $0.disconnect() } }
   @objc func toggleOnTop() {
     let next = !preference("alwaysOnTop", default: false)
-    receiver.nativeAction { host in let value = host.snapshot(); try host.save(name: value["name"] as? String ?? "", path: value["path"] as? String ?? "", options: ["alwaysOnTop": next]) }
+    receiver.nativeAction { try $0.requestSettings(["alwaysOnTop": next]) }
   }
   @objc func actualSize() { window?.resizePlayer(actualSize: true) }
   @objc func fitScreen() { window?.resizePlayer(actualSize: false) }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "audio_clock_tests.h"
+#include "../../native/tests/playback/audio_clock_tests.h"
 #include <cstdio>
 
 int main() {

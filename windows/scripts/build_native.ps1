@@ -63,7 +63,7 @@ if ($LASTEXITCODE -ne 0 -or ($makeVersion -join "`n") -notmatch 'GNU Make' -or
     throw "FFmpeg requires MSYS2/Cygwin GNU Make; selected: $Make. Install MSYS2 make (pacman -S make), or set AIRPLAY_MAKE to its make.exe path. Native Windows make is incompatible."
 }
 Write-Host "Windows build tools: Bash=$Bash Make=$Make"
-$lock = Get-Content (Join-Path $root 'android/dependencies.lock.json') -Raw | ConvertFrom-Json
+$lock = Get-Content (Join-Path $root 'native/dependencies.lock.json') -Raw | ConvertFrom-Json
 & python (Join-Path $root 'scripts/ensure_native.py') windows --prepare-dependencies
 if ($LASTEXITCODE -ne 0) { throw 'Could not prepare native dependency cache.' }
 $cache = Join-Path $root 'build/windows-deps'
@@ -102,31 +102,7 @@ function Get-PinnedSource($entry, [string]$name) {
     if ($actual -ne $entry.commit) { throw "$name source commit differs from dependencies.lock.json" }
     return $path
 }
-$openssl = Get-PinnedSource $lock.openssl 'openssl'
-$plist = Get-PinnedSource $lock.libplist 'libplist'
-$ffmpeg = Get-PinnedSource $lock.ffmpeg 'ffmpeg'
-$ffmpegReady = Test-Path (Join-Path $cache 'ffmpeg-aac/licenses/FFmpeg-build-config.txt')
-foreach ($component in @('avcodec', 'avutil', 'swresample', 'swscale')) {
-    $ffmpegReady = $ffmpegReady -and (Test-Path (Join-Path $cache "ffmpeg-aac/bin/$component.lib")) -and
-        (@(Get-ChildItem (Join-Path $cache "ffmpeg-aac/bin/$component-*.dll") -ErrorAction SilentlyContinue).Count -eq 1)
-}
-if (-not $ffmpegReady) {
-    Invoke-Checked { & $Bash --noprofile --norc (Join-Path $PSScriptRoot 'build_ffmpeg.sh') `
-        $ffmpeg (Join-Path $cache 'ffmpeg-build') (Join-Path $cache 'ffmpeg-aac') $Make }
-}
-$crypto = Join-Path $cache 'crypto'
-$opensslBuild = Join-Path $cache 'openssl-build'
-New-Item -ItemType Directory -Force $opensslBuild | Out-Null
-if (-not (Test-Path (Join-Path $crypto 'lib/libcrypto.lib')) -or
-    -not (Test-Path (Join-Path $crypto 'include/openssl/crypto.h'))) {
-Push-Location $opensslBuild
-try {
-    # Compile source only, without assembly tools or external codec binaries.
-    Invoke-Checked { perl (Join-Path $openssl 'Configure') VC-WIN64A no-shared no-tests no-apps no-docs no-module no-dso no-asm "--prefix=$crypto" '--libdir=lib' }
-    Invoke-Checked { nmake }
-    Invoke-Checked { nmake install_sw }
-} finally { Pop-Location }
-}
+. (Join-Path $PSScriptRoot 'build_dependencies.ps1')
 $native = Join-Path $root 'build/windows-native'
 Push-Location $root
 try {
@@ -143,5 +119,5 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $native 'Release/ffmpeg-licenses') | Out-Null
     Copy-Item (Join-Path $cache 'ffmpeg-aac/licenses/*') (Join-Path $native 'Release/ffmpeg-licenses') -Force
 } finally { Pop-Location }
-Write-Host 'Windows native player built. Run the latest Flutter stable SDK: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
+Write-Host 'Windows native player built. Use the Flutter SDK pinned in .flutter-version: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
 if ($Tests) { Write-Host 'Native fixtures built. Run them with: bash scripts/test_native.sh windows' }

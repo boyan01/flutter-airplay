@@ -1,0 +1,14 @@
+name: ReceiverBindings
+description: Generated bindings for asynchronous JSON receiver control.
+output: ../lib/receiver/native/generated/receiver_bindings.dart
+headers:
+  entry-points:
+    - ../native/include/airplay/receiver_ffi.h
+  include-directives:
+    - '**/receiver_ffi.h'
+functions:
+  include:
+    - airplay_receiver_attach
+    - airplay_receiver_detach
+    - airplay_receiver_abi_version
+    - airplay_receiver_control

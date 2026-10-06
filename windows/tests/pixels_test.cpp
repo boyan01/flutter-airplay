@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "windows_pixels.h"
-#include "../../native/player/video_quality.h"
+#include "../../native/backends/windows/windows_pixels.h"
+#include "../../native/playback/video_quality.h"
 #undef NDEBUG
 #include <cassert>
 #include <cstdio>

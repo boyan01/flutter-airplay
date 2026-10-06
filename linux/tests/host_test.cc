@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "host_test_support.h"
 #include <cstring>
+#include "../../native/include/airplay/receiver.h"
 
 static void TextureTest() {
   auto* registrar = reinterpret_cast<TestRegistrar*>(g_object_new(test_registrar_get_type(), nullptr));
@@ -50,113 +51,49 @@ static void TextureTest() {
 static void HostTest() {
   auto* messenger = reinterpret_cast<TestMessenger*>(g_object_new(test_messenger_get_type(), nullptr));
   auto* registrar = reinterpret_cast<TestRegistrar*>(g_object_new(test_registrar_get_type(), nullptr));
+  uint64_t handle = 0;
   {
     int snapshots = 0;
-    auto host = std::make_unique<ReceiverHost>(FL_BINARY_MESSENGER(messenger),
-                                              FL_TEXTURE_REGISTRAR(registrar), [&](FlValue* value) {
-      OnMain();
-      g_assert_nonnull(fl_value_lookup_string(value, "keepInMenuBar"));
-      ++snapshots;
+    ReceiverHost host(FL_BINARY_MESSENGER(messenger), FL_TEXTURE_REGISTRAR(registrar), [&](FlValue* value) {
+      OnMain(); g_assert_nonnull(fl_value_lookup_string(value, "keepInMenuBar")); ++snapshots;
     });
-    g_autoptr(FlMethodResponse) listen = FinishCall(BeginCall(messenger, kEvents, "listen"));
-    g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(listen));
-    g_autoptr(FlMethodResponse) snapshot = Call(messenger, "snapshot");
-    g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(snapshot));
-    auto* data = fl_method_response_get_result(snapshot, nullptr);
-    g_assert_cmpstr(GetString(data, "status"), ==, "stopped");
-    g_assert_cmpstr(GetString(data, "path"), ==, "");
-    g_assert_cmpstr(GetString(data, "videoQuality"), ==, "auto");
-    g_assert_cmpuint(fl_value_get_length(fl_value_lookup_string(data, "videoQualities")), ==, 5);
-    const char* device_name = GetString(data, "name");
-    g_assert_nonnull(device_name);
-    g_assert_cmpuint(std::strlen(device_name), >, 0);
-    g_assert_cmpuint(std::strlen(device_name), <=, 50);
-    g_assert_true(g_utf8_validate(device_name, -1, nullptr));
-    if (std::strlen(g_get_host_name()) <= 50)
-      g_assert_cmpstr(device_name, ==, g_get_host_name());
-    // The initial generated name is persisted even with auto-start disabled.
-    g_autoptr(GKeyFile) initial = g_key_file_new();
-    g_autofree gchar* settings_path = g_build_filename(g_get_user_config_dir(),
-        "flutter-airplay", "receiver.ini", nullptr);
-    g_assert_true(g_key_file_load_from_file(initial, settings_path, G_KEY_FILE_NONE, nullptr));
-    g_autofree gchar* persisted_name = g_key_file_get_string(initial, "Receiver", "name", nullptr);
-    g_assert_cmpstr(persisted_name, ==, device_name);
-    auto* capabilities = fl_value_lookup_string(data, "capabilities");
-    g_assert_cmpstr(GetString(capabilities, "platform"), ==, "linux");
-    g_assert_false(fl_value_get_bool(fl_value_lookup_string(capabilities, "supportsExecutablePath")));
-    g_assert_false(fl_value_get_bool(fl_value_lookup_string(capabilities, "supportsLaunchAtLogin")));
-    g_autoptr(FlValue) settings = Settings("Linux Fixture 测试");
-    fl_value_set_string_take(settings, "videoQuality", fl_value_new_string("1440"));
-    fl_value_set_string_take(settings, "keepInMenuBar", fl_value_new_bool(false));
-    fl_value_set_string_take(settings, "showOnConnect", fl_value_new_bool(false));
-    fl_value_set_string_take(settings, "fullscreenOnConnect", fl_value_new_bool(true));
-    fl_value_set_string_take(settings, "alwaysOnTop", fl_value_new_bool(true));
-    g_autoptr(FlMethodResponse) saved = Call(messenger, "save", settings);
-    g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(saved));
-    SpinUntil([&] { return snapshots >= 2; });
-    g_autoptr(FlValue) invalid_quality = Settings("Rejected");
-    fl_value_set_string_take(invalid_quality, "videoQuality", fl_value_new_string("invalid"));
-    g_autoptr(FlMethodResponse) quality_rejected = Call(messenger, "save", invalid_quality);
-    g_assert_true(FL_IS_METHOD_ERROR_RESPONSE(quality_rejected));
-    g_autoptr(FlMethodResponse) after_quality = Call(messenger, "snapshot");
-    auto* quality_data = fl_method_response_get_result(after_quality, nullptr);
-    g_assert_cmpstr(GetString(quality_data, "videoQuality"), ==, "1440");
-    for (const char* invalid : {"", "bad\nname", "123456789012345678901234567890123456789012345678901"}) {
-      g_autoptr(FlValue) args = Settings(invalid);
-      g_autoptr(FlMethodResponse) rejected = Call(messenger, "save", args);
-      g_assert_true(FL_IS_METHOD_ERROR_RESPONSE(rejected));
-    }
-    g_autoptr(FlValue) external = Settings("Fixture", "/usr/bin/external");
-    g_autoptr(FlMethodResponse) rejected = Call(messenger, "save", external);
-    g_assert_true(FL_IS_METHOD_ERROR_RESPONSE(rejected));
-    for (int i = 0; i < 3; ++i) {
-      g_autoptr(FlMethodResponse) stopped = Call(messenger, "stop");
-      g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(stopped));
-    }
+    g_autoptr(FlMethodResponse) bootstrap = Call(messenger, "bootstrap");
+    g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(bootstrap));
+    handle = fl_value_get_int(fl_value_lookup_string(fl_method_response_get_result(bootstrap, nullptr), "handle"));
+    g_assert_cmpint(handle, >, 0);
+    char error[512]{};
+    auto* initial = airplay_receiver_snapshot(handle, error, sizeof(error)); g_assert_nonnull(initial);
+    g_assert_cmpint(initial->status, ==, AIRPLAY_RECEIVER_STOPPED);
+    g_assert_cmpstr(initial->platform, ==, "linux"); g_assert_cmpint(initial->texture_id, ==, 42);
+    airplay_receiver_free_snapshot(initial);
+    const std::string name = "Linux Fixture 测试";
+    AirplayReceiverSettings settings{};
+    settings.fields = AIRPLAY_SETTING_NAME | AIRPLAY_SETTING_FAST_PAIRING | AIRPLAY_SETTING_VIDEO_QUALITY;
+    settings.name = name.data(); settings.name_size = name.size(); settings.fast_pairing = true; settings.video_quality = AIRPLAY_VIDEO_1440;
+    g_assert_true(airplay_receiver_save(handle, &settings, error, sizeof(error)));
+    SpinUntil([&] { return snapshots > 0; });
+    // Settings writes now belong to Dart, rather than GTK/C++.
+    g_autofree gchar* path = g_build_filename(g_get_user_config_dir(), "flutter-airplay", "receiver.ini", nullptr);
+    g_autoptr(GKeyFile) preferences = g_key_file_new();
+    g_assert_true(g_key_file_load_from_file(preferences, path, G_KEY_FILE_NONE, nullptr));
+    g_assert_false(g_key_file_has_key(preferences, "Receiver", "name", nullptr));
+    g_assert_true(g_key_file_has_key(preferences, "Receiver", "identity", nullptr));
     std::string discovery_error;
     if (!Discovery::Check(&discovery_error)) {
-      // The production Start path must fail before creating a listener when
-      // discovery is unavailable, and must never claim the receiver is waiting.
-      g_autoptr(FlMethodResponse) failed_start = Call(messenger, "start", settings);
-      g_assert_true(FL_IS_METHOD_ERROR_RESPONSE(failed_start));
-      g_autoptr(FlMethodResponse) failure_state = Call(messenger, "snapshot");
-      auto* failed_data = fl_method_response_get_result(failure_state, nullptr);
-      g_assert_cmpstr(GetString(failed_data, "status"), ==, "error");
-      g_assert_cmpint(fl_value_get_int(fl_value_lookup_string(failed_data, "pid")), ==, 0);
-      for (auto* event : *messenger->events) {
-        if (g_strcmp0(GetString(event, "type"), "state") == 0)
-          g_assert_cmpstr(GetString(event, "status"), !=, "waiting");
-      }
-      g_autoptr(FlMethodResponse) stopped = Call(messenger, "stop");
-      g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(stopped));
+      g_assert_false(airplay_receiver_start(handle, UINT64_MAX, error, sizeof(error)));
+      auto* failed = airplay_receiver_snapshot(handle, error, sizeof(error)); g_assert_nonnull(failed);
+      g_assert_cmpint(failed->status, ==, AIRPLAY_RECEIVER_ERROR); g_assert_cmpint(failed->pid, ==, 0);
+      airplay_receiver_free_snapshot(failed);
     }
-    // A request admitted immediately before destruction gets one main-thread
-    // cancellation response. Deferred completions/events must become harmless.
-    auto* pending = BeginCall(messenger, kControl, "snapshot");
-    host.reset();
-    g_autoptr(FlMethodResponse) cancelled = FinishCall(pending);
-    g_assert_true(FL_IS_METHOD_ERROR_RESPONSE(cancelled));
-    g_assert_cmpstr(fl_method_error_response_get_code(FL_METHOD_ERROR_RESPONSE(cancelled)), ==, "cancelled");
-    while (g_main_context_iteration(nullptr, FALSE)) {}
-    g_assert_true(messenger->handlers->empty());
-    g_assert_null(registrar->texture);
+    g_assert_true(airplay_receiver_stop(handle, error, sizeof(error)));
   }
-  // Recreate the host with the same XDG directory and assert persistence.
-  {
-    ReceiverHost host(FL_BINARY_MESSENGER(messenger), FL_TEXTURE_REGISTRAR(registrar));
-    g_autoptr(FlMethodResponse) snapshot = Call(messenger, "snapshot");
-    auto* data = fl_method_response_get_result(snapshot, nullptr);
-    g_assert_cmpstr(GetString(data, "name"), ==, "Linux Fixture 测试");
-    g_assert_cmpstr(GetString(data, "videoQuality"), ==, "1440");
-    g_assert_false(fl_value_get_bool(fl_value_lookup_string(data, "autoStart")));
-    g_assert_false(fl_value_get_bool(fl_value_lookup_string(data, "keepInMenuBar")));
-    g_assert_false(fl_value_get_bool(fl_value_lookup_string(data, "showOnConnect")));
-    g_assert_true(fl_value_get_bool(fl_value_lookup_string(data, "fullscreenOnConnect")));
-    g_assert_true(fl_value_get_bool(fl_value_lookup_string(data, "alwaysOnTop")));
-  }
+  char error[512]{};
+  g_assert_null(airplay_receiver_snapshot(handle, error, sizeof(error)));
+  g_assert_true(strlen(error) > 0);
+
   while (g_main_context_iteration(nullptr, FALSE)) {}
-  g_object_unref(registrar);
-  g_object_unref(messenger);
+  g_assert_true(messenger->handlers->empty()); g_assert_null(registrar->texture);
+  g_object_unref(registrar); g_object_unref(messenger);
 }
 
 static void DiscoveryTest() {
@@ -188,7 +125,7 @@ int main(int argc, char** argv) {
   g_setenv("XDG_CONFIG_HOME", config, TRUE);
   g_test_init(&argc, &argv, nullptr);
   g_test_add_func("/linux/texture/borrowed-lifetime-clear", TextureTest);
-  g_test_add_func("/linux/host/channels-settings-shutdown", HostTest);
+  g_test_add_func("/linux/host/ffi-bootstrap-settings-shutdown", HostTest);
   g_test_add_func("/linux/discovery/unavailable-cleanup", DiscoveryTest);
   const int result = g_test_run();
   g_autofree gchar* ini = g_build_filename(config, "flutter-airplay", "receiver.ini", nullptr);
