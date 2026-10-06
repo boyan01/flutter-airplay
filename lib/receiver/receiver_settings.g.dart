@@ -11,7 +11,7 @@ ReceiverSettings _$ReceiverSettingsFromJson(Map<String, dynamic> json) =>
       name: json['name'] as String? ?? 'Flutter AirPlay',
       path: json['path'] as String? ?? '',
       autoStart: json['autoStart'] as bool? ?? true,
-      fastPairing: json['fastPairing'] as bool? ?? false,
+      fastPairing: json['fastPairing'] as bool? ?? true,
       videoQuality:
           $enumDecodeNullable(_$VideoQualityEnumMap, json['videoQuality']) ??
           VideoQuality.auto,

@@ -30,7 +30,7 @@ struct Settings {
     std::string name, path;
     AirplayVideoQuality video_quality = AIRPLAY_VIDEO_AUTO;
     AirplayAudioOutput audio_output = AIRPLAY_AUDIO_AUTO;
-    bool auto_start = true, fast_pairing = false, launch_at_login = false, keep_in_menu_bar = true;
+    bool auto_start = true, fast_pairing = true, launch_at_login = false, keep_in_menu_bar = true;
     bool show_on_connect = true, fullscreen_on_connect = false, always_on_top = false;
     void apply(const Settings& patch) {
         if (patch.fields & AIRPLAY_SETTING_NAME) name = patch.name;

@@ -24,7 +24,7 @@ class ReceiverSettings {
     this.name = 'Flutter AirPlay',
     this.path = '',
     this.autoStart = true,
-    this.fastPairing = false,
+    this.fastPairing = true,
     this.videoQuality = VideoQuality.auto,
     this.audioOutput = AudioOutput.auto,
     this.launchAtLogin = false,

@@ -39,7 +39,7 @@ struct AirplayPlayer {
     bool video_reset = false;
     bool video_paused = false;
     bool video_hevc = false;
-    bool fast_pairing = false;
+    bool fast_pairing = true;
     bool audio_playing = false;
     bool audio_rtp_anchored = false;
     uint32_t audio_rtp_anchor = 0;

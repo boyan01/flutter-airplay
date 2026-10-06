@@ -134,7 +134,7 @@ Powered by a shared C++ playback core and [UxPlay](vendor/UxPlay/UPSTREAM.md) pr
 ## ⚙️ Settings & Configuration
 
 - **Device Name**: Customize the receiver name visible via mDNS/Bonjour. Supports auto-saving, random name generation, and one-click reset to device default.
-- **Fast pairing (Advanced)**: Available on every platform and off by default. It disables the legacy pairing advertisement to try to reduce connection time. Changes apply automatically while waiting, or after the current session ends. Turn it off if a sender cannot connect.
+- **Fast pairing (Advanced)**: Available on every platform and on by default. Existing saved preferences are preserved. It disables the legacy pairing advertisement to try to reduce connection time. Changes apply automatically while waiting, or after the current session ends. Turn it off if a sender cannot connect.
 - **Video Quality Preference**: Choose from **Match Native**, **720p**, **1080p**, **1440p**, or **4K (2160p)**.
   - "Match Native" queries your display resolution and decoder limits to request optimal dimensions.
   - Resolution changes take effect immediately during standby, or seamlessly after the active streaming session ends.

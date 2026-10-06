@@ -43,7 +43,7 @@ class ReceiverModel extends ChangeNotifier {
   String get receivingName => active ? _receivingName ?? name : name;
   String path = '';
   bool autoStart = true;
-  bool fastPairing = false;
+  bool fastPairing = true;
   String videoQuality = 'auto';
   String audioOutput = 'auto';
   String buildTime = '', buildVersion = '';
