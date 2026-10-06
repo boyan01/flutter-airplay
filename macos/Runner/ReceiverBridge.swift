@@ -55,6 +55,7 @@ final class ReceiverBridge: NSObject, FlutterStreamHandler {
                         try self.host.save(name: args["name"] as? String ?? "", path: args["path"] as? String ?? "",
                                            autoStart: args["autoStart"] as? Bool,
                                            videoQuality: args["videoQuality"] as? String,
+                                           fastPairing: args["fastPairing"] as? Bool,
                                            options: args.compactMapValues { $0 as? Bool })
                         let snapshot = self.host.snapshot()
                         DispatchQueue.main.async { self.eventSink?(["type": "snapshot", "data": snapshot]); self.onSnapshot?(snapshot) }

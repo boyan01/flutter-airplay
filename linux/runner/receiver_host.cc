@@ -129,6 +129,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   std::string video_quality = "auto", active_video_quality = "auto";
   std::atomic<int> screen_width{1920}, screen_height{1080};
   bool auto_start = true;
+  bool fast_pairing = false, active_fast_pairing = false;
   const std::array<const char*, 4> window_keys{
       "keepInMenuBar", "showOnConnect", "fullscreenOnConnect", "alwaysOnTop"};
   std::array<bool, 4> window_options{true, true, false, false};
@@ -235,6 +236,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     }
     g_autofree gchar* quality = g_key_file_get_string(preferences, "Receiver", "videoQuality", nullptr);
     if (quality && airplay::valid_video_quality(quality)) video_quality = quality;
+    fast_pairing = g_key_file_get_boolean(preferences, "Receiver", "fastPairing", nullptr);
     if (g_key_file_has_key(preferences, "Receiver", "autoStart", nullptr))
       auto_start = g_key_file_get_boolean(preferences, "Receiver", "autoStart", nullptr);
     for (size_t i = 0; i < window_keys.size(); ++i)
@@ -291,6 +293,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     String(active_settings.get(), "name", receiving_name);
     String(active_settings.get(), "path", "");
     String(active_settings.get(), "videoQuality", active_video_quality);
+    Boolean(active_settings.get(), "fastPairing", active_fast_pairing);
     fl_value_set_string(data.get(), "activeSettings", active_settings.get());
     String(data.get(), "videoQuality", video_quality);
     auto* qualities = fl_value_new_list();
@@ -306,6 +309,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     Integer(data.get(), "videoWidth", width);
     Integer(data.get(), "videoHeight", height);
     Boolean(data.get(), "autoStart", auto_start);
+    Boolean(data.get(), "fastPairing", fast_pairing);
     Boolean(data.get(), "audioPlaying", audio_playing);
     Boolean(data.get(), "videoPaused", video_paused);
     Boolean(data.get(), "launchAtLogin", false);
@@ -451,6 +455,13 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
         throw std::runtime_error("Unknown video quality");
       next_quality = fl_value_get_string(quality);
     }
+    bool next_fast = fast_pairing;
+    auto* fast = fl_value_lookup_string(args, "fastPairing");
+    if (fast) {
+      if (fl_value_get_type(fast) != FL_VALUE_TYPE_BOOL)
+        throw std::runtime_error("Invalid pairing mode");
+      next_fast = fl_value_get_bool(fast);
+    }
     bool next_auto = auto_start;
     auto* automatic = fl_value_lookup_string(args, "autoStart");
     if (automatic && fl_value_get_type(automatic) == FL_VALUE_TYPE_BOOL)
@@ -465,9 +476,11 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     g_key_file_set_string(preferences, "Receiver", "name", next.c_str());
     g_key_file_set_boolean(preferences, "Receiver", "autoStart", next_auto);
     g_key_file_set_string(preferences, "Receiver", "videoQuality", next_quality.c_str());
+    g_key_file_set_boolean(preferences, "Receiver", "fastPairing", next_fast);
     try { WritePreferences(); }
     catch (...) {
       g_key_file_set_string(preferences, "Receiver", "videoQuality", video_quality.c_str());
+      g_key_file_set_boolean(preferences, "Receiver", "fastPairing", fast_pairing);
       g_key_file_set_string(preferences, "Receiver", "name", name.c_str());
       g_key_file_set_boolean(preferences, "Receiver", "autoStart", auto_start);
       for (size_t i = 0; i < window_keys.size(); ++i)
@@ -475,6 +488,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       throw;
     }
     video_quality = next_quality;
+    fast_pairing = next_fast;
     name = next;
     auto_start = next_auto;
     window_options = next_options;
@@ -555,6 +569,10 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     char error[512] = {};
     receiving_name = name;
     active_video_quality = video_quality;
+    active_fast_pairing = fast_pairing;
+    if (!airplay_player_set_fast_pairing(player, fast_pairing)) {
+      Fail("Cannot configure pairing mode"); throw std::runtime_error(message);
+    }
     const int request_height = airplay::requested_video_height(video_quality, screen_height.load());
     const int request_width = airplay::requested_video_width(request_height);
     if (!airplay_player_set_video_size(player, request_width, request_height)) {

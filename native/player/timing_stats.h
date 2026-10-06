@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include "timeline.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -11,8 +12,9 @@ namespace airplay {
 // durations always use the monotonic clock. Reset these samples each report.
 struct TimingSamples {
     static int64_t now_ns() {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
+        // Scheduler deadlines and durations must share the receive clock.
+        // On macOS, steady_clock and CLOCK_MONOTONIC differ after system sleep.
+        return monotonic_ns();
     }
     uint64_t count = 0, over_16ms = 0, over_33ms = 0;
     int64_t total_ns = 0, max_ns = 0, peak_utc_ms = 0;

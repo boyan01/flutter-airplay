@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "video_scheduler.h"
+#include "timeline.h"
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -8,6 +9,25 @@
 namespace airplay_test {
 inline void video_scheduler_test() {
     auto check = [](bool ok, const char *message) { if (!ok) throw std::runtime_error(message); };
+    // Exercise the default drain clock with deadlines from the receive core.
+    // Injected test clocks cannot expose differing epochs after macOS sleep.
+    airplay::VideoScheduler live;
+    live.begin(1);
+    bool released = false, visible = false;
+    live.enqueue(airplay::monotonic_ns(), 1, [&](bool show) { released = true; visible = show; });
+    live.drain();
+    check(released && visible, "current decoded frame reaches display using the receive clock");
+    released = false;
+    live.enqueue(airplay::monotonic_ns() + airplay::kSecond, 1, [&](bool) { released = true; });
+    live.drain();
+    check(!released, "default drain clock holds future frames");
+    live.clear();
+    live.begin(2);
+    visible = true; released = false;
+    live.enqueue(airplay::monotonic_ns() - airplay::kSecond, 2, [&](bool show) { released = true; visible = show; });
+    live.drain();
+    check(released && !visible, "default drain clock still discards expired frames");
+
     constexpr int64_t now = 1000000000;
     std::vector<int> shown, discarded;
     airplay::VideoScheduler scheduler(0);

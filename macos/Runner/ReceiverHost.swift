@@ -40,7 +40,7 @@ final class ReceiverHost {
     private var callbackContext: CallbackContext?
     private var player: OpaquePointer?
     private var receivingName = ""
-    private var activeSettings = [String: String]()
+    private var activeSettings = [String: Any]()
     private var clientName = ""
     private var videoWidth = 0, videoHeight = 0
     private var audioPlaying = false, videoPaused = false
@@ -113,6 +113,7 @@ final class ReceiverHost {
             data[key] = defaults.object(forKey: key) as? Bool ?? fallback
         }
         data["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
+        data["fastPairing"] = defaults.bool(forKey: "fastPairing")
         data["defaultName"] = defaultName()
         data["activeSettings"] = activeSettings
         data["receivingName"] = receivingName
@@ -140,7 +141,7 @@ final class ReceiverHost {
         }
         onEvent?(["type": "state", "status": next, "message": detail, "pid": player == nil ? 0 : getpid()])
     }
-    func save(name: String, path: String, autoStart: Bool? = nil, videoQuality: String? = nil, options: [String: Bool] = [:]) throws {
+    func save(name: String, path: String, autoStart: Bool? = nil, videoQuality: String? = nil, fastPairing: Bool? = nil, options: [String: Bool] = [:]) throws {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ReceiverFailure(message: "macOS 使用内置 C++ 接收核心，无需指定路径。")
@@ -155,6 +156,7 @@ final class ReceiverHost {
             }
             defaults.set(quality, forKey: "videoQuality")
         }
+        if let value = fastPairing { defaults.set(value, forKey: "fastPairing") }
         defaults.set(clean, forKey: "receiverName")
         if let value = autoStart { defaults.set(value, forKey: "receiverAutoStart") }
         for (key, value) in options where ["launchAtLogin", "keepInMenuBar", "showOnConnect", "fullscreenOnConnect", "alwaysOnTop"].contains(key) {
@@ -206,7 +208,11 @@ final class ReceiverHost {
         receivingName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         activeSettings = ["name": receivingName, "path": ""]
         activeSettings["videoQuality"] = defaults.string(forKey: "videoQuality") ?? "auto"
+        activeSettings["fastPairing"] = defaults.bool(forKey: "fastPairing")
         player = native
+        guard airplay_player_set_fast_pairing(native, defaults.bool(forKey: "fastPairing")) else {
+            stop(); throw ReceiverFailure(message: "Cannot configure pairing mode")
+        }
         let size = requestedVideoSize()
         let screen = screenSize()
         log("Display mode pixels: \(screen.width)x\(screen.height)")

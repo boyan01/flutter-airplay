@@ -46,6 +46,8 @@ class FakeReceiver implements ReceiverRepository {
 
   String? startedName, savedName, failure;
   String? savedVideoQuality, savedAudioOutput;
+  bool savedFastPairing = false;
+  final fastPairingCalls = <bool?>[];
   Map<String, bool> savedOptions = {};
   String? saveFailure;
   Completer<void>? saving;
@@ -57,6 +59,7 @@ class FakeReceiver implements ReceiverRepository {
   @override
   Future<Map<String, dynamic>> snapshot() async => {
     'autoStart': autoStart,
+    'fastPairing': savedFastPairing,
     'status': currentStatus,
     'defaultName': 'System Device',
     'activeSettings': activeSettings,
@@ -96,6 +99,7 @@ class FakeReceiver implements ReceiverRepository {
     activeSettings = {
       'name': name,
       'path': path,
+      'fastPairing': savedFastPairing,
       if (capabilities?['platform'] == 'android' || enableVideoQuality)
         'videoQuality': savedVideoQuality ?? 'auto',
       if (capabilities?['platform'] == 'android')
@@ -133,14 +137,17 @@ class FakeReceiver implements ReceiverRepository {
     bool autoStart = true,
     String? videoQuality,
     String? audioOutput,
+    bool? fastPairing,
     Map<String, bool> desktopOptions = const {},
   }) async {
     saves++;
+    fastPairingCalls.add(fastPairing);
     if (saving != null) await saving!.future;
     if (saveFailure != null) {
       throw PlatformException(code: 'receiver_error', message: saveFailure);
     }
     this.autoStart = autoStart;
+    if (fastPairing != null) savedFastPairing = fastPairing;
     savedName = name;
     savedVideoQuality = videoQuality;
     savedAudioOutput = audioOutput;
@@ -264,6 +271,45 @@ void main() {
     await tester.pumpAndSettle();
     addTearDown(backend.controller.close);
     return backend;
+  }
+
+  for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {
+    testWidgets('$target advanced pairing saves and recovers from failure', (
+      tester,
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: target == 'tv' ? 'android' : target,
+        tv: target == 'tv',
+        size: target == 'tv' ? const Size(960, 540) : const Size(390, 800),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+      await tester.tap(find.byKey(const Key('advancedSettings')));
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('fastPairing'));
+      await tester.ensureVisible(toggle);
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      backend.saveFailure = 'Could not save pairing';
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(backend.savedFastPairing, isFalse);
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(find.text('Could not save pairing'), findsWidgets);
+      backend.saveFailure = null;
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(backend.savedFastPairing, isTrue);
+      expect(backend.activeSettings['fastPairing'], isTrue);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(backend.savedFastPairing, isFalse);
+      expect(backend.activeSettings['fastPairing'], isFalse);
+      expect(backend.fastPairingCalls, [true, true, false]);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   for (final platform in ['macos', 'windows', 'linux']) {

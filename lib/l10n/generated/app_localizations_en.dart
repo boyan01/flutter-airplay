@@ -141,6 +141,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get advanced => 'Advanced';
 
   @override
+  String get fastPairing => 'Fast pairing';
+
+  @override
+  String get fastPairingHelp =>
+      'Try to reduce connection time. Turn off if connections fail.';
+
+  @override
   String get path => 'UxPlay path';
 
   @override

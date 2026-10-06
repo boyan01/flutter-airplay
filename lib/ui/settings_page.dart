@@ -318,12 +318,33 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
       ];
       final advancedEntries = <Widget>[
-        if (model.platform == 'android')
-          ExpansionTile(
-            key: const Key('advancedSettings'),
-            title: Text(l10n(context).advanced),
-            tilePadding: EdgeInsets.zero,
-            children: [
+        ExpansionTile(
+          key: const Key('advancedSettings'),
+          title: Text(l10n(context).advanced),
+          tilePadding: EdgeInsets.zero,
+          children: [
+            TvFocus(
+              outline: tv,
+              child: SwitchListTile(
+                key: const Key('fastPairing'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n(context).fastPairing),
+                subtitle: Text(l10n(context).fastPairingHelp),
+                value: model.fastPairing,
+                onChanged: model.editable
+                    ? (value) async {
+                        await _save();
+                        if (!mounted) return;
+                        await model.save(
+                          model.name,
+                          model.path,
+                          fastPairing: value,
+                        );
+                      }
+                    : null,
+              ),
+            ),
+            if (model.platform == 'android')
               TvFocus(
                 outline: tv,
                 child: ListTile(
@@ -349,13 +370,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       : null,
                 ),
               ),
-            ],
-          ),
-        if (model.supportsExecutablePath)
-          ExpansionTile(
-            title: Text(l10n(context).advanced),
-            tilePadding: EdgeInsets.zero,
-            children: [
+            if (model.supportsExecutablePath) ...[
               TextField(
                 key: const Key('receiverPath'),
                 controller: _path,
@@ -373,7 +388,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: Text(l10n(context).check),
               ),
             ],
-          ),
+          ],
+        ),
       ];
       final aboutEntries = <Widget>[
         if (model.buildVersion.isNotEmpty || model.buildTime.isNotEmpty)

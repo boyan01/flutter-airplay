@@ -73,7 +73,7 @@ try host.queue.sync {
     require(host.snapshot()["receivingName"] as? String == "Synthetic Receiver", "saved settings do not pretend to be advertised")
     require(try host.applySettings(), "idle receiver applies saved settings")
     require(host.snapshot()["receivingName"] as? String == "Renamed Receiver", "idle restart updates advertised name")
-    require((host.snapshot()["activeSettings"] as? [String: String])?["videoQuality"] == "720", "idle restart applies quality with the name")
+    require((host.snapshot()["activeSettings"] as? [String: Any])?["videoQuality"] as? String == "720", "idle restart applies quality with the name")
     host.stop(); host.stop()
     require(host.snapshot()["status"] as? String == "stopped", "stopping an idle host is idempotent")
 }

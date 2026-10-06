@@ -43,6 +43,8 @@
   "confirm": "确认",
   "autoStart": "打开应用时自动接收",
   "advanced": "高级",
+  "fastPairing": "快速匹配",
+  "fastPairingHelp": "尝试缩短连接等待；连接异常时可关闭。",
   "path": "UxPlay 路径",
   "pathHelp": "留空使用应用内置接收器",
   "licenses": "开源许可",

@@ -49,6 +49,7 @@ struct AirplayPlayer {
     bool video_reset = false;
     bool video_paused = false;
     bool video_hevc = false;
+    bool fast_pairing = false;
     bool audio_playing = false;
     bool audio_rtp_anchored = false;
     uint32_t audio_rtp_anchor = 0;
@@ -373,6 +374,11 @@ extern "C" bool airplay_player_set_video_size(AirplayPlayer *p, int width, int h
     p->requested_width = width; p->requested_height = height;
     return true;
 }
+extern "C" bool airplay_player_set_fast_pairing(AirplayPlayer *p, bool enabled) {
+    if (!p || p->receiver) return false;
+    p->fast_pairing = enabled;
+    return true;
+}
 extern "C" bool airplay_player_start(AirplayPlayer *p, const char *name, const uint8_t identity[6], const char *key,
                                      char *error, size_t capacity) {
     auto fail = [&](const char *text) { if (error && capacity) snprintf(error, capacity, "%s", text); return false; };
@@ -389,11 +395,14 @@ extern "C" bool airplay_player_start(AirplayPlayer *p, const char *name, const u
     raop_set_dnssd(p->receiver, p->dns);
     dnssd_set_airplay_features(p->dns, 0, 0); dnssd_set_airplay_features(p->dns, 4, 0);
     dnssd_set_airplay_features(p->dns, 7, 1);
+    dnssd_set_airplay_features(p->dns, 27, p->fast_pairing ? 0 : 1);
     dnssd_set_airplay_features(p->dns, 42, p->video->supports_hevc() ? 1 : 0);
     raop_set_plist(p->receiver, "width", p->requested_width); raop_set_plist(p->receiver, "height", p->requested_height); raop_set_plist(p->receiver, "maxFPS", 60);
     if (raop_start_httpd(p->receiver, &p->port) < 0 || !p->port) return fail("Cannot bind AirPlay listener");
     raop_set_port(p->receiver, p->port);
     if (dnssd_register_raop(p->dns, p->port) || dnssd_register_airplay(p->dns, p->port)) return fail("Cannot register discovery services");
+    p->log(p->fast_pairing ? "Fast pairing: enabled; legacy pairing advertisement disabled"
+                           : "Fast pairing: disabled; legacy pairing advertisement enabled");
 #if defined(__APPLE__) && TARGET_OS_OSX
     p->log("macOS playback buffer: 120 ms; shared audio/video timeline");
 #endif

@@ -82,7 +82,7 @@ void log(void *context, int level, const char *message) {
 }
 extern "C" JNIEXPORT jint JNICALL Java_tech_soit_flutterairplay_PlaybackHost_startNative(
         JNIEnv *env, jobject target, jstring name, jbyteArray identity, jstring key,
-        jobject surface, jstring decoder, jstring fallback, jstring hevc_decoder, jint epoch, jint width, jint height, jint audio_mode) {
+        jobject surface, jstring decoder, jstring fallback, jstring hevc_decoder, jint epoch, jint width, jint height, jint audio_mode, jboolean fast_pairing) {
     std::lock_guard<std::mutex> guard(lifecycle);
     if (active || env->GetArrayLength(identity) != 6) { fail(env, "Invalid native receiver lifecycle"); return 0; }
     if (!airplay::initialize_android_audio(env)) return 0;
@@ -113,6 +113,9 @@ extern "C" JNIEXPORT jint JNICALL Java_tech_soit_flutterairplay_PlaybackHost_sta
         fail(env, "Invalid video request size"); return 0;
     }
     char error[512]{};
+    if (!airplay_player_set_fast_pairing(host->player, fast_pairing == JNI_TRUE)) {
+        fail(env, "Cannot configure pairing mode"); return 0;
+    }
     if (!airplay_player_start(host->player, label.c_str(), id, path.c_str(), error, sizeof(error))) { fail(env, error); return 0; }
     const auto port = airplay_player_port(host->player);
     active = std::move(host);

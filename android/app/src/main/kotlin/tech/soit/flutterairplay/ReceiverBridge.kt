@@ -78,6 +78,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         return state.snapshot(name(), if (isActive) Process.myPid() else 0, television) +
             mapOf("autoStart" to preferences.getBoolean("autoStart", true),
+                "fastPairing" to preferences.getBoolean("fastPairing", false),
                 "defaultName" to defaultName(),
                 "activeSettings" to host.activeSettings,
                 "receivingName" to (host.receivingName ?: pendingStart?.first ?: name())) + host.videoSettings()
@@ -241,6 +242,9 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
                         "Invalid audio output selection"
                     }
                     if (audioOutput != null) preferences.edit().putString("audioOutput", audioOutput).apply()
+                    call.argument<Boolean>("fastPairing")?.let {
+                        preferences.edit().putBoolean("fastPairing", it).apply()
+                    }
                     // Shared ReceiverModel applies saved receiver settings when idle.
                     saveName(nextName)
                     if (quality != null) preferences.edit().putString("videoQuality", quality).apply()

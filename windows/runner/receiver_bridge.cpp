@@ -111,6 +111,7 @@ struct ReceiverBridge::Impl {
     std::filesystem::path directory;
     std::array<uint8_t, 6> identity{};
     bool auto_start = true, audio = false, paused = false;
+    bool fast_pairing = false, active_fast_pairing = false;
     int width = 0, height = 0;
     int64_t log_id = 0;
     List logs;
@@ -217,8 +218,9 @@ struct ReceiverBridge::Impl {
             {Value("screenWidth"), Value(screen.first)}, {Value("screenHeight"), Value(screen.second)},
             {Value("receivingName"), Value(receiving_name)},
             {Value("defaultName"), Value(default_name())},
-            {Value("activeSettings"), Value(Map{{Value("name"), Value(receiving_name)}, {Value("path"), Value("")}, {Value("videoQuality"), Value(active_video_quality)}})},
+            {Value("activeSettings"), Value(Map{{Value("name"), Value(receiving_name)}, {Value("path"), Value("")}, {Value("videoQuality"), Value(active_video_quality)}, {Value("fastPairing"), Value(active_fast_pairing)}})},
             {Value("path"), Value("")}, {Value("autoStart"), Value(auto_start)},
+            {Value("fastPairing"), Value(fast_pairing)},
             {Value("keepInMenuBar"), Value(keep_in_tray)}, {Value("showOnConnect"), Value(show_on_connect)},
             {Value("fullscreenOnConnect"), Value(fullscreen_on_connect)}, {Value("alwaysOnTop"), Value(always_on_top)},
             {Value("launchAtLogin"), Value(launch_at_login)}, {Value("clientName"), Value(client)},
@@ -259,6 +261,7 @@ struct ReceiverBridge::Impl {
                 if (std::getline(settings, saved)) *option = saved != "0";
             }
             if (std::getline(settings, saved) && airplay::valid_video_quality(saved)) video_quality = saved;
+            if (std::getline(settings, saved)) fast_pairing = saved == "1";
             launch_at_login = login_enabled();
             std::ifstream data(directory / L"identity.dat", std::ios::binary);
             data.read(reinterpret_cast<char *>(identity.data()), identity.size());
@@ -325,6 +328,7 @@ struct ReceiverBridge::Impl {
             return "Unknown video quality";
         const auto quality = string(args, "videoQuality", video_quality);
         if (!airplay::valid_video_quality(quality)) return "Unknown video quality";
+        const auto fast = bool_argument(args, "fastPairing", fast_pairing);
         const auto automatic = bool_argument(args, "autoStart", auto_start);
         const auto keep = bool_argument(args, "keepInMenuBar", keep_in_tray);
         const auto show = bool_argument(args, "showOnConnect", show_on_connect);
@@ -334,12 +338,12 @@ struct ReceiverBridge::Impl {
         if (login != launch_at_login && !set_login(login)) return "无法更新当前用户的登录启动设置。";
         std::ofstream output(directory / L"settings.txt", std::ios::binary | std::ios::trunc);
         output << next << '\n' << (automatic ? '1' : '0') << '\n'
-            << keep << '\n' << show << '\n' << full << '\n' << top << '\n' << quality << '\n'; output.close();
+            << keep << '\n' << show << '\n' << full << '\n' << top << '\n' << quality << '\n' << fast << '\n'; output.close();
         if (!output) {
             if (login != launch_at_login) set_login(launch_at_login);
             return "无法保存接收器配置。";
         }
-        video_quality = quality;
+        video_quality = quality; fast_pairing = fast;
         name = std::move(next); auto_start = automatic; keep_in_tray = keep;
         show_on_connect = show; fullscreen_on_connect = full; always_on_top = top; launch_at_login = login;
         return "";
@@ -421,6 +425,10 @@ struct ReceiverBridge::Impl {
         const auto key = utf8((directory / L"airplay-pairing.pem").wstring());
         receiving_name = name;
         active_video_quality = video_quality;
+        active_fast_pairing = fast_pairing;
+        if (!airplay_player_set_fast_pairing(player, fast_pairing)) {
+            stop(); state("error", "Cannot configure pairing mode"); return message;
+        }
         const int request_height = airplay::requested_video_height(video_quality, screen_size().second);
         const int request_width = airplay::requested_video_width(request_height);
         if (!airplay_player_set_video_size(player, request_width, request_height)) {

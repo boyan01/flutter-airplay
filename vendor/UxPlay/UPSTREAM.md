@@ -32,7 +32,9 @@ sequence before flushing platform playback.
 Control request and response summaries are logged at INFO level to diagnose
 handshake progress without enabling headers, key material or payload dumps.
 
-The shared C++ host enables legacy pairing on both platforms. Its build
+The shared C++ host enables legacy pairing by default on every platform.
+The optional Fast pairing setting disables feature bit 27 in both discovery TXT
+records and RTSP info, avoiding the legacy pairing advertisement. Its build
 overrides `RAOP_CN` to advertise only ALAC, AAC and AAC-ELD, which its bundled
 FFmpeg decoder supports. The upstream default remains available to other hosts.
 The current Flutter application uses the C++ library rather than the vendored

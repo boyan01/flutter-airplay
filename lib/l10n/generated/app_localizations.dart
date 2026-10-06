@@ -356,6 +356,18 @@ abstract class AppLocalizations {
   /// **'Advanced'**
   String get advanced;
 
+  /// No description provided for @fastPairing.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast pairing'**
+  String get fastPairing;
+
+  /// No description provided for @fastPairingHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Try to reduce connection time. Turn off if connections fail.'**
+  String get fastPairingHelp;
+
   /// No description provided for @path.
   ///
   /// In en, this message translates to:

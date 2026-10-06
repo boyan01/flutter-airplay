@@ -43,6 +43,8 @@
   "confirm": "Confirm",
   "autoStart": "Receive automatically on launch",
   "advanced": "Advanced",
+  "fastPairing": "Fast pairing",
+  "fastPairingHelp": "Try to reduce connection time. Turn off if connections fail.",
   "path": "UxPlay path",
   "pathHelp": "Leave empty to use the bundled receiver",
   "licenses": "Open-source licenses",

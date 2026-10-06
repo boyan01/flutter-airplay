@@ -38,6 +38,7 @@ class ReceiverModel extends ChangeNotifier {
   Map<String, dynamic> get _receiverSettings => {
     'name': name,
     'path': path,
+    'fastPairing': fastPairing,
     if (supportsVideoQuality) 'videoQuality': videoQuality,
     if (platform == 'android') 'audioOutput': audioOutput,
   };
@@ -49,6 +50,7 @@ class ReceiverModel extends ChangeNotifier {
   String get receivingName => active ? _receivingName ?? name : name;
   String path = '';
   bool autoStart = true;
+  bool fastPairing = false;
   String videoQuality = 'auto';
   String audioOutput = 'auto';
   String buildTime = '', buildVersion = '';
@@ -142,6 +144,7 @@ class ReceiverModel extends ChangeNotifier {
     if (receivingName?.isNotEmpty ?? false) _receivingName = receivingName;
     path = data['path'] as String? ?? '';
     autoStart = data['autoStart'] as bool? ?? true;
+    fastPairing = data['fastPairing'] as bool? ?? false;
     videoQuality = data['videoQuality'] as String? ?? videoQuality;
     audioOutput = data['audioOutput'] as String? ?? audioOutput;
     buildTime = data['buildTime'] as String? ?? buildTime;
@@ -325,6 +328,7 @@ class ReceiverModel extends ChangeNotifier {
     bool? autoStart,
     String? videoQuality,
     String? audioOutput,
+    bool? fastPairing,
     Map<String, bool>? desktopOptions,
   }) {
     final options = desktopOptions == null
@@ -344,6 +348,7 @@ class ReceiverModel extends ChangeNotifier {
           nextName.trim(),
           nextPath.trim(),
           autoStart: autoStart ?? this.autoStart,
+          fastPairing: fastPairing ?? this.fastPairing,
           videoQuality: supportsVideoQuality
               ? videoQuality ?? this.videoQuality
               : null,
@@ -355,6 +360,7 @@ class ReceiverModel extends ChangeNotifier {
         name = nextName.trim();
         path = nextPath.trim();
         this.autoStart = autoStart ?? this.autoStart;
+        this.fastPairing = fastPairing ?? this.fastPairing;
         this.videoQuality = videoQuality ?? this.videoQuality;
         this.audioOutput = audioOutput ?? this.audioOutput;
         if (options != null) this.desktopOptions.addAll(options);

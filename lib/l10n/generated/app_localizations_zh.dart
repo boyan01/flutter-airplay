@@ -139,6 +139,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get advanced => '高级';
 
   @override
+  String get fastPairing => '快速匹配';
+
+  @override
+  String get fastPairingHelp => '尝试缩短连接等待；连接异常时可关闭。';
+
+  @override
   String get path => 'UxPlay 路径';
 
   @override

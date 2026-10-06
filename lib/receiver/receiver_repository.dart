@@ -14,6 +14,7 @@ abstract class ReceiverRepository {
     bool autoStart = true,
     String? videoQuality,
     String? audioOutput,
+    bool? fastPairing,
     Map<String, bool> desktopOptions = const {},
   });
   Future<void> start(String name, String path);
@@ -55,12 +56,14 @@ class NativeReceiverRepository implements ReceiverRepository {
     bool autoStart = true,
     String? videoQuality,
     String? audioOutput,
+    bool? fastPairing,
     Map<String, bool> desktopOptions = const {},
   }) => _control.invokeMethod('save', {
     ..._settings(name, path),
     'autoStart': autoStart,
     'videoQuality': ?videoQuality,
     'audioOutput': ?audioOutput,
+    'fastPairing': ?fastPairing,
     ...desktopOptions,
   });
   @override

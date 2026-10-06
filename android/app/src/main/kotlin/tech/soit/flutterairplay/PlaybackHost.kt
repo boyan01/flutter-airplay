@@ -92,6 +92,8 @@ class PlaybackHost(private val context: Context,
         val metrics = context.resources.displayMetrics
         return mapOf(
             "buildTime" to BuildConfig.BUILD_TIME,
+            "fastPairing" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
+                .getBoolean("fastPairing", false),
             "audioOutput" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
                 .getString("audioOutput", "auto")!!,
             "videoQuality" to context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
@@ -125,7 +127,8 @@ class PlaybackHost(private val context: Context,
         val requestWidth = VideoQuality.width(requestHeight)
         activeSettings = mapOf("name" to name, "path" to "",
             "videoQuality" to settings["videoQuality"]!!,
-            "audioOutput" to settings["audioOutput"]!!)
+            "audioOutput" to settings["audioOutput"]!!,
+            "fastPairing" to settings["fastPairing"]!!)
         pendingStart = result
         busy = true
         val epoch = ++generation
@@ -162,7 +165,8 @@ class PlaybackHost(private val context: Context,
                 val identity=hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                 val port=startNative(name,identity,File(context.filesDir,"airplay-pairing.pem").absolutePath,
                     surface!!, decoder, fallback, hevc, epoch, requestWidth, requestHeight,
-                    when (settings["audioOutput"]) { "aaudio" -> 1; "audiotrack" -> 2; else -> 0 })
+                    when (settings["audioOutput"]) { "aaudio" -> 1; "audiotrack" -> 2; else -> 0 },
+                    settings["fastPairing"] as Boolean)
                 val videoTxt=parseTxt(txtNative(false)); val audioTxt=parseTxt(txtNative(true))
                 main.post {
                     if(epoch!=generation) return@post
@@ -291,7 +295,7 @@ class PlaybackHost(private val context: Context,
         }
     }
     private external fun startNative(name: String, identity: ByteArray, keyPath: String,
-                                     surface: Surface, decoder: String, fallback: String, hevcDecoder: String, epoch: Int, width: Int, height: Int, audioMode: Int): Int
+                                     surface: Surface, decoder: String, fallback: String, hevcDecoder: String, epoch: Int, width: Int, height: Int, audioMode: Int, fastPairing: Boolean): Int
     private external fun txtNative(raop: Boolean): ByteArray
     private external fun setSurfaceNative(surface: Surface): Boolean
     private external fun stopNative()
