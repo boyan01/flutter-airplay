@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/include/airplay/receiver.h"
+#include "receiver.h"
 #include <cstdio>
 #include <cstring>
 namespace airplay {

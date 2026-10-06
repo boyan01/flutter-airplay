@@ -124,6 +124,8 @@ final class RunnerTests: XCTestCase {
     func testBackgroundStartFailsBeforeCreatingMediaOrReceiver() {
         let video = TestVideoOutput()
         let initialName = defaults.string(forKey: "receiverName")
+        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: support.path))
         host.queue.sync {
             host.videoOutput = video
             // The request's current state must override an older scene flag.
@@ -132,7 +134,10 @@ final class RunnerTests: XCTestCase {
         XCTAssertThrowsError(try host.queue.sync { try host.start(name: "Test iPad", path: "", foreground: false) })
         XCTAssertEqual(video.beginCount, 0)
         XCTAssertEqual(defaults.string(forKey: "receiverName"), initialName)
-        XCTAssertEqual(defaults.data(forKey: "receiverIdentity")?.count, 6)
+        // Rejection precedes lazy bootstrap, so it must not create an identity
+        // or support directory. A later snapshot may bootstrap the receiver.
+        XCTAssertNil(defaults.data(forKey: "receiverIdentity"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: support.path))
         let snapshot = host.queue.sync { host.snapshot() }
         XCTAssertEqual(snapshot["status"] as? String, "stopped")
         XCTAssertEqual((snapshot["pid"] as? NSNumber)?.intValue, 0)
