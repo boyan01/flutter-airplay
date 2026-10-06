@@ -19,42 +19,9 @@ Powered by a shared C++ playback core and [UxPlay](vendor/UxPlay/UPSTREAM.md) pr
 
 ## 📸 Preview
 
-<!-- SCREENSHOT PLACEHOLDER: Replace with actual screenshots / demo GIF when available -->
-```text
-+-----------------------------------------------------------------+
-| [-] [+] [x]                  Flutter AirPlay                    |
-+-----------------------------------------------------------------+
-|                                                                 |
-|                            [ 📺 ]                               |
-|                                                                 |
-|                        Living Room TV                           |
-|                         ● Ready to connect                      |
-|                                                                 |
-|               +-----------------------------------+             |
-|               |  1. Connect to the same Wi-Fi     |             |
-|               |  2. Open Control Center on iPhone |             |
-|               |  3. Tap Screen Mirroring          |             |
-|               |  4. Select "Living Room TV"       |             |
-|               +-----------------------------------+             |
-|                                                                 |
-|           [ Receiver: ON ]       [ ⚙ Settings ]      [ 📋 Logs ] |
-+-----------------------------------------------------------------+
-```
+AirPlay screen mirroring demo.
 
-```text
-+-----------------------------------------------------------------+
-| [iPhone]                                              [-] [+] [x]|
-|                                                                 |
-|                                                                 |
-|                     [ Mirrored Screen Frame ]                   |
-|                   (Aspect ratio matched automatically)          |
-|                                                                 |
-|                                                                 |
-|            +---------------------------------------+            |
-|            |  [⏏ Disconnect]  [📌 Always on Top]  [⛶ Fullscreen] |
-|            +---------------------------------------+            |
-+-----------------------------------------------------------------+
-```
+https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 
 ---
 
