@@ -6,6 +6,8 @@ extern "C" {
 #include "raop.h"
 }
 namespace airplay {
+// Minimal UxPlay fixture for protocol and DNS lifetime tests, not the public
+// application receiver API. Keep protocol types private to this test target.
 class Receiver {
 public:
     Receiver() = default;
