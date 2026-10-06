@@ -362,11 +362,11 @@ case "$target" in
         case "$(uname -s)" in
             MINGW*|MSYS*|CYGWIN*)
                 python "$project_root/tool/check_boundaries.py"
-                python "$project_root/scripts/tests/test_native_preparation.py"
+                python -m unittest discover -s "$project_root/scripts/tests" -p 'test_*.py'
                 ;;
             *)
                 python3 "$project_root/tool/check_boundaries.py"
-                python3 "$project_root/scripts/tests/test_native_preparation.py"
+                python3 -m unittest discover -s "$project_root/scripts/tests" -p 'test_*.py'
                 ;;
         esac
         ;;
