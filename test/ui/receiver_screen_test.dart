@@ -152,74 +152,101 @@ void main() {
   });
 
   for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {
-    testWidgets('$target playback statistics overlay is passive and persists', (
-      tester,
-    ) async {
-      final backend = await launch(
-        tester,
-        platform: target == 'tv' ? 'android' : target,
-        tv: target == 'tv',
-        size: const Size(390, 800),
-      );
-      await tester.tap(find.byKey(const Key('openSettings')));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-      await tester.tap(find.byKey(const Key('advancedSettings')));
-      await tester.pumpAndSettle();
-      final toggle = find.byKey(const Key('showPlaybackStats'));
-      await tester.ensureVisible(toggle);
-      backend.saveFailure = 'Could not save overlay';
-      await tester.tap(toggle);
-      await tester.pumpAndSettle();
-      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
-      backend.saveFailure = null;
-      await tester.tap(toggle);
-      await tester.pumpAndSettle();
-      expect(backend.savedShowPlaybackStats, isTrue);
-      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
-      if (target == 'macos' || target == 'windows' || target == 'linux') {
-        await tester.tap(find.byKey(const Key('closeSettings')));
-      } else {
-        await tester.binding.handlePopRoute();
-      }
-      await tester.pumpAndSettle();
-      frame(backend);
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('playerControls')), findsNothing);
-      expect(find.byKey(const Key('playbackStatsOverlay')), findsOneWidget);
-      backend.controller.add({
-        'type': 'playbackStats',
-        'metrics': {
-          'codec': 'HEVC',
-          'decoder': 'Fixture decoder',
-          'fps': 59.8,
-          'submitted': 120,
-          'dropped': 3,
-          'pending': 2,
-          'queued': 1,
-        },
-      });
-      await tester.pump();
-      expect(find.text('HEVC · Fixture decoder'), findsOneWidget);
-      expect(find.text('提交帧率: 59.8'), findsOneWidget);
-      expect(find.text('调度丢帧: 3'), findsOneWidget);
-      await tester.binding.setSurfaceSize(const Size(280, 320));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      await tester.tap(
-        find.byKey(const Key('playbackStatsOverlay')),
-        warnIfMissed: false,
-      );
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(find.byKey(const Key('playerControls')), findsOneWidget);
-      backend.state('waiting');
-      await tester.pumpAndSettle();
-      frame(backend);
-      await tester.pumpAndSettle();
-      expect(find.text('等待播放统计…'), findsOneWidget);
-      expect(find.text('HEVC · Fixture decoder'), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      '$target playback statistics overlay follows controls and persists',
+      (tester) async {
+        final backend = await launch(
+          tester,
+          platform: target == 'tv' ? 'android' : target,
+          tv: target == 'tv',
+          size: const Size(390, 800),
+        );
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+        await tester.tap(find.byKey(const Key('advancedSettings')));
+        await tester.pumpAndSettle();
+        final toggle = find.byKey(const Key('showPlaybackStats'));
+        await tester.ensureVisible(toggle);
+        backend.saveFailure = 'Could not save overlay';
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+        backend.saveFailure = null;
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(backend.savedShowPlaybackStats, isTrue);
+        expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+        if (target == 'macos' || target == 'windows' || target == 'linux') {
+          await tester.tap(find.byKey(const Key('closeSettings')));
+        } else {
+          await tester.binding.handlePopRoute();
+        }
+        await tester.pumpAndSettle();
+        frame(backend);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('playerControls')), findsNothing);
+        expect(find.byKey(const Key('playbackStatsOverlay')), findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('playbackStatsOverlay')), findsOneWidget);
+        backend.controller.add({
+          'type': 'playbackStats',
+          'metrics': {
+            'codec': 'HEVC',
+            'decoder': 'Fixture decoder',
+            'audioCodec': 'AAC',
+            'audioSampleRate': 44100,
+            'audioChannels': 2,
+            'fps': 59.8,
+            'submitted': 120,
+            'dropped': 3,
+            'pending': 2,
+            'queued': 1,
+          },
+        });
+        await tester.pump();
+        expect(find.text('HEVC · Fixture decoder'), findsOneWidget);
+        expect(find.text('AAC · 44.1 kHz · 2 ch'), findsOneWidget);
+        expect(find.text('FPS 59.8'), findsOneWidget);
+        expect(find.text('Pending 2/-'), findsOneWidget);
+        expect(find.text('· Queue 1/-'), findsOneWidget);
+        expect(find.text('Underrun -'), findsOneWidget);
+        expect(find.text('V/A   Drop 3/-'), findsOneWidget);
+        await tester.binding.setSurfaceSize(const Size(280, 320));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (target == 'tv') {
+          await tester.pump(const Duration(seconds: 6));
+        } else {
+          await tester.tap(
+            find.byKey(const Key('playbackStatsOverlay')),
+            warnIfMissed: false,
+          );
+          await tester.pump(const Duration(milliseconds: 350));
+        }
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('playerControls')), findsNothing);
+        expect(find.byKey(const Key('playbackStatsOverlay')), findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('playerControls')), findsOneWidget);
+        expect(find.byKey(const Key('playbackStatsOverlay')), findsOneWidget);
+        await tester.pump(const Duration(seconds: 6));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('playerControls')), findsNothing);
+        expect(find.byKey(const Key('playbackStatsOverlay')), findsNothing);
+        backend.state('waiting');
+        await tester.pumpAndSettle();
+        frame(backend);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        expect(find.text('Waiting…'), findsOneWidget);
+        expect(find.text('HEVC · Fixture decoder'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {

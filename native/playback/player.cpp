@@ -97,7 +97,7 @@ extern "C" bool airplay_player_set_audio_output(AirplayPlayer *p, int mode) {
 
 void AirplayPlayer::format_audio(uint8_t ct, uint16_t spf) {
     auto *p = this; p->audio.format(ct, spf);
-    { std::lock_guard<std::mutex> guard(p->lock); p->audio_rtp_anchored = false; }
+    { std::lock_guard<std::mutex> guard(p->lock); p->audio_rtp_anchored = false; p->audio_ct = ct; }
     char message[160];
     std::snprintf(message, sizeof(message), "Audio format: codec=%s ct=%u samples_per_packet=%u rate=%d channels=2",
         ct == 2 ? "ALAC" : ct == 4 ? "AAC" : ct == 8 ? "AAC-ELD" : "unknown", ct, spf, kSampleRate);

@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 
 import '../../receiver/receiver_model.dart';
-import '../widgets/receiver_strings.dart';
 
 /// Passive overlay; the shared playback worker supplies the measurements.
 class PlaybackStatsOverlay extends StatelessWidget {
@@ -11,10 +10,9 @@ class PlaybackStatsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final strings = l10n(context);
     final stats = model.playbackStats;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 340),
+      constraints: const BoxConstraints(maxWidth: 300),
       child: DecoratedBox(
         key: const Key('playbackStatsOverlay'),
         decoration: BoxDecoration(
@@ -22,29 +20,35 @@ class PlaybackStatsOverlay extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           child: DefaultTextStyle(
             style: Theme.of(context).textTheme.bodySmall!
-                .copyWith(color: Colors.white),
+                .copyWith(color: Colors.white, fontSize: 11, height: 1.3),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('${model.videoWidth} × ${model.videoHeight}'),
                 if (stats == null)
-                  Text(strings.playbackStatsWaiting)
+                  const Text('Waiting…')
                 else ...[
                   Text('${stats.codec} · ${stats.decoder}'),
                   Text(
-                    '${strings.playbackStatsFps}: ${stats.fps.toStringAsFixed(1)}',
+                    '${stats.audioCodec.isEmpty ? '-' : stats.audioCodec} · '
+                    '${stats.audioSampleRate > 0 ? '${(stats.audioSampleRate / 1000).toStringAsFixed(1)} kHz' : '-'} · '
+                    '${stats.audioChannels > 0 ? '${stats.audioChannels} ch' : '-'}',
                   ),
-                  Text('${strings.playbackStatsDropped}: ${stats.dropped}'),
-                  Text('${strings.playbackStatsSubmitted}: ${stats.submitted}'),
-                  Text('${strings.playbackStatsPending}: ${stats.pending}'),
-                  Text('${strings.playbackStatsQueued}: ${stats.queued}'),
+                  Text('FPS ${stats.fps.toStringAsFixed(1)}'),
+                  Text('V/A   Drop ${stats.dropped}/-'),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      Text('Pending ${stats.pending}/-'),
+                      Text('· Queue ${stats.queued}/-'),
+                    ],
+                  ),
+                  const Text('Underrun -'),
                 ],
-                const SizedBox(height: 4),
-                Text(strings.playbackStatsHelp),
               ],
             ),
           ),

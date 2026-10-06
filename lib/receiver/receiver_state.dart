@@ -180,6 +180,9 @@ class ReceiverEvent {
 @JsonSerializable(createToJson: false)
 class PlaybackStats {
   const PlaybackStats({
+    this.audioCodec = '',
+    this.audioSampleRate = 0,
+    this.audioChannels = 0,
     this.codec = '',
     this.decoder = '',
     this.fps = 0,
@@ -190,6 +193,8 @@ class PlaybackStats {
   });
   factory PlaybackStats.fromJson(Map<String, dynamic> json) =>
       _$PlaybackStatsFromJson(json);
+  final String audioCodec;
+  final int audioSampleRate, audioChannels;
   final String codec, decoder;
   final double fps;
   final int submitted, dropped, pending, queued;

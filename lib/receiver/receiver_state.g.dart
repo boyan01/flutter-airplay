@@ -123,6 +123,9 @@ const _$ReceiverEventTypeEnumMap = {
 
 PlaybackStats _$PlaybackStatsFromJson(Map<String, dynamic> json) =>
     PlaybackStats(
+      audioCodec: json['audioCodec'] as String? ?? '',
+      audioSampleRate: (json['audioSampleRate'] as num?)?.toInt() ?? 0,
+      audioChannels: (json['audioChannels'] as num?)?.toInt() ?? 0,
       codec: json['codec'] as String? ?? '',
       decoder: json['decoder'] as String? ?? '',
       fps: (json['fps'] as num?)?.toDouble() ?? 0,

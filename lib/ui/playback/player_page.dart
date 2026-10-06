@@ -129,6 +129,22 @@ class _PlayerPageState extends State<PlayerPage> {
     return Stack(
       key: const Key('playerControls'),
       children: [
+        if (widget.model.showPlaybackStats)
+          Positioned(
+            top: 60,
+            left: 12,
+            right: 12,
+            bottom: 100,
+            child: SafeArea(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: PlaybackStatsOverlay(model: widget.model),
+                ),
+              ),
+            ),
+          ),
+
         if (!tv && !widget.model.supportsWindowPreferences)
           Positioned(
             top: 0,
@@ -404,21 +420,6 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
               ),
             ),
-            if (widget.model.showPlaybackStats)
-              Positioned(
-                top: 60,
-                left: 12,
-                right: 12,
-                bottom: 100,
-                child: SafeArea(
-                  child: IgnorePointer(
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: PlaybackStatsOverlay(model: widget.model),
-                    ),
-                  ),
-                ),
-              ),
             IgnorePointer(
               ignoring: !_visible,
               child: ExcludeFocus(

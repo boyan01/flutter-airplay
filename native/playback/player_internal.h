@@ -41,6 +41,7 @@ struct AirplayPlayer {
     bool video_hevc = false;
     bool fast_pairing = true;
     bool audio_playing = false;
+    uint8_t audio_ct = 0;
     bool audio_rtp_anchored = false;
     uint32_t audio_rtp_anchor = 0;
     int64_t audio_rtp_local_pts = 0;
@@ -129,7 +130,7 @@ struct AirplayPlayer {
           video_stats = {}; last_video_submit = last_video_due = video_stats_started = 0;
           video_report_ns = video_arrival_ns = video_gap_ns = 0;
           video_received = 0; video_peak_queue = 0;
-          audio_playing = false; audio_rtp_anchored = false;
+          audio_playing = false; audio_ct = 0; audio_rtp_anchored = false;
           timeline.reset(); audio.flush();
           event("reset", "Waiting for screen mirroring"); }
         wake.notify_all();
@@ -185,12 +186,14 @@ struct AirplayPlayer {
                 if (stats_enabled && generation == video_generation && video_arrival_ns && !video_paused) {
                     char profile[512];
                     std::snprintf(profile, sizeof(profile),
-                        "{\"codec\":\"%s\",\"decoder\":\"%s\",\"fps\":%.2f,\"submitted\":%llu,\"dropped\":%llu,\"pending\":%zu,\"queued\":%zu}",
+                        "{\"codec\":\"%s\",\"decoder\":\"%s\",\"fps\":%.2f,\"submitted\":%llu,\"dropped\":%llu,\"pending\":%zu,\"queued\":%zu,\"audioCodec\":\"%s\",\"audioSampleRate\":%d,\"audioChannels\":%d}",
                         video_hevc ? "HEVC" : "H.264", video->decoder_name(),
                         (stats.submitted - profile_previous.submitted) * 1e9 / (now - profile_at),
                         static_cast<unsigned long long>(stats.submitted - profile_base.submitted),
                         static_cast<unsigned long long>(stats.dropped - profile_base.dropped),
-                        stats.pending, packets.size());
+                        stats.pending, packets.size(),
+                        audio_playing ? (audio_ct == 2 ? "ALAC" : audio_ct == 4 ? "AAC" : audio_ct == 8 ? "AAC-ELD" : "") : "",
+                        audio_playing ? kSampleRate : 0, audio_playing ? 2 : 0);
                     event("playbackStats", profile);
                 }
                 profile_previous = stats; profile_at = now;
