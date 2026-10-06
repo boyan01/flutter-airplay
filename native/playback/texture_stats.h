@@ -12,20 +12,21 @@ struct TextureStats {
     uint64_t sequence = 0, acquired_sequence = 0;
     int64_t started_ns = 0, received_ns = 0, last_acquire_ns = 0;
     TimingSamples acquire_gap, frame_age, notify_delay;
-    void receive() {
+    void receive(bool replaces_pending = true) {
         const auto now = TimingSamples::now_ns();
         if (!started_ns) started_ns = now;
-        if (sequence != acquired_sequence) ++overwritten;
+        if (replaces_pending && sequence != acquired_sequence) ++overwritten;
         ++received; ++sequence; received_ns = now;
     }
-    void acquire() {
+    void acquire(uint64_t selected_sequence = 0, int64_t selected_received_ns = 0) {
         if (!sequence) return;
         const auto now = TimingSamples::now_ns();
-        if (sequence != acquired_sequence) {
+        if (!selected_sequence) selected_sequence = sequence;
+        if (selected_sequence > acquired_sequence) {
             ++acquired_new;
             if (last_acquire_ns) acquire_gap.add(now - last_acquire_ns);
-            frame_age.add(now - received_ns);
-            acquired_sequence = sequence; last_acquire_ns = now;
+            frame_age.add(now - (selected_received_ns ? selected_received_ns : received_ns));
+            acquired_sequence = selected_sequence; last_acquire_ns = now;
         } else ++repeated;
     }
     void clear() { *this = {}; }

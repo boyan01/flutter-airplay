@@ -35,21 +35,55 @@ target_include_directories(linux_audio_output_tests PRIVATE ../../native/playbac
 target_link_libraries(linux_audio_output_tests PRIVATE airplay_player)
 add_test(NAME linux_audio_unavailable_cleanup COMMAND linux_audio_output_tests)
 
+pkg_check_modules(GTK_GPU REQUIRED IMPORTED_TARGET gtk+-3.0)
+pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
+add_executable(linux_gpu_tests gpu_test.cc)
+target_link_libraries(linux_gpu_tests PRIVATE airplay_player PkgConfig::VIDEO_COLORS PkgConfig::GTK_GPU PkgConfig::EPOXY)
+find_program(AIRPLAY_GPU_XVFB xvfb-run)
+if(AIRPLAY_GPU_XVFB)
+  add_test(NAME linux_gpu_colors COMMAND ${AIRPLAY_GPU_XVFB} -a $<TARGET_FILE:linux_gpu_tests>)
+  set_tests_properties(linux_gpu_colors PROPERTIES LABELS "backend;extended" TIMEOUT 30)
+endif()
+option(AIRPLAY_LINUX_GPU_HARDWARE_TESTS "Run NVDEC/OpenGL on the current NVIDIA desktop (requires DISPLAY)" OFF)
+if(AIRPLAY_LINUX_GPU_HARDWARE_TESTS)
+  add_test(NAME linux_gpu_nvdec COMMAND linux_gpu_tests --hardware)
+  add_test(NAME linux_gpu_nvdec_egl COMMAND linux_gpu_tests --hardware-egl)
+  set_tests_properties(linux_gpu_nvdec_egl PROPERTIES LABELS "backend;device;extended" TIMEOUT 30)
+  add_test(NAME linux_gpu_nvdec_download COMMAND linux_gpu_tests --hardware-download)
+  set_tests_properties(linux_gpu_nvdec_download PROPERTIES LABELS "backend;device;extended" TIMEOUT 30)
+  set_tests_properties(linux_gpu_nvdec PROPERTIES LABELS "backend;device;extended" TIMEOUT 30)
+endif()
+
 # Flutter publishes the C embedding headers/library while building the root app.
 # The core-only suite needs Dart SDK headers but no Flutter engine library.
 set(AIRPLAY_FLUTTER_ENGINE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../flutter/ephemeral" CACHE PATH
   "Directory containing flutter_linux/ and libflutter_linux_gtk.so")
 if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+  pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
   pkg_check_modules(AVAHI REQUIRED IMPORTED_TARGET avahi-client)
   add_executable(linux_host_tests host_test.cc ../runner/receiver_host.cc
     ../runner/frame_texture.cc ../runner/discovery.cc)
   set(AIRPLAY_BUILD_INFO_TARGET linux_host_tests)
   include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
   target_include_directories(linux_host_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
-  target_link_libraries(linux_host_tests PRIVATE airplay_player PkgConfig::GTK PkgConfig::AVAHI
+  target_link_libraries(linux_host_tests PRIVATE airplay_player PkgConfig::EPOXY PkgConfig::GTK PkgConfig::AVAHI
     "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   add_test(NAME linux_flutter_host_lifecycle COMMAND linux_host_tests)
+  add_executable(linux_gl_texture_tests gl_texture_test.cc ../runner/frame_texture.cc)
+  target_include_directories(linux_gl_texture_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
+  target_link_libraries(linux_gl_texture_tests PRIVATE airplay_player PkgConfig::VIDEO_COLORS PkgConfig::GTK PkgConfig::EPOXY
+    "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+  if(AIRPLAY_GPU_XVFB)
+    add_test(NAME linux_gpu_flutter_texture COMMAND ${AIRPLAY_GPU_XVFB} -a $<TARGET_FILE:linux_gl_texture_tests>)
+    add_test(NAME linux_gpu_flutter_egl_texture COMMAND ${AIRPLAY_GPU_XVFB} -a $<TARGET_FILE:linux_gl_texture_tests> --egl)
+    set_tests_properties(linux_gpu_flutter_egl_texture PROPERTIES LABELS "host;extended" TIMEOUT 30)
+    if(AIRPLAY_LINUX_GPU_HARDWARE_TESTS)
+      add_test(NAME linux_gpu_flutter_nvidia_egl COMMAND linux_gl_texture_tests --egl)
+      set_tests_properties(linux_gpu_flutter_nvidia_egl PROPERTIES LABELS "host;device;extended" TIMEOUT 30)
+    endif()
+    set_tests_properties(linux_gpu_flutter_texture PROPERTIES LABELS "host;extended" TIMEOUT 30)
+  endif()
   add_executable(linux_window_tests window_test.cc ../runner/window_channel.cc)
   target_include_directories(linux_window_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
   target_link_libraries(linux_window_tests PRIVATE PkgConfig::GTK
@@ -68,8 +102,20 @@ if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   add_executable(linux_synthetic_demo synthetic_demo.cc ../runner/frame_texture.cc ../runner/window_channel.cc)
   target_include_directories(linux_synthetic_demo PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}" "${AIRPLAY_DART_INCLUDE}")
   set_target_properties(linux_synthetic_demo PROPERTIES ENABLE_EXPORTS ON)
-  target_link_libraries(linux_synthetic_demo PRIVATE airplay_player PkgConfig::GTK
+  target_link_libraries(linux_synthetic_demo PRIVATE airplay_player PkgConfig::EPOXY PkgConfig::GTK
     "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
+  option(AIRPLAY_LINUX_GPU_PACING_TESTS "Measure 4K60 consumption in the real root Flutter UI (requires a visible 60 Hz NVIDIA desktop)" OFF)
+  if(AIRPLAY_LINUX_GPU_PACING_TESTS)
+    set(AIRPLAY_FLUTTER_PROFILE_BUNDLE "${CMAKE_CURRENT_SOURCE_DIR}/../../build/linux/x64/profile/bundle" CACHE PATH
+      "Profile bundle for the real-engine 4K60 pacing benchmark")
+    if(NOT EXISTS "${AIRPLAY_FLUTTER_PROFILE_BUNDLE}/lib/libapp.so")
+      message(FATAL_ERROR "Real-engine pacing requires flutter build linux --profile; set AIRPLAY_FLUTTER_PROFILE_BUNDLE if needed")
+    endif()
+    add_test(NAME linux_gpu_flutter_pacing COMMAND ${CMAKE_COMMAND} -E env
+      "LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/native:${AIRPLAY_FLUTTER_PROFILE_BUNDLE}/lib:$ENV{LD_LIBRARY_PATH}"
+      $<TARGET_FILE:linux_synthetic_demo> "${AIRPLAY_FLUTTER_PROFILE_BUNDLE}" --benchmark)
+    set_tests_properties(linux_gpu_flutter_pacing PROPERTIES LABELS "host;device;extended" TIMEOUT 45 RUN_SERIAL TRUE)
+  endif()
 else()
   message(STATUS "Flutter host tests unavailable: build the Linux Flutter app first, then reconfigure")
 endif()

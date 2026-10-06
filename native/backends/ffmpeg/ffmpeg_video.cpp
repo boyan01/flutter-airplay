@@ -22,8 +22,8 @@ extern "C" {
 #include <libavutil/buffer.h>
 #include <libavutil/error.h>
 #include <libavutil/pixdesc.h>
-#ifdef _WIN32
 #include <libavutil/hwcontext.h>
+#ifdef _WIN32
 #include <libavutil/hwcontext_d3d11va.h>
 #endif
 #include <libswscale/swscale.h>
@@ -111,6 +111,11 @@ public:
         if (options) { adapter_ = options->adapter; gpu_requested_ = options->gpu; }
     }
 #endif
+#ifndef _WIN32
+    FFmpegVideo(VideoCallbacks callbacks, const LinuxVideoOptions &options) : FFmpegVideo(std::move(callbacks)) {
+        hardware_requested_ = options.hardware; native_output_ = options.gpu_output;
+    }
+#endif
     ~FFmpegVideo() override { release(); }
     bool supports_hevc() const override {
         const auto *decoder = avcodec_find_decoder_by_name("hevc");
@@ -121,7 +126,17 @@ public:
     // a crop request and must not discard references during a rotation.
     void size(int, int) override {}
     VideoScheduler::Stats stats() const override { return scheduler_.stats(); }
-    const char *decoder_name() const override { return "FFmpeg"; }
+    const char *decoder_name() const override {
+#ifndef _WIN32
+        if (active_hardware_ == AV_HWDEVICE_TYPE_CUDA) return "FFmpeg NVDEC";
+        if (active_hardware_ == AV_HWDEVICE_TYPE_VAAPI) return "FFmpeg VAAPI";
+#endif
+#ifdef _WIN32
+        return "FFmpeg";
+#else
+        return "FFmpeg software";
+#endif
+    }
     bool can_decode() const override { return scheduler_.can_decode(); }
     int64_t next_deadline() const override { return scheduler_.next_deadline(); }
 
@@ -230,6 +245,13 @@ public:
 
 private:
     bool fail(const char *message, int error = 0) {
+#ifndef _WIN32
+        if (error && codec_ && codec_->hw_device_ctx && !hardware_disabled_ &&
+            (error == AVERROR_EXTERNAL || error == AVERROR(EIO) || error == AVERROR(ENODEV) || error == AVERROR(ENOSYS))) {
+            hardware_disabled_ = true;
+            if (callbacks_.log) callbacks_.log("Linux hardware decoder failed; recovery will use software decoding at the next keyframe");
+        }
+#endif
         failed_ = true;
         if (callbacks_.log) {
             if (!error) callbacks_.log(message);
@@ -246,7 +268,7 @@ private:
 
     bool open() {
         // The bundled decoder can use D3D11 without the Windows HEVC extension.
-        // Linux and explicitly requested software tests retain CPU decoding.
+        // Hardware probing is opt-in; deterministic software fixtures stay CPU-only.
         const AVCodec *decoder = avcodec_find_decoder_by_name(hevc_ ? "hevc" : "h264");
         if (!decoder || decoder->id != (hevc_ ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264))
             return fail("FFmpeg software video decoder is unavailable");
@@ -284,15 +306,63 @@ private:
                 } else av_buffer_unref(&device);
             }
         }
+#else
+        codec_->opaque = this;
+        active_hardware_ = AV_HWDEVICE_TYPE_NONE;
+        if (hardware_requested_ && !hardware_disabled_) {
+            for (auto type : {AV_HWDEVICE_TYPE_CUDA, AV_HWDEVICE_TYPE_VAAPI}) {
+                AVPixelFormat pixel = AV_PIX_FMT_NONE;
+                for (int i = 0; const auto *config = avcodec_get_hw_config(decoder, i); ++i)
+                    if (config->device_type == type && (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) {
+                        pixel = config->pix_fmt; break;
+                    }
+                if (pixel == AV_PIX_FMT_NONE) continue;
+                AVBufferRef *device = nullptr;
+                const int result = av_hwdevice_ctx_create(&device, type, nullptr, nullptr, 0);
+                if (result < 0) {
+                    if (callbacks_.log) {
+                        char reason[AV_ERROR_MAX_STRING_SIZE]{}; av_strerror(result, reason, sizeof(reason));
+                        const auto message = std::string("Linux hardware probe ") + av_hwdevice_get_type_name(type) + ": " + reason;
+                        callbacks_.log(message.c_str());
+                    }
+                    continue;
+                }
+                codec_->hw_device_ctx = device; hardware_format_ = pixel;
+                codec_->get_format = [](AVCodecContext *context, const AVPixelFormat *formats) {
+                    auto *self = static_cast<FFmpegVideo *>(context->opaque);
+                    for (auto *format = formats; *format != AV_PIX_FMT_NONE; ++format)
+                        if (*format == self->hardware_format_) return *format;
+                    self->active_hardware_ = AV_HWDEVICE_TYPE_NONE;
+                    if (self->callbacks_.log) self->callbacks_.log("Linux hardware format unavailable; using software decoding");
+                    return software_format(context, formats);
+                };
+                break;
+            }
+        }
 #endif
         codec_->get_buffer2 = bounded_buffer;
         codec_->max_pixels = int64_t(kMaxDimension) * kMaxDimension;
         codec_->err_recognition = AV_EF_BITSTREAM | AV_EF_BUFFER | AV_EF_EXPLODE;
         const int status = avcodec_open2(codec_, decoder, nullptr);
-        if (status < 0) return fail("Cannot open software video decoder", status);
+        if (status < 0) {
+#ifndef _WIN32
+            if (codec_->hw_device_ctx && !hardware_disabled_) {
+                hardware_disabled_ = true; avcodec_free_context(&codec_); av_frame_free(&frame_);
+                if (callbacks_.log) callbacks_.log("Linux hardware decoder initialization failed; reopening with software decoding");
+                return open();
+            }
+#endif
+            return fail("Cannot open video decoder", status);
+        }
+#ifdef _WIN32
         if (callbacks_.log) callbacks_.log(codec_->hw_device_ctx ? "FFmpeg HEVC decoder ready; D3D11 preferred with CPU fallback"
                                                : hevc_ ? "FFmpeg software HEVC decoder ready; borrowed RGBA output"
                                                : "FFmpeg software H.264 decoder ready; borrowed RGBA output");
+#else
+        if (callbacks_.log) callbacks_.log(codec_->hw_device_ctx
+            ? "Linux FFmpeg hardware device ready; decoder activation is reported on the first frame"
+            : "Linux FFmpeg software decoder ready; hardware unavailable or disabled");
+#endif
         return true;
     }
 
@@ -333,6 +403,39 @@ private:
         const auto decoded = monotonic_ns();
         if (timing.decode_started_ns) decode_observed_.add(decoded - timing.decode_started_ns);
         if (timing.received_ns) arrival_to_decode_.add(decoded - timing.received_ns);
+
+#ifndef _WIN32
+        const auto format = static_cast<AVPixelFormat>(frame_->format);
+        const auto *description = av_pix_fmt_desc_get(format);
+        if (description && (description->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+            active_hardware_ = format == AV_PIX_FMT_CUDA ? AV_HWDEVICE_TYPE_CUDA : AV_HWDEVICE_TYPE_VAAPI;
+        } else active_hardware_ = AV_HWDEVICE_TYPE_NONE;
+        if (!hardware_reported_ && callbacks_.log) {
+            const auto message = std::string("Linux video decoder active: ") + decoder_name();
+            callbacks_.log(message.c_str()); hardware_reported_ = true;
+        }
+        if (native_output_) {
+            auto *retained = av_frame_clone(frame_);
+            if (!retained) return fail("Cannot retain native Linux video frame");
+            const auto picture = std::shared_ptr<AVFrame>(retained, [](AVFrame *value) { av_frame_free(&value); });
+            scheduler_.enqueue(timing.deadline, timing.generation,
+                [this, picture, width, height, timing](bool show) {
+                    AirplayLinuxVideoFrame output{nullptr, 0, width, height, picture.get(),
+                        [](void *value) -> void * { return av_frame_clone(static_cast<AVFrame *>(value)); },
+                        [](void *value) { auto *frame = static_cast<AVFrame *>(value); av_frame_free(&frame); }};
+                    if (show && callbacks_.frame) callbacks_.frame(&output, width, height, timing.deadline, timing.generation);
+                });
+            return true;
+        }
+        if (description && (description->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+            AVFrame *software = av_frame_alloc();
+            if (!software) return fail("Cannot allocate Linux download frame");
+            const int result = av_hwframe_transfer_data(software, frame_, 0);
+            const int properties = result < 0 ? result : av_frame_copy_props(software, frame_);
+            if (properties < 0) { av_frame_free(&software); return fail("Cannot download Linux hardware frame", properties); }
+            av_frame_unref(frame_); av_frame_move_ref(frame_, software); av_frame_free(&software);
+        }
+#endif
 
 #ifdef _WIN32
         if (gpu_requested_ && timing.deadline < monotonic_ns() - kVideoLateToleranceNs) { ++late_before_convert_; return true; }
@@ -394,7 +497,11 @@ private:
     }
 
     void release() {
-        scheduler_.clear(); output_width_ = output_height_ = 0;
+        scheduler_.clear();
+#ifndef _WIN32
+        active_hardware_ = AV_HWDEVICE_TYPE_NONE; hardware_reported_ = false;
+#endif
+        output_width_ = output_height_ = 0;
         avcodec_free_context(&codec_);
         av_frame_free(&frame_);
         colors_.reset();
@@ -447,6 +554,11 @@ private:
     uint64_t gpu_frames_ = 0;
     TimingSamples gpu_conversion_;
 #endif
+#ifndef _WIN32
+    bool hardware_requested_ = false, native_output_ = false, hardware_reported_ = false, hardware_disabled_ = false;
+    AVPixelFormat hardware_format_ = AV_PIX_FMT_NONE;
+    AVHWDeviceType active_hardware_ = AV_HWDEVICE_TYPE_NONE;
+#endif
     std::vector<std::vector<uint8_t>> parameters_;
     size_t parameter_bytes_ = 0;
     bool waiting_for_keyframe_ = true;
@@ -459,6 +571,10 @@ std::unique_ptr<VideoOutput> make_ffmpeg_video_output(VideoCallbacks callbacks) 
 }
 #ifdef _WIN32
 std::unique_ptr<VideoOutput> make_ffmpeg_video_output(VideoCallbacks callbacks, const WindowsVideoOptions *options) {
+    return std::make_unique<FFmpegVideo>(std::move(callbacks), options);
+}
+#else
+std::unique_ptr<VideoOutput> make_ffmpeg_video_output(VideoCallbacks callbacks, const LinuxVideoOptions &options) {
     return std::make_unique<FFmpegVideo>(std::move(callbacks), options);
 }
 #endif

@@ -24,7 +24,8 @@ typedef struct {
 } AirplayCallbacks;
 
 // surface is a borrowed ANativeWindow on Android; create retains its own reference.
-// It is unused on macOS.
+// It is unused on macOS. Linux accepts optional AirplayLinuxVideoOptions
+// (linux_video.h), copied at create.
 // Windows accepts optional WindowsVideoOptions (windows_video.h), copied at create.
 AirplayPlayer *airplay_player_create(AirplayCallbacks callbacks, void *surface,
                                     const char *decoder, const char *fallback);

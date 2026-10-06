@@ -68,12 +68,14 @@ void PostMain(GMainContext* context, std::function<void()> action) {
 struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   GMainContext* main_context = g_main_context_ref_thread_default();
   FlMethodChannel* methods = nullptr;
+  FlBinaryMessenger* messenger = nullptr;
   std::unique_ptr<FrameTexture> texture;
   std::atomic<int64_t> texture_id{-1};
   std::atomic<bool> closing{false}, frame_notification{false};
   std::function<void(FlValue*)> on_snapshot;
   uint64_t handle = 0;
   Discovery discovery;
+  AirplayCallbacks video_callbacks{};
   GKeyFile* preferences = g_key_file_new();
   std::string config_directory, preferences_path, key_path, config_error;
   int screen_width = 1920, screen_height = 1080;
@@ -108,13 +110,23 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       if (self->texture_id < 0) { snprintf(error, capacity, "Flutter video texture is unavailable"); return static_cast<AirplayPlayer*>(nullptr); }
       std::string detail;
       if (!Discovery::Check(&detail)) { snprintf(error, capacity, "%s", detail.c_str()); return static_cast<AirplayPlayer*>(nullptr); }
-      return airplay_player_create(callbacks, nullptr, nullptr, nullptr);
+      self->video_callbacks = callbacks;
+      AirplayLinuxVideoOptions options{};
+      return airplay_player_create(callbacks, &options, nullptr, nullptr);
     };
     hooks.texture_id = [](void* context) { return static_cast<State*>(context)->texture_id.load(); };
     hooks.end_video = [](void* context, bool) { static_cast<State*>(context)->ClearFrame(); };
     hooks.clear_video = [](void* context) { static_cast<State*>(context)->ClearFrame(); };
     hooks.frame = [](void* context, void* frame) {
       auto* self = static_cast<State*>(context);
+      if (frame && !self->closing) {
+        const auto error = self->texture->TakeError();
+        if (!error.empty()) {
+          if (self->video_callbacks.log) self->video_callbacks.log(self->video_callbacks.context, 3, error.c_str());
+          if (self->video_callbacks.event) self->video_callbacks.event(self->video_callbacks.context, "error", error.c_str(), 0, 0);
+          return;
+        }
+      }
       if (frame && !self->closing && self->texture->Receive(*static_cast<AirplayLinuxVideoFrame*>(frame))) self->NotifyFrame();
     };
     hooks.publish = [](void* context, uint64_t epoch, const char* name, const uint8_t* identity, uint16_t port,
@@ -214,8 +226,9 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   }
 
   void NotifyFrame() {
-    if (frame_notification.exchange(true)) return;
-    texture->NotificationRequested();
+    const bool coalesced = frame_notification.exchange(true);
+    texture->NotificationRequested(coalesced);
+    if (coalesced) return;
     std::weak_ptr<State> weak = shared_from_this();
     PostMain(main_context, [weak] {
       if (auto self = weak.lock()) {
@@ -251,7 +264,8 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     fl_method_call_respond_success(call, reply.get(), nullptr);
   }
   void Install(FlBinaryMessenger* messenger, FlTextureRegistrar* registrar) {
-    UpdateScreenSize(); texture = std::make_unique<FrameTexture>(registrar);
+    this->messenger = messenger;
+    UpdateScreenSize(); texture = std::make_unique<FrameTexture>(registrar, true, true);
     try { Create(); } catch (const std::exception& error) { config_error = error.what(); }
     g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
     methods = fl_method_channel_new(messenger, "org.airplayreceiver/platform", FL_METHOD_CODEC(codec));
@@ -262,6 +276,9 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   void Shutdown() {
     closing = true; on_snapshot = {};
     fl_method_channel_set_method_call_handler(methods, nullptr, nullptr, nullptr);
+    // The messenger holds a channel reference until its handler is removed.
+    fl_binary_messenger_set_message_handler_on_channel(messenger, "org.airplayreceiver/platform", nullptr, nullptr, nullptr);
+    messenger = nullptr;
     airplay_receiver_destroy(handle); handle = 0; texture.reset(); g_clear_object(&methods);
   }
 };

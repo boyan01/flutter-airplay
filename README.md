@@ -54,7 +54,7 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 | :--- | :---: | :--- | :--- | :--- |
 | **iPad** | 🧪 Experimental | VideoToolbox (H.264 / HEVC) | AudioConverter (AAC-LC, AAC-ELD, ALAC) | iPadOS 15+. Foreground reception only; stops when switched to background. |
 | **Windows** | 🧪 Experimental | Media Foundation (H.264 / HEVC), FFmpeg fallback | Wasapi / Bundled decoders | Windows 10+ x64. Windows N requires Media Feature Pack. System tray and shortcuts supported. |
-| **Linux Desktop** | 🧪 Experimental | System FFmpeg 6+ (Software) | PulseAudio / PipeWire, ALAC | Requires GTK 3, Avahi mDNS, PulseAudio/PipeWire. System tray uses StatusNotifierItem over the session D-Bus. |
+| **Linux Desktop** | 🧪 Experimental | System FFmpeg 6+ (NVDEC / VAAPI, software fallback) | PulseAudio / PipeWire, ALAC | Requires GTK 3, OpenGL 3.2+ / OpenGL ES 3+, Avahi mDNS, PulseAudio/PipeWire. NVIDIA CUDA/OpenGL interop keeps supported YUV frames on GPU; other hardware paths may download YUV before GPU conversion. System tray uses StatusNotifierItem over the session D-Bus. |
 
 > [!NOTE]
 > **DRM Notice**: Screen mirroring protected by FairPlay DRM (such as Netflix, Apple TV+, Disney+) is **not supported** due to hardware DRM chain restrictions. Peer-to-peer (Wi-Fi Direct / Ad-hoc) connection is not supported; both devices must be on the same local network.

@@ -12,7 +12,7 @@ Without a target, run the current OS's basic native suite.
       player is the default; all adds host, texture and RTP.
       window requires a GUI session.
       player accepts CTest arguments, e.g. macos player -R playback.
-  linux [player|video|host|all] [CMake arguments]
+  linux [player|video|gpu|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
       player is the default; all includes available GTK/window tests.
       linux window [bundle-path] tests real caption dragging.
   windows [player|video|texture|all] [CTest arguments]
@@ -242,11 +242,25 @@ linux_tests() (
             targets=(linux_player_tests linux_session_tests linux_audio_decoder_tests linux_audio_output_tests receiver_control_tests)
             test_args+=(-R '^(linux_(playback|sender_resume|audio_decode_recovery|audio_unavailable_cleanup)|receiver_control)$')
             ;;
+        gpu)
+            targets=(linux_gpu_tests)
+            if [[ -f "$project_root/linux/flutter/ephemeral/libflutter_linux_gtk.so" ]]; then targets+=(linux_gl_texture_tests linux_synthetic_demo); fi
+            test_args+=(-R '^linux_gpu_')
+            ;;
         video) targets=(linux_video_tests); test_args+=(-R '^linux_video_reorder_recovery$') ;;
         host) targets=(linux_host_tests); test_args+=(-R '^linux_flutter_host_lifecycle$') ;;
         all) ;;
         *) fail "Unknown Linux suite: $suite. Use --help." ;;
     esac
+    if [[ "${1:-}" == --filter ]]; then
+        [[ $# -ge 2 ]] || fail 'Linux --filter requires a CTest regular expression.'
+        test_args=(--no-tests=error -R "$2")
+        shift 2
+    fi
+    if [[ "${1:-}" == --verbose ]]; then
+        test_args+=(-V)
+        shift
+    fi
     cmake -S "$project_root/linux/tests" -B "$project_root/build/linux-native" -G Ninja -DCMAKE_BUILD_TYPE=Debug "$@"
     if [[ "$suite" != all ]]; then
         cmake --build "$project_root/build/linux-native" --parallel --target "${targets[@]}"

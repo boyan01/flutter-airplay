@@ -164,13 +164,13 @@ Strawberry Perl 附带的原生 Windows Make 不适用。
 
 ### Linux
 
-在 Linux 上安装 GTK 3、FFmpeg 6+（`libavcodec >= 60`）、PulseAudio 兼容音频服务、
+在 Linux 上安装 GTK 3、FFmpeg 6+（`libavcodec >= 60`）、OpenGL 3.2+ / OpenGL ES 3+、libepoxy、PulseAudio 兼容音频服务、
 Avahi、OpenSSL 和 libplist 2.3+ 的开发包。
 Debian 13 可使用：
 
 ```sh
 sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev \
-  libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+  libavcodec-dev libavutil-dev libswscale-dev libswresample-dev libepoxy-dev \
   libpulse-dev libavahi-client-dev \
   libssl-dev libplist-dev libx11-dev libxi-dev
 ```
@@ -179,6 +179,30 @@ sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev \
 运行时需要可用的系统 D-Bus、`avahi-daemon` 和 PulseAudio/PipeWire 输出服务。
 应用不会代为启动系统服务或调整防火墙。配置和配对数据位于
 `$XDG_CONFIG_HOME/flutter-airplay`，通常为 `~/.config/flutter-airplay`。
+
+Linux 宿主自动尝试 FFmpeg CUDA/NVDEC，再尝试 VAAPI，最后回退软件解码。
+驱动和系统 FFmpeg 必须支持实际视频的 codec/profile。NVIDIA 构建时若有
+`ffnvcodec/dynlink_cuda.h`（`nv-codec-headers`；Ubuntu 包 `libffmpeg-nvenc-dev`），
+启用 CUDA/OpenGL 互操作；运行时动态加载 `libcuda.so.1`，无需 CUDA Toolkit 或 nvcc。
+Flutter 的 EGL/GLES 共享上下文及旧 GDK 上下文均受支持；跨 EGL 上下文用 GPU fence 同步。
+同一 GPU 上的兼容 CUDA/OpenGL 帧直接在 GPU 复制 YUV 平面、用 shader 转成 RGBA，
+再交给 Flutter `FlTextureGL`，不下载到 CPU。互操作不可用时下载 YUV 并在 GPU 转色；
+不支持的颜色空间/像素格式回退 CPU RGBA；GLES 的 10-bit shader 需要 `GL_EXT_texture_norm16`。日志 `Linux video decoder active` 和
+`Linux GL texture stats` 的 `output_path` 区分实际路径，GPU 取帧不代表屏幕呈现。
+
+GPU 验证复用 native 入口，基础 GPU 像素检查使用 Xvfb；Flutter 纹理检查需先构建应用：
+
+```sh
+./scripts/test_native.sh linux gpu
+# 已登录的 NVIDIA 桌面上，额外验证实际 NVDEC、CUDA/OpenGL、下载回退及合成 4K60：
+./scripts/test_native.sh linux gpu -DAIRPLAY_LINUX_GPU_HARDWARE_TESTS=ON
+# 结束设备矩阵后恢复默认，不让后续 all 套件依赖 NVIDIA 桌面：
+./scripts/test_native.sh linux gpu -DAIRPLAY_LINUX_GPU_HARDWARE_TESTS=OFF
+```
+
+这些用例覆盖 H.264/HEVC、Main10、旋转、重置、颜色范围/矩阵、GL 状态恢复和帧引用清理。
+合成 4K60 用例不证明真实 iPhone 投屏或显示器呈现帧率；接入后需用实际投屏日志检查
+队列等待、迟到丢帧和纹理覆盖率。Intel/AMD VAAPI 的设备验证需在相应 GPU 上执行。
 
 ## 按改动选择验证
 
@@ -436,12 +460,27 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 运行时诊断在各平台进入同一份接收器日志，可从应用日志页导出。接收、提交和调度统计
 由公共 C++ 播放层输出；解码后端保留自己的队列、耗时和恢复信息。
 macOS 与 iPad 共用 VideoToolbox、AudioUnit 和 Apple 纹理统计。
-Windows 的 GPU/像素纹理与 Linux 像素纹理共用 `TextureStats`。
+Windows 的 GPU/像素纹理与 Linux GL/像素纹理共用 `TextureStats`。
 公共接收器约每 5 秒采集宿主纹理统计，停止前采集剩余数据；收到过帧后即使画面冻结，
 仍记录零计数区间及 `last_receive_age_ms`、`last_acquire_age_ms`，未取过新帧时后者为 -1。
 `received` 是适配器收到的帧数，`acquired_new` 是 Flutter 取走的新帧数，
 `overwritten_before_acquire` 是被后续帧替换而未取走的帧数。
 通知延迟、帧年龄和取帧间隔用于定位栅格消费之前的阻塞；取帧不代表屏幕实际显示。
+Linux GL 额外记录 `notification_requests`、`notification_coalesced`、`notifications` 和
+`populate_calls`，对照生产请求、主线程合并通知和 Flutter 实际取纹理次数。
+`mark_to_populate` 从最早尚未消费的纹理通知计时，`populate_gap` 记录回调间隔，
+`populate_cost` 记录整个回调耗时（包括缓存读取或失败），`gpu_output` 记录转换路径耗时。
+这些耗时是 CPU 侧单调时钟测量，不代表异步 GPU 工作完成或屏幕呈现。
+GL 的 `acquired_new` 在选择帧时计数，`replaced_during_populate` 单独记录转换期间被新帧替换；
+不会因转换期间生产者更新而漏记已选帧。计数和耗时样本每个报告区间重置。
+Linux GPU 宿主在取纹理完成后通过主线程请求下一次纹理重绘；`repaint_requests` 区分
+这类请求和生产者通知。使用一帧抖动缓冲（最多保留三帧，满时丢弃最旧帧），
+60 FPS 下增加约一帧延迟，减少两个时钟交错时的重复／跳帧。
+`queued_frames` 显示尚未取走的帧，`frame_age` 使用实际选中帧的接收时刻；
+队列溢出和尺寸切换丢弃计入 `overwritten_before_acquire`。
+输入停止后取完最后的缓冲帧并停止后续请求；清空和退出时取消请求并释放帧。
+CUDA/OpenGL 平面按 GL 存储和 CUDA 设备上下文缓存注册，尺寸、格式或设备改变时注销重建，
+保留设备引用直到注销完成；同步和不兼容时的 CPU 下载回退保持有效。
 Android 使用原生 Surface，记录 `released_to_surface`、提交失败和最后输入、解码、
 提交距今时长，不套用 Flutter 纹理取帧指标。Surface 提交也不代表实际屏幕呈现。
 
@@ -483,6 +522,29 @@ LD_LIBRARY_PATH="$PWD/build/linux/x64/debug/bundle/lib${LD_LIBRARY_PATH:+:$LD_LI
   ./build/linux-native/linux_synthetic_demo "$PWD/build/linux/x64/debug/bundle"
 # Append portrait for the portrait fixture.
 ```
+
+真实 Flutter 引擎的 4K60 取纹理诊断使用同一合成演示和根 UI，测试进程隔离设置、
+不启动接收服务或音频。先准备 Profile bundle；在可见、未遮挡的 60 Hz（或更高）
+NVIDIA 桌面运行显式矩阵，不用 Xvfb 替代真实刷新节奏：
+
+```sh
+flutter build linux --profile
+./scripts/test_native.sh linux gpu --filter '^linux_gpu_flutter_pacing$' --verbose \
+  -DAIRPLAY_LINUX_GPU_PACING_TESTS=ON
+# 完成后关闭持久的本地矩阵选项：
+./scripts/test_native.sh linux gpu -DAIRPLAY_LINUX_GPU_PACING_TESTS=OFF \
+  -DAIRPLAY_LINUX_GPU_HARDWARE_TESTS=OFF
+```
+
+测试持续约 20 秒，前 5 秒预热，随后记录三段 5 秒统计；要求至少收到 870 帧，
+实际启用 NVDEC/CUDA 互操作、无 GPU 错误，且取走至少 90% 的帧。
+`BENCHMARK RESULT` 输出取帧比例和频率；失败可用于复现已知的 Linux 帧调度问题，
+不要把它作为解码器吞吐失败或屏幕实际显示帧率。该性能矩阵默认关闭，
+优化前在当前桌面上已复现稳定输入 60 FPS、纹理消费约 50 FPS 的失败；
+不同启动相位有差异，应对比多次运行，单次通过不证明持续满 60 FPS。
+其他 bundle 路径可通过 `-DAIRPLAY_FLUTTER_PROFILE_BUNDLE=/absolute/path` 指定。
+Linux 原生入口的 `--filter` 只筛选指定套件内需要复跑的 CTest 用例。
+
 
 Android 的 `PacingTest` 另有 `--phase-sweep` 诊断选项，在 decoder 参数后传入。
 它检查 120/60 Hz 消费端与 0、3、7、11、15 ms 相位。60 Hz sweep 不属于默认回归，

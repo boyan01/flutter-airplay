@@ -68,13 +68,20 @@ int main() {
                 ++frames; video_width = w; video_height = h;
             }, [](const char *) {}
         });
-        check(video->decode({{std::begin(landscape), std::end(landscape)}, due, 7}), "decode landscape H.264");
+        // Presentation is scheduled separately from decoding. Use monotonic
+        // deadlines and drain completed pictures before checking host callbacks.
+        const auto decode_video = [&](const uint8_t* bytes, size_t size) {
+            const bool good = video->decode({{bytes, bytes + size}, monotonic_ns(), 7});
+            video->drain();
+            return good;
+        };
+        check(decode_video(landscape, sizeof(landscape)), "decode landscape H.264");
         check(frames == 1 && video_width == landscape_width && video_height == landscape_height, "real landscape dimensions");
         video->reset();
         check(video->decode({{0,0,0,1,0x41,0x01}, due, 7}) && frames == 1, "reset waits for a keyframe");
-        check(video->decode({{std::begin(portrait), std::end(portrait)}, due, 7}), "decode portrait after reset");
+        check(decode_video(portrait, sizeof(portrait)), "decode portrait after reset");
         check(frames == 2 && video_width == landscape_height && video_height == landscape_width, "rotation creates new decoder dimensions");
-        check(video->decode({{std::begin(landscape), std::end(landscape)}, due, 7}), "changed SPS without explicit reset");
+        check(decode_video(landscape, sizeof(landscape)), "changed SPS without explicit reset");
         check(frames == 3 && video_width == landscape_width, "SPS change replaces decoder session");
         const auto directory = std::filesystem::temp_directory_path() / ("airplay-player-test-" + std::to_string(getpid()));
         std::filesystem::create_directories(directory);
