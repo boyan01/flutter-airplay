@@ -38,6 +38,8 @@ class MainFlutterWindow: NSWindow {
         case "closeWindow": self.close(); result(nil); return
         case "quitApp": NSApp.terminate(nil); result(nil); return
         case "desktopReady": self.desktopReady = true; result(true); return
+        case "getNativeWindowHandle":
+          result(Int(bitPattern: Unmanaged.passUnretained(self).toOpaque())); return
         case "setClosePolicy": self.hideOnClose = call.arguments as? Bool ?? false; result(nil); return
         case "setDockVisible":
           NSApp.setActivationPolicy(call.arguments as? Bool == true ? .regular : .accessory)

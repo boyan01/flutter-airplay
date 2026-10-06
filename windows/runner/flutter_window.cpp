@@ -52,7 +52,9 @@ bool FlutterWindow::OnCreate() {
     const auto& method = call.method_name();
     if (method == "quitApp") { quit_requested_ = true; PostMessageW(GetHandle(), WM_CLOSE, 0, 0); }
     else if (method == "closeWindow") PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
-    else if (method == "desktopReady") {
+    else if (method == "getNativeWindowHandle") {
+      result->Success(Value(static_cast<int64_t>(reinterpret_cast<intptr_t>(GetHandle())))); return;
+    } else if (method == "desktopReady") {
       desktop_ready_ = true; result->Success(Value(true)); return;
     } else if (method == "setClosePolicy") {
       hide_on_close_ = call.arguments() && std::holds_alternative<bool>(*call.arguments()) && std::get<bool>(*call.arguments());

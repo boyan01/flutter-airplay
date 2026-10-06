@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "window_channel.h"
 #include <cstring>
+#include <cstdint>
 
 WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window)
     : messenger_(FL_BINARY_MESSENGER(g_object_ref(messenger))),
@@ -48,7 +49,10 @@ bool WindowChannel::HideOnClose() {
 void WindowChannel::Handle(FlMethodCall* call) {
   const char* method = fl_method_call_get_name(call);
   auto* args = fl_method_call_get_args(call);
-  if (!std::strcmp(method, "desktopReady")) {
+  if (!std::strcmp(method, "getNativeWindowHandle")) {
+    g_autoptr(FlValue) handle = fl_value_new_int(static_cast<int64_t>(reinterpret_cast<intptr_t>(window_)));
+    fl_method_call_respond_success(call, handle, nullptr); return;
+  } else if (!std::strcmp(method, "desktopReady")) {
     ready_ = true;
     g_autoptr(FlValue) ready = fl_value_new_bool(true);
     fl_method_call_respond_success(call, ready, nullptr); return;

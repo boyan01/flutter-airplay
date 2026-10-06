@@ -9,38 +9,36 @@ endif()
 get_filename_component(windows_host "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 get_filename_component(project_root "${windows_host}/.." ABSOLUTE)
 # Shared plist configuration is used by both the product and control-only tests.
-function(airplay_configure_windows_plist standalone)
+function(airplay_configure_windows_plist)
   target_include_directories(plist PRIVATE "${windows_host}/compat")
   target_compile_definitions(plist PUBLIC LIBPLIST_STATIC)
   target_compile_definitions(plist PRIVATE WIN32 NOMINMAX WIN32_LEAN_AND_MEAN
     _WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000 _CRT_SECURE_NO_WARNINGS)
-  if(standalone)
-    target_sources(plist PRIVATE "${windows_host}/compat/posix.c")
-    set_source_files_properties("${windows_host}/compat/posix.c" PROPERTIES COMPILE_DEFINITIONS AIRPLAY_POSIX_IMPLEMENTATION=1)
-    target_link_libraries(plist PRIVATE ws2_32 dnsapi advapi32 crypt32)
-  endif()
+  # libplist calls strndup and airplay_fopen, including when its consumer does
+  # not link receiver_core. Keep their implementation with the dependency.
+  target_sources(plist PRIVATE "${windows_host}/compat/posix.c")
+  set_source_files_properties("${windows_host}/compat/posix.c" PROPERTIES COMPILE_DEFINITIONS AIRPLAY_POSIX_IMPLEMENTATION=1)
+  target_link_libraries(plist PRIVATE ws2_32)
   get_target_property(plist_sources plist SOURCES)
   set_property(SOURCE ${plist_sources} APPEND PROPERTY COMPILE_OPTIONS
     "/FI${windows_host}/compat/posix.h" "/clang:-std=gnu11")
 endfunction()
 if(AIRPLAY_CONTROL_ONLY)
-  airplay_configure_windows_plist(TRUE)
+  airplay_configure_windows_plist()
   target_compile_definitions(airplay_receiver_control PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
     _WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000 _CRT_SECURE_NO_WARNINGS)
   return()
 endif()
-airplay_configure_windows_plist(FALSE)
+airplay_configure_windows_plist()
 get_target_property(receive_sources receiver_core SOURCES)
 list(FILTER receive_sources EXCLUDE REGEX "[/\\]dnssd\\.c$")
 set_property(TARGET receiver_core PROPERTY SOURCES "${receive_sources}")
 target_sources(receiver_core PRIVATE
-  "${project_root}/native/backends/windows/windows_dnssd.cpp"
-  "${windows_host}/compat/posix.c")
-set_source_files_properties("${windows_host}/compat/posix.c" PROPERTIES COMPILE_DEFINITIONS AIRPLAY_POSIX_IMPLEMENTATION=1)
+  "${project_root}/native/backends/windows/windows_dnssd.cpp")
 target_include_directories(receiver_core PRIVATE "${windows_host}/compat")
 # Visual Studio evaluates target language options as C++ for mixed targets.
 # Apply the POSIX adapter to C files without changing the DNS-SD C++ source.
-set_property(SOURCE ${receive_sources} "${windows_host}/compat/posix.c"
+set_property(SOURCE ${receive_sources}
   APPEND PROPERTY COMPILE_OPTIONS
     "/FI${windows_host}/compat/posix.h" "/clang:-std=gnu11")
 set(airplay_windows_targets receiver_core plist llhttp playfair airplay_player airplay_receiver_control airplay_protocol)

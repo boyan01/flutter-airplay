@@ -252,6 +252,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     _frameDiagnostics.dispose();
     _window.listen(null);
     _desktop.dispose();
+    unawaited(_window.releaseNativeWindow());
     model.removeListener(_changed);
     _homeFocus.dispose();
     model.dispose();

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:ffi' as ffi;
 import 'dart:math' as math;
 import 'dart:ui' show isRunningOnPlatformThread, runOnPlatformThread;
 
@@ -52,6 +53,19 @@ class WindowController {
 
   final Future<void> Function(void Function(native.Window)) withWindow;
   static const _channel = MethodChannel('tech.soit.flutterairplay/window');
+  static Future<int>? _applicationWindowHandle;
+  static native.Window? _applicationWindow;
+
+  static Future<int> _getApplicationWindowHandle() async {
+    final handle = await _channel.invokeMethod<int>('getNativeWindowHandle');
+    if (handle == null || handle == 0) {
+      throw PlatformException(
+        code: 'window_unavailable',
+        message: 'The application window has not been created',
+      );
+    }
+    return handle;
+  }
 
   Future<void> execute(WindowCommand command) async {
     switch (command) {
@@ -94,34 +108,72 @@ class WindowController {
     }
   }
 
-  static Future<void> _withNativeWindow(void Function(native.Window) action) {
+  static Future<void> _withNativeWindow(
+    void Function(native.Window) action,
+  ) async {
     // AppKit can synchronously deliver another engine frame while resizing.
     // Leave Flutter's begin/draw frame pair before entering a native window call.
     if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
-      return Future<void>(() => _withNativeWindow(action));
+      await Future<void>(() => _withNativeWindow(action));
+      return;
+    }
+    // Bind the runner's window once. An active-window query cannot find a
+    // hidden window, and can target a different window when focus changes.
+    late int handle;
+    if (_applicationWindow == null) {
+      final handleFuture = _applicationWindowHandle ??=
+          _getApplicationWindowHandle();
+      try {
+        handle = await handleFuture;
+      } catch (_) {
+        if (identical(_applicationWindowHandle, handleFuture)) {
+          _applicationWindowHandle = null;
+        }
+        rethrow;
+      }
+    }
+    // The host lookup can complete during a new frame. Check again after the
+    // asynchronous boundary before calling APIs that can pump OS messages.
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      await Future<void>(() => _withNativeWindow(action));
+      return;
     }
     void apply() {
-      final window = native.WindowManager.instance.getCurrent();
+      final window = _applicationWindow ??=
+          native.Window.createWithNativeWindow(
+            ffi.Pointer<ffi.Void>.fromAddress(handle),
+          );
       if (window == null) {
         throw PlatformException(
           code: 'window_unavailable',
           message: 'No application window is available',
         );
       }
-      try {
-        action(window);
-      } finally {
-        window.dispose();
-      }
+      action(window);
     }
 
     // Merged engines already run Dart on the platform thread. Their platform
     // isolate support can be disabled, so do not call runOnPlatformThread there.
     if (isRunningOnPlatformThread) {
       apply();
-      return Future.value();
+      return;
     }
-    return runOnPlatformThread(apply);
+    await runOnPlatformThread(apply);
+  }
+
+  Future<void> releaseNativeWindow() async {
+    if (withWindow != _withNativeWindow) return;
+    _applicationWindowHandle = null;
+    void release() {
+      _applicationWindow?.dispose();
+      _applicationWindow = null;
+    }
+
+    if (isRunningOnPlatformThread) {
+      release();
+    } else {
+      await runOnPlatformThread(release);
+    }
   }
 
   Future<void> setPlaybackOrientation({

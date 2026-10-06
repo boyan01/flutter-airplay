@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show isRunningOnPlatformThread;
 
@@ -26,7 +27,15 @@ void main() {
         isTrue,
         reason: 'Desktop FFI window calls require the platform thread',
       );
+      late int hostHandle;
       await const WindowController().withWindow((window) {
+        hostHandle = window.nativeObject.address;
+        expect(hostHandle, greaterThan(0));
+        window.hide();
+      });
+      await const WindowController().withWindow((window) {
+        expect(window.nativeObject.address, hostHandle);
+        expect(window.isVisible, isFalse);
         window.show();
         window.focus();
       });
@@ -68,8 +77,8 @@ void main() {
       await tester.tap(find.byKey(const Key('closeSettings')));
       await tester.pumpAndSettle();
 
-      final window = native.WindowManager.instance.getCurrent()!;
-      addTearDown(window.dispose);
+      late native.Window window;
+      await const WindowController().withWindow((value) => window = value);
       addTearDown(backend.controller.close);
 
       Future<void> waitForFullscreen(bool target) async {
@@ -115,7 +124,8 @@ void main() {
     final model = ReceiverModel(backend);
     await model.initialize();
     const controller = WindowController();
-    final nativeWindow = native.WindowManager.instance.getCurrent()!;
+    late native.Window nativeWindow;
+    await controller.withWindow((value) => nativeWindow = value);
     final errors = <PlatformException>[];
     late DesktopPresentation presentation;
     presentation = DesktopPresentation(
@@ -139,7 +149,7 @@ void main() {
     addTearDown(() {
       controller.listen(null);
       presentation.dispose();
-      nativeWindow.dispose();
+      unawaited(controller.releaseNativeWindow());
       model.dispose();
     });
     addTearDown(backend.controller.close);

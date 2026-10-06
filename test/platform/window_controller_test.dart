@@ -26,6 +26,32 @@ void main() {
   });
 
   test(
+    'missing host window is reported and its lookup can be retried',
+    () async {
+      var requests = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            expect(call.method, 'getNativeWindowHandle');
+            requests++;
+            return requests == 1 ? null : 0;
+          });
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await expectLater(
+          const WindowController().withWindow((_) => fail('No host window')),
+          throwsA(
+            isA<PlatformException>().having(
+              (error) => error.code,
+              'code',
+              'window_unavailable',
+            ),
+          ),
+        );
+      }
+      expect(requests, 2);
+    },
+  );
+
+  test(
     'fullscreen toggles and explicit targets use the same native window',
     () async {
       await controller.execute(WindowCommand.toggleFullscreen);

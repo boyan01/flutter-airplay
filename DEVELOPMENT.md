@@ -375,6 +375,7 @@ Linux 托盘可用性按 `TrayManager.isSupported()` 判断，不再依赖 Ayata
 
 真实桌面回归：`flutter test -d macos integration_test/desktop_window_test.dart`。
 同一用例也可选择 `windows` 或 `linux`；验证标题栏不参与导航、反复进入/退出全屏、
+窗口隐藏后仍通过 runner 提供的固定原生句柄恢复（不依赖活动窗口查询）、
 视频比例/旋转/原始像素尺寸、置顶、播放在全屏中结束、关闭到托盘、连接后显示和延迟隐藏。
 Swift / GTK 原生窗口 fixture 只检查剩余的关闭与状态桥接。
 共享标题栏位于 `MaterialApp.builder` 的导航外层；页面和弹层只更新下面的内容。

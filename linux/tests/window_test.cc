@@ -2,6 +2,7 @@
 // GTK only bridges lifecycle; nativeapi geometry/tray run in Flutter integration tests.
 #include "host_test_support.h"
 #include "linux/runner/window_channel.h"
+#include <cstdint>
 
 namespace {
 void Command(TestMessenger* messenger, const char* method, FlValue* args = nullptr) {
@@ -15,6 +16,13 @@ void WindowTest() {
   gtk_widget_show(GTK_WIDGET(window));
   {
     WindowChannel channel(FL_BINARY_MESSENGER(messenger), window);
+    gtk_widget_hide(GTK_WIDGET(window));
+    g_autoptr(FlMethodResponse) handle_response =
+        FinishCall(BeginCall(messenger, kWindow, "getNativeWindowHandle", nullptr));
+    g_assert_true(FL_IS_METHOD_SUCCESS_RESPONSE(handle_response));
+    auto* handle = fl_method_success_response_get_result(FL_METHOD_SUCCESS_RESPONSE(handle_response));
+    g_assert_cmpint(fl_value_get_int(handle), ==, reinterpret_cast<intptr_t>(window));
+    gtk_widget_show(GTK_WIDGET(window));
     g_assert_false(channel.HideOnClose());
     Command(messenger, "desktopReady");
     g_autoptr(FlValue) hide = fl_value_new_bool(true);
