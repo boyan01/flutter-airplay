@@ -60,3 +60,19 @@ OpenSSL and libplist libraries. It does not vendor those sources or use FDK-AAC.
 Dependency licensing and distribution requirements are recorded in
 [NOTICE](linux/NOTICE). Preserve the exact notices and licenses of any packages
 included in a distribution; installed system libraries remain runtime dependencies.
+
+## Windows installer and runtime
+
+The Windows installer is built with Inno Setup 6.6 or newer. CI pins version 6.7.3.
+Source: https://github.com/jrsoftware/issrc. The upstream Inno Setup license is
+retained in [Inno-LICENSE.txt](windows/installer/Inno-LICENSE.txt).
+The unmodified Simplified Chinese translation in
+[ChineseSimplified.isl](windows/installer/ChineseSimplified.isl) comes from upstream
+commit `16839f1de8cc6e770246260e50557d141f5fa961`, file
+`Files/Languages/ChineseSimplified.isl`; its maintainer notices are preserved.
+
+The installer includes app-local x64 Microsoft Visual C++ CRT DLLs copied from
+Visual Studio 2022's `VC/Redist/MSVC/<version>/x64/Microsoft.VC143.CRT` directory.
+These binaries remain subject to Microsoft's Visual Studio redistribution terms:
+https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution.
+The package does not replace system runtime libraries.

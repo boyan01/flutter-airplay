@@ -19,6 +19,7 @@ Without a target, run the current OS's basic native suite.
       player is the default; video checks platform and FFmpeg decoders.
       Run existing fixtures prepared by build_native.ps1 -Tests.
       texture uses windows_texture_test built in the Flutter Windows project.
+      installer <setup.exe> checks install, upgrade, startup and uninstall.
       Invoke this script with Bash from the configured Windows toolchain.
   android [host|rtp|player [--full]|kotlin]
       host is the default; RTP is separate to avoid duplicate host runs.
@@ -306,6 +307,11 @@ windows_tests() {
     local suite=player
     if [[ $# -gt 0 && "$1" != -* ]]; then suite="$1"; shift; fi
     local test_args=(--no-tests=error)
+    if [[ "$suite" == installer ]]; then
+        [[ $# -eq 1 ]] || fail 'Usage: scripts/test_native.sh windows installer <setup.exe>'
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$project_root/windows/scripts/test_installer.ps1" -Installer "$1"
+        return
+    fi
     if [[ "$suite" == texture ]]; then
         [[ -f "$project_root/build/windows/x64/CTestTestfile.cmake" ]] ||
             fail 'Prepare the Windows host with flutter build windows --debug first.'

@@ -4,7 +4,7 @@
 #include "../../native/include/airplay/receiver.h"
 #include "../../native/backends/windows/windows_video.h"
 #include "gpu_video_texture.h"
-#include <flutter/json_message_codec.h>
+#include "receiver_json.h"
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <shlobj.h>
@@ -97,13 +97,10 @@ struct ReceiverBridge::Impl {
     std::filesystem::path directory;
     std::array<uint8_t, 6> identity{};
     static std::string encode(const Map &value) {
-        auto data = flutter::JsonMessageCodec::GetInstance().EncodeMessage(Value(value));
-        return std::string(data->begin(), data->end());
+        return receiver_json::encode(value);
     }
     static Map decode(const char *value) {
-        auto result = flutter::JsonMessageCodec::GetInstance().DecodeMessage(
-            reinterpret_cast<const uint8_t *>(value), strlen(value));
-        return result && std::holds_alternative<Map>(*result) ? std::get<Map>(*result) : Map{};
+        return receiver_json::decode(value);
     }
     Impl(HWND target, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *registrar,
          std::function<void(const Map &)> callback, IDXGIAdapter *adapter)

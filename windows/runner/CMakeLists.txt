@@ -37,7 +37,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "windowsapp.lib")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/PlayerImport.cmake")
 target_link_libraries(${BINARY_NAME} PRIVATE airplay_player_import shell32 bcrypt ole32 advapi32 gdi32 comctl32)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
@@ -49,9 +49,10 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 # after Flutter has prepared the Windows project; exclude it from app packaging.
 add_executable(windows_texture_test EXCLUDE_FROM_ALL "../tests/texture_test.cpp")
 apply_standard_settings(windows_texture_test)
+target_compile_options(windows_texture_test PRIVATE /utf-8)
 target_compile_definitions(windows_texture_test PRIVATE NOMINMAX)
 target_include_directories(windows_texture_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../native/include/airplay")
-target_link_libraries(windows_texture_test PRIVATE flutter_wrapper_plugin d3d11 dxgi)
+target_link_libraries(windows_texture_test PRIVATE flutter_wrapper_plugin d3d11 dxgi windowsapp)
 add_test(NAME windows_texture COMMAND windows_texture_test)
 set_tests_properties(windows_texture PROPERTIES TIMEOUT 15 SKIP_RETURN_CODE 77)

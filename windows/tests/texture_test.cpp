@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "gpu_video_texture.h"
+#include "receiver_json.h"
 #include <cstdio>
 #include <stdexcept>
 
@@ -19,6 +20,19 @@ ComPtr<ID3D11Texture2D> make_texture(ID3D11Device *device, UINT width, UINT heig
 }
 int main() {
     try {
+        winrt::init_apartment(winrt::apartment_type::single_threaded);
+        const auto snapshot = receiver_json::decode(
+            "{\"type\":\"snapshot\",\"data\":{\"videoWidth\":1920,\"textureId\":4294967296,"
+            "\"launchAtLogin\":true,\"name\":\"投屏\\n\\\"PC\\\"\",\"logs\":[null,0.5]}}");
+        const auto roundtrip = receiver_json::decode(receiver_json::encode(snapshot).c_str());
+        check(roundtrip == snapshot, "Receiver JSON preserves nested values and Unicode");
+        const auto& data = std::get<receiver_json::Map>(snapshot.at(receiver_json::Value("data")));
+        check(std::get<int64_t>(data.at(receiver_json::Value("videoWidth"))) == 1920,
+              "Snapshot dimensions remain integers");
+        check(std::get<int64_t>(data.at(receiver_json::Value("textureId"))) == 4294967296LL,
+              "Snapshot identifiers retain 64-bit values");
+        check(receiver_json::decode("invalid").empty() && receiver_json::decode("[]").empty(),
+              "Invalid receiver JSON does not produce a snapshot");
         ComPtr<ID3D11Device> device;
         if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
             D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, nullptr))) {

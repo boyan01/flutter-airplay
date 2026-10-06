@@ -20,6 +20,9 @@ Android、macOS、Windows、Linux 和 iPhone／iPad 共用象牙白色的屏幕�
   商店图标。背景完全不透明，系统负责圆角裁切。
 - Windows：`windows/runner/resources/app_icon.ico`，包含 16、24、32、48、64、
   128、256 px 的 PNG 图层，由现有 `Runner.rc` 打包。
+  Inno Setup 的侧栏和页头通过 `windows/scripts/installer_artwork.ps1` 复用此图标，
+  配合现有青绿色渐变生成高分辨率 PNG；输出位于 ignored 的
+  `build/distribution/windows/artwork/`，无需生成新原图。
 - Linux：`linux/icons/tech.soit.flutterairplay.png`，512 px，使用圆角背景。
   GTK 从应用 bundle 加载窗口图标；CMake 同时打包 desktop entry 和 hicolor 图标，
   供桌面环境注册使用。桌面入口的 `Exec` 依赖 `flutter_airplay` 位于 PATH，

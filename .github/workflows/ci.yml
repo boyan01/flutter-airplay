@@ -173,7 +173,7 @@ jobs:
           retention-days: 7
 
   windows:
-    name: Windows native and Debug app
+    name: Windows native, Debug app and Setup
     needs: quality
     if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.windows == 'true'
     runs-on: windows-2022
@@ -229,6 +229,42 @@ jobs:
             build/windows-native/Testing/Temporary/
             build/windows/x64/Testing/Temporary/
           retention-days: 7
+
+      - name: Prepare Inno Setup compiler
+        shell: powershell
+        run: |
+          $compilerSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $compilerSetup
+          if ((Get-FileHash $compilerSetup -Algorithm SHA256).Hash -ne '9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732') {
+            throw 'Inno Setup compiler download SHA-256 mismatch.'
+          }
+          $compilerDir = Join-Path $env:RUNNER_TEMP 'inno-6.7.3'
+          $process = Start-Process -FilePath $compilerSetup -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER /PORTABLE=1 /NOICONS /DIR=`"$compilerDir`"" -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Inno Setup portable compiler preparation failed.' }
+          "AIRPLAY_ISCC=$compilerDir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build Windows Release installer
+        env:
+          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
+          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
+        run: ./windows/scripts/package_windows.ps1 -InnoCompiler $env:AIRPLAY_ISCC
+      - name: Verify install, upgrade, startup and uninstall
+        shell: bash
+        run: ./scripts/test_native.sh windows installer build/distribution/windows/Flutter-AirPlay-*-windows-x64-setup.exe
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: windows-installer-logs
+          path: artifacts/windows-installer-smoke/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-x64-setup
+          path: |
+            build/distribution/windows/*-setup.exe
+            build/distribution/windows/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
 
   android:
     name: Android JNI, host, Kotlin and Debug app

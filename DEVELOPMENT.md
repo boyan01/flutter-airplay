@@ -501,10 +501,27 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 | macOS | `./scripts/package_macos.sh` | `build/distribution/macos/` 下的 app、ZIP、SHA256；内部调用原生及 Release 构建，并进行 ad-hoc 签名和审计 |
 | Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；本地使用 debug signing |
 | iPad 编译检查 | `flutter build ios --release --no-codesign` | 无签名设备构建，不能安装；可用 `flutter build ios --simulator --debug --no-codesign` 检查模拟器编译 |
-| Windows | `flutter build windows --release` | `build/windows/x64/runner/Release/`；保留整个目录、原生 DLL 和 FFmpeg 运行时；缺少依赖时打包失败 |
+| Windows | `powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/package_windows.ps1` | `build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe` 和 `SHA256SUMS`；自动构建 Release、校验并打包完整运行时 |
 | Linux | `flutter build linux --release` | `build/linux/x64/release/bundle/`；保留整个目录及 `data/`、`lib/`，系统动态依赖另行安装 |
 
 macOS 包无需 Homebrew 运行时；Developer ID 签名与公证是额外分发步骤。
+Windows 安装包要求 Inno Setup 6.6+，可用 `winget install --id JRSoftware.InnoSetup -e -s winget`
+安装，或为脚本传入 `-InnoCompiler 'C:\path\ISCC.exe'`。`-SkipBuild` 仅复用已生成、版本号与
+`pubspec.yaml` 一致的 Release bundle；原生代码改动后应使用默认构建流程。
+编译器也可通过 `AIRPLAY_ISCC` 指定；脚本优先使用该路径和
+`windows/.cache/tools/inno-6.7.3/ISCC.exe` 中的本地编译器，再检测系统安装和 PATH。
+安装向导使用 Windows 11 风格，随系统切换深浅色，支持英文／简体中文、许可确认、安装位置、
+可选桌面快捷方式、进度和完成后启动。默认安装到当前用户的
+`%LOCALAPPDATA%\Programs\Flutter AirPlay`，无需管理员权限；升级使用固定 AppId，
+卸载保留用户配置与配对数据，仅清理指向本安装目录的登录启动项。
+VC++ x64 CRT 从本机 Visual Studio 2022 可再分发目录复制到应用目录，安装时无需下载依赖。
+不自动修改防火墙；首次接收时按系统提示允许本地网络访问。Windows N 仍需 Media Feature Pack。
+Windows CI 在通过 Debug／原生回归后使用固定的 Inno Setup 6.7.3 编译并上传
+`windows-x64-setup` artifact；打包产物目前未签名，正式分发的 Authenticode 签名另行配置。
+`bash scripts/test_native.sh windows installer build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe`
+验证英文静默安装、中文覆盖升级、安装文件、Release 进程启动和卸载；先退出应用，
+且当前用户不能已有正式安装。用例安装到 `artifacts/windows-installer-smoke/app`，
+结束时卸载，日志保存在同一个 ignored 目录。它验证安装生命周期，不替代向导页面的人工检查。
 Android 授权更新使用同一 application ID/签名的 `adb install -r` 保留数据。
 Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及相关共享库，不启用 GPL/nonfree
 或外部 codec，包内包含固定来源和构建配置。Linux 系统依赖许可见 [NOTICE](linux/NOTICE)。

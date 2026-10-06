@@ -51,6 +51,11 @@ private:
 // Bounded SPSC PCM queue. Only the decoder writes; one output callback or writer reads.
 // Per-frame deadlines preserve silence, clock changes and device output latency.
 // FLUSH invalidates old frames by generation without racing either ring index.
+#ifdef _MSC_VER
+#pragma warning(push)
+// The queue indices deliberately occupy separate cache lines.
+#pragma warning(disable: 4324)
+#endif
 class AudioBuffer {
 public:
     explicit AudioBuffer(size_t capacity = 131072) : frames_(capacity), capacity_(capacity) {}
@@ -106,4 +111,7 @@ private:
     std::atomic<float> gain_{1};
     std::atomic<uint64_t> late_drops_{0}, stale_drops_{0};
 };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 } // namespace airplay
