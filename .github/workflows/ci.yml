@@ -150,7 +150,7 @@ jobs:
             libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
             libpulse-dev libavahi-client-dev libepoxy-dev libffmpeg-nvenc-dev \
             libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
-            xvfb dbus-x11 openbox xdotool
+            xvfb dbus-x11 at-spi2-core openbox xdotool
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
