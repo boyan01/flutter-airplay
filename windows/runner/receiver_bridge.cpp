@@ -35,10 +35,6 @@ std::string string(const Map &args, const char *key, const std::string &fallback
     return found != args.end() && std::holds_alternative<std::string>(found->second)
         ? std::get<std::string>(found->second) : fallback;
 }
-bool bool_argument(const Map &args, const char *key, bool fallback) {
-    const auto found = args.find(Value(key));
-    return found != args.end() && std::holds_alternative<bool>(found->second) ? std::get<bool>(found->second) : fallback;
-}
 std::string utf8(const std::wstring &value) {
     const int count = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
     std::string result(count, '\0');
@@ -144,13 +140,6 @@ struct ReceiverBridge::Impl {
                 ? self->gpu_frames->diagnostics() : self->pixels->diagnostics();
             if (!report.empty()) snprintf(output, capacity, "%s", report.c_str());
         };
-        hooks.preferences = [](void *, const char *json, char *error, size_t capacity) {
-            const bool login = bool_argument(decode(json), "launchAtLogin", false);
-            if (login != login_enabled() && !set_login(login)) {
-                snprintf(error, capacity, "Cannot update login startup registration"); return false;
-            }
-            return true;
-        };
         hooks.event = [](void *context, const char *json) {
             auto *self = static_cast<Impl *>(context); const auto event = decode(json);
             const auto found = event.find(Value("data"));
@@ -232,39 +221,6 @@ struct ReceiverBridge::Impl {
             }
 
         }
-    }
-    static std::wstring login_command() {
-        std::wstring path(32768, L'\0');
-        const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-        if (!length || length >= path.size()) return {};
-        path.resize(length); return L"\"" + path + L"\"";
-    }
-    static bool login_enabled() {
-        DWORD size = 0;
-        constexpr auto key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        if (RegGetValueW(HKEY_CURRENT_USER, key, L"FlutterAirPlay", RRF_RT_REG_SZ, nullptr, nullptr, &size) != ERROR_SUCCESS
-            || size > 65536 || size < sizeof(wchar_t)) return false;
-        std::wstring value(size / sizeof(wchar_t), L'\0');
-        if (RegGetValueW(HKEY_CURRENT_USER, key, L"FlutterAirPlay", RRF_RT_REG_SZ, nullptr, value.data(), &size) != ERROR_SUCCESS) return false;
-        value.resize(wcslen(value.c_str())); return value == login_command();
-    }
-    static bool set_login(bool enabled) {
-        HKEY key = nullptr;
-        constexpr auto path = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        auto error = enabled
-            ? RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr)
-            : RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_SET_VALUE, &key);
-        if (!enabled && error == ERROR_FILE_NOT_FOUND) return true;
-        if (error != ERROR_SUCCESS) return false;
-        if (enabled) {
-            const auto command = login_command();
-            error = command.empty() ? ERROR_INVALID_DATA : RegSetValueExW(key, L"FlutterAirPlay", 0, REG_SZ,
-                reinterpret_cast<const BYTE *>(command.c_str()), static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
-        } else {
-            error = RegDeleteValueW(key, L"FlutterAirPlay");
-            if (error == ERROR_FILE_NOT_FOUND) error = ERROR_SUCCESS;
-        }
-        RegCloseKey(key); return error == ERROR_SUCCESS;
     }
 
 };

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../app/app_logging.dart';
 import '../receiver/receiver_model.dart';
 import '../platform/window_controller.dart';
+import '../platform/launch_at_login.dart';
 import '../platform/desktop_presentation.dart';
 import 'widgets/receiver_strings.dart';
 import 'home/home_page.dart';
@@ -19,12 +20,14 @@ class ReceiverScreen extends StatefulWidget {
   const ReceiverScreen({
     super.key,
     required this.model,
+    this.launchAtLogin = const LaunchAtLogin(),
     this.window = const WindowController(),
     this.onControlsVisibility,
     this.onDialogVisibility,
     this.onWindowExpanded,
   });
   final ReceiverModel model;
+  final LaunchAtLogin launchAtLogin;
   final WindowController window;
   final ValueChanged<bool>? onControlsVisibility,
       onDialogVisibility,
@@ -325,7 +328,12 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     if (_dialogOpen || !model.loaded) return;
     setState(() => _dialogOpen = true);
     widget.onDialogVisibility?.call(true);
-    final page = SettingsPage(model: model, editName: editName, onLogs: _logs);
+    final page = SettingsPage(
+      model: model,
+      editName: editName,
+      onLogs: _logs,
+      launchAtLogin: widget.launchAtLogin,
+    );
     if (model.supportsWindowPreferences) {
       await showGeneralDialog<void>(
         context: context,

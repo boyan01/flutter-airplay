@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../receiver/receiver_model.dart';
 import '../platform/window_controller.dart';
+import '../platform/launch_at_login.dart';
 import '../ui/receiver_screen.dart';
 import '../ui/widgets/desktop_window_bar.dart';
 import '../ui/tv_focus.dart';
@@ -15,10 +16,12 @@ class ReceiverApp extends StatefulWidget {
   const ReceiverApp({
     super.key,
     required this.model,
+    this.launchAtLogin = const LaunchAtLogin(),
     this.systemFonts = const SystemFonts(),
     this.window = const WindowController(),
   });
   final ReceiverModel model;
+  final LaunchAtLogin launchAtLogin;
   final WindowController window;
   final SystemFonts systemFonts;
 
@@ -150,6 +153,7 @@ class _ReceiverAppState extends State<ReceiverApp> {
       themeMode: model.isTelevision ? ThemeMode.dark : ThemeMode.system,
       home: ReceiverScreen(
         model: model,
+        launchAtLogin: widget.launchAtLogin,
         window: window,
         onControlsVisibility: (visible) {
           if (mounted && _controlsVisible != visible) {

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../receiver/receiver_model.dart';
 import '../../platform/window_controller.dart';
+import '../../platform/launch_at_login.dart';
 import '../widgets/receiver_strings.dart';
 import '../widgets/receiver_name_field.dart';
 import '../tv_focus.dart';
@@ -19,15 +20,18 @@ import 'video_quality_page.dart';
 import 'audio_output_page.dart';
 
 import 'settings_labels.dart';
+import 'launch_at_login_tile.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
     required this.model,
+    this.launchAtLogin = const LaunchAtLogin(),
     required this.editName,
     required this.onLogs,
   });
   final ReceiverModel model;
+  final LaunchAtLogin launchAtLogin;
   final bool editName;
   final VoidCallback onLogs;
   @override
@@ -247,16 +251,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 : null,
           ),
         if (desktop) ...[
-          _option(
-            'launchAtLogin',
-            l10n(context).launchAtLogin,
-            enabled: model.supportsLaunchAtLogin,
-          ),
-          if (!model.supportsLaunchAtLogin && model.platform == 'macos')
-            Text(
-              l10n(context).loginUnavailable,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+          LaunchAtLoginTile(service: widget.launchAtLogin),
           _option(
             'keepInMenuBar',
             model.platform != 'macos'

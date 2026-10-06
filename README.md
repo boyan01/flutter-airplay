@@ -106,11 +106,11 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 - **Video Quality Preference**: Choose from **Match Native**, **720p**, **1080p**, **1440p**, or **4K (2160p)**.
   - "Match Native" queries your display resolution and decoder limits to request optimal dimensions.
   - Resolution changes take effect immediately during standby, or seamlessly after the active streaming session ends.
-- **Desktop Preferences (macOS & Windows)**:
+- **Desktop Preferences (macOS, Windows & Linux)**:
   - **Always on Top**: Keeps player window pinned above other desktop applications.
   - **Show / Fullscreen on Connect**: Automatically brings window to front or enters fullscreen upon stream arrival.
   - **System Tray / Menu Bar**: Keeps receiver running quietly in the background when the main window is closed.
-  - **Launch at Login**: Starts receiver service automatically on OS startup.
+  - **Open at Login**: Off by default. Opens the application after desktop sign-in, not a pre-login boot service. “Receive automatically on launch” controls whether reception starts. The switch reads system registration; opening the app or saving other settings never re-enables it. macOS requires 13+ and may require approval in System Settings → General → Login Items. Windows uses the installed executable; keep portable bundles at a fixed path. Linux requires an XDG-autostart-compatible desktop session, honors `XDG_CONFIG_HOME`, and registers the permanent AppImage path when applicable. Moving/deleting a bundle breaks registration; toggle off before moving it and on again afterward. Use Refresh startup status after changing system settings.
 - **Android Background Reception**:
   - Requires **Notification Permission** (Android 13+) to post the persistent foreground service notice.
   - Enable **"Display over other apps"** in system settings to allow Flutter AirPlay to automatically open when mirroring starts from the background.
