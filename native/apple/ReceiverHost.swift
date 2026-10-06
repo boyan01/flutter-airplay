@@ -4,7 +4,6 @@ import Darwin
 import CoreVideo
 #if os(macOS)
 import CoreGraphics
-import ServiceManagement
 #else
 import UIKit
 import AVFAudio
@@ -151,20 +150,7 @@ final class ReceiverHost {
             guard let json = json else { return }
             Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue().onEvent?(ReceiverHost.decode(json))
         }
-#if os(macOS)
-        hooks.preferences = { _, json, output, capacity in
-            guard let json = json else { return false }
-            let requested = ReceiverHost.decode(json)["launchAtLogin"] as? Bool ?? false
-            do {
-                if #available(macOS 13.0, *) {
-                    if requested != (SMAppService.mainApp.status == .enabled) {
-                        if requested { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                    }
-                } else if requested { throw ReceiverFailure(message: "Login startup requires macOS 13 or later") }
-                return true
-            } catch { ReceiverHost.writeError(error.localizedDescription, output, capacity); return false }
-        }
-#else
+#if !os(macOS)
         hooks.publish = { context, generation, name, identity, port, video, videoSize, audio, audioSize, _, _ in
             let host = Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue()
             host.discoveryLock.lock(); host.published.removeAll(); host.discoveryLock.unlock()

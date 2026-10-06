@@ -55,7 +55,9 @@ Dart 接收控制通过 `native/include/airplay/receiver_ffi.h` 的一个 JSON �
 公共设置以 `ReceiverSettings` 表示，由 `ReceiverSettingsStore` 通过 `shared_preferences` 保存，
 使用独立的 `receiver.settings` key，不读取旧版平台配置。
 C++ 使用明确的设置结构和状态枚举持有运行时数据，JSON 只作为控制边界的数据格式。
-系统登录启动等选项仍通过平台 hook 应用。
+登录启动通过独立的 OS adapter 读取与显式修改，不再随接收器设置保存或启动回放。
+macOS/Windows 使用窗口 channel；Linux 使用单个 XDG autostart desktop entry。旧的
+`launchAtLogin` 接收器偏好只保留兼容字段，不作为系统状态来源或自动重新登记的依据。
 `native/receiver/` 保留接收行为和串行线程，只提供复制事件的出口。
 `native/ffi/` 订阅该出口并管理 Dart port、订阅及 JSON 完成消息；同步宿主接口不依赖 Dart。
 `native/protocol/` 转换 UxPlay 回调、管理连接及发现记录；`native/playback/` 负责
@@ -616,3 +618,27 @@ swift scripts/generate_icons.swift
 原生产物、缓存和 Flutter 构建产物保存在 ignored 输出目录。
 本地日志、截图、设备标识和单次验证报告保存在 ignored `artifacts/`。
 许可证文件和 `vendor/*/UPSTREAM.md` 维护来源信息，继续独立保留。
+
+### 登录启动验证与依赖选择
+
+`flutter test test/platform/launch_at_login_test.dart test/ui/launch_at_login_tile_test.dart`
+使用临时目录和 fake，不修改真实登录项。完整 `flutter test` 覆盖原有接收器和界面。
+真实打包验收还需分别在 macOS、Windows、Linux 登录会话中验证开关、退出/重登、
+系统外部禁用、路径带空格、移动安装目录和权限拒绝；Linux 云端不替代 Mac/Windows 验收。
+macOS 应使用固定位置的正常签名应用包；沙盒应用仍受系统登录项批准控制。
+Windows 当前 Inno Setup/便携分发继续使用 FlutterAirPlay Run value，与卸载清理保持一致；
+未来改成 MSIX 时需采用该分发方式的 StartupTask，不应照搬 Run value。
+Linux 不应从临时构建目录开启自启；AppImage 使用 APPIMAGE 而非临时挂载内的 executable。
+
+评估了 [launch_at_startup 0.5.1](https://pub.dev/packages/launch_at_startup)：
+Linux 实现固定写入 ~/.config、只检查文件存在且不转义 Exec；macOS 仍需额外原生 glue。
+为避免覆盖本项目已实现的 SMAppService，以及修补大部分 plugin Linux 行为，本次不新增依赖。
+[auto_start_flutter](https://pub.dev/packages/auto_start_flutter) 的背景任务/移动权限范围远大于此功能；
+autostart_settings 和 flutter_autostart 则主要针对 Android 权限，不适合这个桌面开关。
+Linux 文件遵循 [XDG Autostart](https://specifications.freedesktop.org/autostart/latest/)
+和 [Desktop Entry Exec 转义](https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html)。
+
+项目现有 nativeapi 0.4.0 也暴露 LaunchAtLogin API，但其 Linux IsEnabled 仅检查文件存在，
+Exec 转义未完整处理 Desktop Entry 两层规则，故本次未直接使用该 API。
+Linux 启动路径含 `%`、`=` 或控制字符时明确拒绝登记（GIO 对含 `%` 的 executable 解析有限制），
+请移动到常规固定安装路径后重试；不使用 shell 或 env 命令包装应用。

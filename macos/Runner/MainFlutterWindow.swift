@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Cocoa
 import FlutterMacOS
+import ServiceManagement
 
 class MainFlutterWindow: NSWindow {
   private var presentation: FlutterMethodChannel?
@@ -38,6 +39,8 @@ class MainFlutterWindow: NSWindow {
         case "closeWindow": self.close(); result(nil); return
         case "quitApp": NSApp.terminate(nil); result(nil); return
         case "desktopReady": self.desktopReady = true; result(true); return
+        case "getLaunchAtLogin", "setLaunchAtLogin":
+          self.handleLaunchAtLogin(call, result: result); return
         case "getNativeWindowHandle":
           result(Int(bitPattern: Unmanaged.passUnretained(self).toOpaque())); return
         case "setClosePolicy": self.hideOnClose = call.arguments as? Bool ?? false; result(nil); return
@@ -53,6 +56,44 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
     configureContentWindow()
     DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.configureApplication() }
+  }
+
+  private func handleLaunchAtLogin(_ call: FlutterMethodCall, result: FlutterResult) {
+    guard #available(macOS 13.0, *) else {
+      result(FlutterError(code: "unsupported",
+                          message: "Login startup requires macOS 13 or later", details: nil))
+      return
+    }
+    let service = SMAppService.mainApp
+    do {
+      if call.method == "setLaunchAtLogin" {
+        guard let enabled = call.arguments as? Bool else {
+          result(FlutterError(code: "invalid_arguments",
+                              message: "setLaunchAtLogin requires a boolean", details: nil))
+          return
+        }
+        if enabled {
+          // An approval-pending item is already registered. Only System Settings
+          // can approve it; do not reregister or claim it is enabled.
+          if service.status != .enabled && service.status != .requiresApproval {
+            try service.register()
+          }
+        } else if service.status != .notRegistered {
+          // requiresApproval is also a registered item and must be removable.
+          try service.unregister()
+        }
+      }
+      if service.status == .requiresApproval {
+        result(FlutterError(code: "approval_required",
+                            message: "Approve Flutter AirPlay in System Settings Login Items", details: nil))
+      } else {
+        result(service.status == .enabled)
+      }
+    } catch {
+      let nativeError = error as NSError
+      result(FlutterError(code: "launch_at_login_error", message: error.localizedDescription,
+                          details: ["domain": nativeError.domain, "code": nativeError.code]))
+    }
   }
 
   private func installPresentationObservers() {

@@ -329,7 +329,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get exitFullscreen => 'Exit Full Screen';
 
   @override
-  String get loginUnavailable => 'Opening at login requires macOS 13 or later';
+  String get loginUnavailable =>
+      'Login startup is unavailable on this system (macOS requires 13 or later).';
 
   @override
   String get audioPlaying => 'Audio playing';
@@ -476,4 +477,22 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get playbackStatsHelp =>
       'Submissions are not measured screen presentations. Drops exclude network loss.';
+
+  @override
+  String get launchAtLoginHelp =>
+      'Open this app after you sign in to your desktop. Keep the app in a permanent installation location. Receiving automatically is a separate option.';
+
+  @override
+  String get loginError =>
+      'Unable to read or change startup registration. Check system permissions and the installation location, then refresh.';
+
+  @override
+  String get loginNotApplied =>
+      'The system has not applied this change. Check Login Items or Startup Apps for approval, then refresh.';
+
+  @override
+  String get refreshLogin => 'Refresh startup status';
+
+  @override
+  String get cancelLoginRequest => 'Cancel startup request';
 }

@@ -109,7 +109,7 @@
   "selectAll": "Select All",
   "enterFullscreen": "Enter Full Screen",
   "exitFullscreen": "Exit Full Screen",
-  "loginUnavailable": "Opening at login requires macOS 13 or later",
+  "loginUnavailable": "Login startup is unavailable on this system (macOS requires 13 or later).",
   "@clientConnecting": {
     "placeholders": {
       "name": {
@@ -175,5 +175,10 @@
   "playbackStatsSubmitted": "Submitted frames",
   "playbackStatsPending": "Pending frames",
   "playbackStatsQueued": "Input queue",
-  "playbackStatsHelp": "Submissions are not measured screen presentations. Drops exclude network loss."
+  "playbackStatsHelp": "Submissions are not measured screen presentations. Drops exclude network loss.",
+  "launchAtLoginHelp": "Open this app after you sign in to your desktop. Keep the app in a permanent installation location. Receiving automatically is a separate option.",
+  "loginError": "Unable to read or change startup registration. Check system permissions and the installation location, then refresh.",
+  "loginNotApplied": "The system has not applied this change. Check Login Items or Startup Apps for approval, then refresh.",
+  "refreshLogin": "Refresh startup status",
+  "cancelLoginRequest": "Cancel startup request"
 }

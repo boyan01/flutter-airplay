@@ -1,3 +1,4 @@
+import 'package:flutter_airplay/platform/launch_at_login.dart';
 import 'package:flutter_airplay/app/receiver_app.dart';
 import 'package:flutter_airplay/ui/logs/logs_page.dart';
 import 'package:flutter_airplay/ui/settings/settings_page.dart';
@@ -10,6 +11,13 @@ import '../receiver/fake_receiver.dart';
 import '../platform/fake_window.dart';
 
 import 'package:flutter_airplay/platform/window_controller.dart';
+
+class _FakeLogin extends LaunchAtLogin {
+  @override
+  Future<bool> isEnabled() async => false;
+  @override
+  Future<bool> setEnabled(bool enabled) async => enabled;
+}
 
 void main() {
   Future<FakeReceiver> launch(
@@ -41,6 +49,7 @@ void main() {
     final window = FakeWindow(calls: windowCalls);
     await tester.pumpWidget(
       ReceiverApp(
+        launchAtLogin: _FakeLogin(),
         model: ReceiverModel(backend),
         window: WindowController(withWindow: (action) async => action(window)),
       ),
@@ -1648,7 +1657,7 @@ void main() {
           tester
               .widget<SwitchListTile>(find.byKey(const Key('launchAtLogin')))
               .onChanged,
-          platform == 'windows' ? isNotNull : isNull,
+          isNotNull,
         );
         for (final key in [
           'keepInMenuBar',

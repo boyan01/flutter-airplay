@@ -713,7 +713,7 @@ abstract class AppLocalizations {
   /// No description provided for @loginUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'Opening at login requires macOS 13 or later'**
+  /// **'Login startup is unavailable on this system (macOS requires 13 or later).'**
   String get loginUnavailable;
 
   /// No description provided for @audioPlaying.
@@ -985,6 +985,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Submissions are not measured screen presentations. Drops exclude network loss.'**
   String get playbackStatsHelp;
+
+  /// No description provided for @launchAtLoginHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Open this app after you sign in to your desktop. Keep the app in a permanent installation location. Receiving automatically is a separate option.'**
+  String get launchAtLoginHelp;
+
+  /// No description provided for @loginError.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to read or change startup registration. Check system permissions and the installation location, then refresh.'**
+  String get loginError;
+
+  /// No description provided for @loginNotApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'The system has not applied this change. Check Login Items or Startup Apps for approval, then refresh.'**
+  String get loginNotApplied;
+
+  /// No description provided for @refreshLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh startup status'**
+  String get refreshLogin;
+
+  /// No description provided for @cancelLoginRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel startup request'**
+  String get cancelLoginRequest;
 }
 
 class _AppLocalizationsDelegate

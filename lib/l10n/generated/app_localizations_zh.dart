@@ -323,7 +323,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get exitFullscreen => '退出全屏';
 
   @override
-  String get loginUnavailable => '登录启动需要 macOS 13 或更新版本';
+  String get loginUnavailable => '此系统不支持登录启动（macOS 需要 13 或更新版本）。';
 
   @override
   String get audioPlaying => '音频播放中';
@@ -462,4 +462,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get playbackStatsHelp => '提交不等于屏幕实际呈现。丢帧不包含网络丢包。';
+
+  @override
+  String get launchAtLoginHelp => '登录桌面后打开应用。请将应用保留在固定安装位置；自动接收由另一选项控制。';
+
+  @override
+  String get loginError => '无法读取或修改登录启动设置。请检查系统权限与安装位置，然后刷新。';
+
+  @override
+  String get loginNotApplied => '系统尚未应用此更改。请在登录项或启动应用设置中检查是否需要批准，然后刷新。';
+
+  @override
+  String get refreshLogin => '刷新启动状态';
+
+  @override
+  String get cancelLoginRequest => '取消启动登记';
 }

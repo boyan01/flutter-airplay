@@ -99,7 +99,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     String(value.get(), "defaultName", DefaultName()); String(value.get(), "buildTime", AIRPLAY_BUILD_TIME);
     Integer(value.get(), "screenWidth", screen_width); Integer(value.get(), "screenHeight", screen_height);
     auto* caps = fl_value_new_map(); String(caps, "platform", "linux");
-    Boolean(caps, "supportsExecutablePath", false); Boolean(caps, "supportsLaunchAtLogin", false);
+    Boolean(caps, "supportsExecutablePath", false); Boolean(caps, "supportsLaunchAtLogin", true);
     fl_value_set_string_take(value.get(), "capabilities", caps); return value;
   }
   void Create() {
@@ -148,11 +148,6 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     hooks.diagnostics = [](void* context, char* output, size_t capacity) {
       const auto report = static_cast<State*>(context)->texture->Diagnostics();
       if (!report.empty()) snprintf(output, capacity, "%s", report.c_str());
-    };
-    hooks.preferences = [](void*, const char* json, char* error, size_t capacity) {
-      auto value = Decode(json); auto* login = fl_value_lookup_string(value.get(), "launchAtLogin");
-      if (login && fl_value_get_bool(login)) { snprintf(error, capacity, "Launch at login is unsupported on Linux"); return false; }
-      return true;
     };
     hooks.event = [](void* context, const char* json) {
       auto* self = static_cast<State*>(context); auto event = Decode(json);
