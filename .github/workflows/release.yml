@@ -11,6 +11,7 @@ name: Release assets
     - 'scripts/package_*.py'
     - 'scripts/release_assets.py'
     - 'scripts/tests/test_*release*.py'
+    - 'scripts/tests/test_android_signing.py'
     - 'scripts/tests/test_linux_packaging.py'
     - 'android/app/build.gradle.kts'
     - 'windows/installer/**'
@@ -138,12 +139,12 @@ jobs:
     timeout-minutes: 60
     environment: android-release
     outputs:
-      signed: ${{ steps.package.outputs.signed }}
+      signed: ${{ steps.signing.outputs.configured }}
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       with:
         persist-credentials: false
-    - name: Check signing configuration
+    - name: Prepare Android signing key
       id: signing
       env:
         ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -151,15 +152,18 @@ jobs:
         ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       run: |
-        python3 - <<'PYTHON'
-        import os
-        names = ('ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD')
-        configured = [bool(os.environ.get(name)) for name in names]
-        if any(configured) and not all(configured):
-            raise SystemExit('Incomplete Android signing configuration; configure all four secrets.')
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-            output.write('configured=' + str(all(configured)).lower() + '\n')
-        PYTHON
+        if [[ -z "$ANDROID_KEYSTORE_BASE64" && -z "$ANDROID_KEYSTORE_PASSWORD" && -z "$ANDROID_KEY_ALIAS" && -z "$ANDROID_KEY_PASSWORD" ]]; then
+          echo 'configured=false' >> "$GITHUB_OUTPUT"
+          echo 'Android release skipped: signing secrets are not configured. No APK was packaged.' >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+          [[ -n "${!name}" ]] || { echo "Missing Android signing secret: $name" >&2; exit 1; }
+        done
+        umask 077
+        printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/airplay-release.keystore"
+        [[ -s "$RUNNER_TEMP/airplay-release.keystore" ]] || { echo 'Android keystore is empty.' >&2; exit 1; }
+        echo 'configured=true' >> "$GITHUB_OUTPUT"
     - name: Install host build dependencies
       if: steps.signing.outputs.configured == 'true'
       run: |
@@ -190,32 +194,36 @@ jobs:
         fi
         [[ -x "$sdkmanager" ]] || { echo 'Android SDK command-line tools are missing.' >&2; exit 1; }
         "$sdkmanager" "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-36' 'build-tools;36.0.0'
-    - name: Build and verify signed release APK, or explicitly skip
-      id: package
+    - name: Build Android release APK
+      if: steps.signing.outputs.configured == 'true'
       env:
-        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        AIRPLAY_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/airplay-release.keystore
         ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      run: python3 scripts/package_android.py
-    - name: Clean temporary Android signing files
-      if: always()
+        GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.configuration-cache=false
+      run: flutter build apk --release --target-platform android-arm64
+    - name: Verify and name Android APK
+      if: steps.signing.outputs.configured == 'true'
+      env:
+        RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       run: |
-        python3 - <<'PYTHON'
-        import os
-        from pathlib import Path
-        import shutil
-        for directory in Path(os.environ['RUNNER_TEMP']).glob('airplay-android-signing-*'):
-            if directory.is_dir() and not directory.is_symlink():
-                shutil.rmtree(directory)
-        PYTHON
+        apk=build/app/outputs/flutter-apk/app-release.apk
+        certificates=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk")
+        if grep -Eiq 'certificate DN:.*CN=Android Debug(,|$)' <<< "$certificates"; then
+          echo 'Refusing to publish an Android Debug-signed APK.' >&2
+          exit 1
+        fi
+        mkdir -p build/distribution/android
+        cp "$apk" "build/distribution/android/Flutter-AirPlay-$RELEASE_VERSION-android-arm64.apk"
+        echo 'Verified signed Android arm64 release APK.' >> "$GITHUB_STEP_SUMMARY"
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: release-android
         path: build/distribution/android/*.apk
         if-no-files-found: error
         retention-days: 14
-      if: steps.package.outputs.signed == 'true'
+      if: steps.signing.outputs.configured == 'true'
   publish:
     needs:
     - prepare

@@ -564,7 +564,7 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 | 平台 | 命令 | 输出 / 注意事项 |
 | --- | --- | --- |
 | macOS | `./scripts/package_macos.sh` | `build/distribution/macos/` 下的 app、ZIP、SHA256；内部调用原生及 Release 构建，并进行 ad-hoc 签名和审计 |
-| Android | `python3 scripts/package_android.py` | `build/distribution/android/Flutter-AirPlay-<version>-android-arm64.apk`；必须提供正式签名；未配置时明确跳过 |
+| Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；正式签名由 Gradle 从环境变量读取；CI 验签后按版本命名 |
 | iPad 编译检查 | `flutter build ios --release --no-codesign` | 无签名设备构建，不能安装；可用 `flutter build ios --simulator --debug --no-codesign` 检查模拟器编译 |
 | Windows | `powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/package_windows.ps1` | `build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe` 和 `SHA256SUMS`；自动构建 Release、校验并打包完整运行时 |
 | Linux | `python3 scripts/package_linux.py` | `build/distribution/linux/` 下的 `.deb`、`-bundle.tar.gz` 和校验和；完整 Release bundle，系统动态依赖另行安装 |
@@ -644,10 +644,21 @@ Environment secrets，并设置所需审批和仅允许 release tags 的部署�
 不会静默退回 debug 签名，也不会发布未签名 APK。配置签名后再手动构建验证；已发布的同名
 Release 不会补传，签名 APK 随下一版发布。
 
-打包器只在临时目录以受限权限解码已有 keystore，经环境变量交给 Gradle，最后清理；
-不会生成、记录、提交、缓存或上传密钥。通过 `apksigner` 验证生成的 APK，并拒绝标准 Android
-Debug 证书。本地 `flutter build apk --release` 在没有显式签名环境变量时不再使用 debug key；
-未签名结果不能直接安装。日常开发继续使用 `flutter run` / `flutter build apk --debug`。
+CI 在 GitHub 托管的一次性 Ubuntu runner 的 `RUNNER_TEMP` 以 `0600` 权限解码已有
+keystore，然后直接执行 `flutter build apk --release --target-platform android-arm64`。
+Gradle 从 `AIRPLAY_ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、
+`ANDROID_KEY_PASSWORD` 环境变量读取签名配置；原生依赖仍由 Gradle 的 `preBuild` hook 自动准备，
+不需要额外的 Android 构建包装脚本。CI 随后用 `apksigner` 验证 APK，拒绝 Android Debug
+证书，并按版本重命名上传。
+
+keystore 不进入仓库、工作区、缓存或 artifacts，不输出密码或 Base64 密钥；不单独增加清理
+步骤，由托管的一次性 runner 生命周期销毁临时文件。不要将签名 job 改为持久化 self-hosted
+runner 而不重新评估密钥留存。Gradle daemon/configuration-cache 在签名构建时禁用，签名
+job 不缓存 Gradle 目录。
+
+本地同样直接使用 Flutter 命令。需要正式签名时设置上述四个 Gradle 环境变量，路径指向已有
+keystore；没有显式配置时 Release 不再使用 debug key，未签名结果不能直接安装。
+日常开发继续使用 `flutter run` / `flutter build apk --debug`。
 
 已安装应用要原地升级，必须保持 `tech.soit.flutterairplay` application ID、同一正式签名 key，
 并递增 versionCode。GitHub Secrets 是 CI 传递方式，不是唯一备份；在独立安全位置保存原始
