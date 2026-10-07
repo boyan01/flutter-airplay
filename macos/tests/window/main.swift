@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {}
 extension MainFlutterWindow {
   func installTestObservers() { installPresentationObservers() }
+  func markDesktopReady() { desktopReady = true }
 }
 final class RecordingWindow: MainFlutterWindow {
   var actions: [String] = []
@@ -49,3 +50,36 @@ window.hideOnClose = false
 window.close()
 require(!window.isVisible && delegate.receiver.disposed, "real close must clean up the receiver")
 print("PASS: real close cleans up the receiver")
+
+func startupWindow() -> RecordingWindow {
+  let value = RecordingWindow(contentRect: NSRect(x: 200, y: 200, width: 440, height: 560),
+    styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+  value.isReleasedWhenClosed = false
+  return value
+}
+let trayWindow = startupWindow()
+require(!trayWindow.isVisible, "startup window must be hidden")
+trayWindow.finishDesktopStartup(trayAvailable: true)
+require(!trayWindow.isVisible, "tray startup must not show the window")
+require(app.activationPolicy() == .accessory, "tray startup must remove the Dock icon")
+trayWindow.showApp()
+require(trayWindow.isVisible, "reopen must show the existing window")
+trayWindow.orderOut(nil)
+trayWindow.finishDesktopStartup(trayAvailable: false)
+require(trayWindow.isVisible, "later tray failure must show fallback")
+trayWindow.orderOut(nil)
+let fallbackWindow = startupWindow()
+fallbackWindow.markDesktopReady()
+fallbackWindow.finishDesktopStartup(trayAvailable: false)
+require(fallbackWindow.isVisible, "unavailable tray must show fallback")
+require(app.activationPolicy() == .regular, "fallback must restore the Dock icon")
+fallbackWindow.orderOut(nil)
+fallbackWindow.showApp()
+require(fallbackWindow.isVisible, "native reopen must work when Dart readiness was premature")
+fallbackWindow.orderOut(nil)
+let reopenedWindow = startupWindow()
+reopenedWindow.showApp()
+reopenedWindow.finishDesktopStartup(trayAvailable: true)
+require(reopenedWindow.isVisible, "startup completion must preserve explicit reopen")
+reopenedWindow.orderOut(nil)
+print("PASS: tray startup, fallback and pending reopen")

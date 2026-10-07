@@ -166,6 +166,11 @@ bool FlutterWindow::OnCreate() {
       return;
     } else if (method == "desktopReady") {
       desktop_ready_ = true; result->Success(Value(true)); return;
+    } else if (method == "finishDesktopStartup") {
+      if (!call.arguments() || !std::holds_alternative<bool>(*call.arguments())) {
+        result->Error("invalid_arguments", "finishDesktopStartup requires a boolean"); return;
+      }
+      result->Success(Value(FinishDesktopStartup(std::get<bool>(*call.arguments())))); return;
     } else if (method == "setClosePolicy") {
       hide_on_close_ = call.arguments() && std::holds_alternative<bool>(*call.arguments()) && std::get<bool>(*call.arguments());
     } else if (method == "setDockVisible") {
@@ -180,19 +185,17 @@ bool FlutterWindow::OnCreate() {
   if (adapter) adapter->Release();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
-
-  // Flutter can complete the first frame before the "show window" callback is
-  // registered. The following call ensures a frame is pending to ensure the
-  // window is shown. It is a no-op if the first frame hasn't completed yet.
+  // Keep the top-level hidden while Dart installs the tray and its menu.
+  // A failed Dart startup still needs an accessible window.
+  startup_timer_ = SetTimer(GetHandle(), WM_APP + 77, 10000, nullptr);
+  if (!startup_timer_) FinishDesktopStartup(false);
   flutter_controller_->ForceRedraw();
 
   return true;
 }
 
 void FlutterWindow::OnDestroy() {
+  if (startup_timer_) { KillTimer(GetHandle(), startup_timer_); startup_timer_ = 0; }
   SetThreadExecutionState(ES_CONTINUOUS);
   if (presentation_) { presentation_->SetMethodCallHandler(nullptr); presentation_.reset(); }
   receiver_.reset();
@@ -210,6 +213,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (message == ReceiverBridge::kDispatchMessage && receiver_) {
     receiver_->Dispatch();
     return 0;
+  }
+  if (message == WM_TIMER && startup_timer_ && wparam == startup_timer_) {
+    FinishDesktopStartup(false); return 0;
   }
   if (message == kShowWindowMessage) { ShowApp(); return 0; }
   if (message == WM_CLOSE) { CloseAppWindow(); return 0; }
@@ -253,9 +259,25 @@ void FlutterWindow::FullscreenChanged() {
       {Value("maximized"), Value(IsZoomed(GetHandle()) != FALSE)}, {Value("fullscreen"), Value(IsFullscreen())}}));
 }
 
+bool FlutterWindow::FinishDesktopStartup(bool tray_available) {
+  if (startup_finished_ && tray_available) return true;
+  startup_finished_ = true;
+  if (startup_timer_) { KillTimer(GetHandle(), startup_timer_); startup_timer_ = 0; }
+  if (!tray_available || reopen_requested_) {
+    if (!tray_available) hide_on_close_ = false;
+    ShowWindow(GetHandle(), SW_SHOW);
+    SetForegroundWindow(GetHandle());
+    if (desktop_ready_) Invoke("openApp");
+  }
+  return tray_available;
+}
+
 void FlutterWindow::ShowApp() {
-  if (desktop_ready_) Invoke("openApp");
-  else { ShowWindow(GetHandle(), SW_SHOW); SetForegroundWindow(GetHandle()); }
+  if (!startup_finished_) reopen_requested_ = true;
+  // Native presentation must work even if Dart failed after desktopReady.
+  ShowWindow(GetHandle(), IsIconic(GetHandle()) ? SW_RESTORE : SW_SHOW);
+  SetForegroundWindow(GetHandle());
+  if (startup_finished_ && desktop_ready_) Invoke("openApp");
 }
 
 void FlutterWindow::CloseAppWindow() {

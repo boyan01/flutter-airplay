@@ -110,6 +110,47 @@ void main() {
     });
     expect(calls.last.arguments, {'playing': false, 'width': 0, 'height': 0});
   });
+  test(
+    'desktop startup reports tray readiness independently of close policy',
+    () async {
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            if (call.method == 'desktopReady') return true;
+            if (call.method == 'finishDesktopStartup') return call.arguments;
+            return null;
+          });
+      expect(await controller.initializeDesktop(), isTrue);
+      await controller.setClosePolicy(false);
+      expect(
+        await controller.finishDesktopStartup(trayAvailable: true),
+        isTrue,
+      );
+      expect(
+        await controller.finishDesktopStartup(trayAvailable: false),
+        isFalse,
+      );
+      expect(calls.map((call) => call.method), [
+        'desktopReady',
+        'setClosePolicy',
+        'finishDesktopStartup',
+        'finishDesktopStartup',
+      ]);
+      expect(calls.map((call) => call.arguments), [null, false, true, false]);
+    },
+  );
+  test(
+    'host can reject a reported tray before the window stays hidden',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async => false);
+      expect(
+        await controller.finishDesktopStartup(trayAvailable: true),
+        isFalse,
+      );
+    },
+  );
   test('native window errors reach the caller', () async {
     final unavailable = WindowController(
       withWindow: (_) async {

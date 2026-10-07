@@ -88,9 +88,22 @@ class DesktopPresentation {
               });
             }
           });
+          // A visible icon alone is not enough: its Open and Quit actions must
+          // be available before the host commits to a background-only launch.
+          _updateMenu();
           _ready = true;
+          _trayVisible = await window.finishDesktopStartup(
+            trayAvailable: _trayVisible,
+          );
+          await window.setClosePolicy(canHide);
         } catch (_) {
+          _ready = false;
           _releaseResources();
+          try {
+            await window.setClosePolicy(false);
+          } finally {
+            await window.finishDesktopStartup(trayAvailable: false);
+          }
           rethrow;
         }
       }

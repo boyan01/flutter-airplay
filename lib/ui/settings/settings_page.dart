@@ -48,6 +48,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Timer? _textSave;
   String? _error;
   String? _systemSettingsError;
+  bool _openingLogs = false;
   ReceiverModel get model => widget.model;
   String get _localBuildTime {
     final time = DateTime.tryParse(model.buildTime);
@@ -421,20 +422,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 ? null
                 : Text('${l10n(context).buildTime}: $_localBuildTime'),
           ),
-        if (!desktop)
-          TvFocus(
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(l10n(context).logs),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.pop(context);
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => widget.onLogs(),
-                );
-              },
-            ),
+        TvFocus(
+          child: ListTile(
+            key: const Key('settingsLogs'),
+            contentPadding: EdgeInsets.zero,
+            title: Text(l10n(context).logs),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              if (_openingLogs) return;
+              _openingLogs = true;
+              Navigator.pop(context);
+              widget.onLogs();
+            },
           ),
+        ),
         TvFocus(
           child: ListTile(
             contentPadding: EdgeInsets.zero,
