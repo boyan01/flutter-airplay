@@ -8,19 +8,25 @@ usage() {
 Usage: ./scripts/test_native.sh [target] [suite] [arguments]
 
 Without a target, run the current OS's basic native suite.
-  macos [player|all|host|texture|rtp|window]
+  macos [player|all|host|texture|rtp|window|desktop]
       player is the default; all adds host, texture, RTP and GUI window tests.
       all/window require a Debug Flutter app and a logged-in GUI session.
       player accepts CTest arguments, e.g. macos player -R playback.
   linux [player|video|gpu|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
       player is the default; all includes available GTK/window tests.
+      Argument-free all also runs caption drag and standalone ALAC tests.
       linux window [bundle-path] tests real caption dragging.
   windows [player|video|texture|all] [CTest arguments]
       player is the default; video checks platform and FFmpeg decoders.
       Run existing fixtures prepared by build_native.ps1 -Tests.
+      Argument-free all includes texture; extra arguments select native CTest only.
       texture uses windows_texture_test built in the Flutter Windows project.
       installer <setup.exe> checks install, upgrade, startup and uninstall.
       Invoke this script with Bash from the configured Windows toolchain.
+  <macos|linux|windows> desktop [--os-input]
+      Discover integration_test/desktop_*_test.dart and run real GUI tests.
+      --os-input also requires real OS input capability; no permission is granted.
+      Use an isolated GUI session: tests can move the pointer and create windows.
   android [host|rtp|player [--full]|kotlin]
       host is the default; RTP is separate to avoid duplicate host runs.
       player tests selected decoders; --full restores the decoder/size matrix.
@@ -282,6 +288,40 @@ linux_window() (
     xvfb-run -a dbus-run-session -- python3 "$project_root/linux/tests/window_drag_test.py" "$bundle/flutter_airplay"
 )
 
+desktop_tests() (
+    platform="$1"
+    shift
+    [[ $# -eq 0 || ( $# -eq 1 && "$1" == --os-input ) ]] ||
+        fail 'desktop accepts only --os-input.'
+    cd "$project_root"
+    shopt -s nullglob
+    tests=(integration_test/desktop_*_test.dart)
+    [[ ${#tests[@]} -gt 0 ]] || fail 'No desktop integration tests discovered.'
+    input=false
+    if [[ "${1:-}" == --os-input ]]; then input=true; fi
+    printf 'Desktop suite: %s; OS input requested: %s\n' "$platform" "$input"
+    printf '  %s\n' "${tests[@]}"
+    # An OS-input fixture must fail, not silently skip, when input was requested
+    # but its platform/session cannot provide it. Never grant permissions here.
+    # On Windows use the native launcher: bin/flutter's Unix script overwrites
+    # the inherited OS environment variable with uname, breaking native tools.
+    flutter_command=flutter
+    if [[ "$platform" == windows ]]; then flutter_command=flutter.bat; fi
+    # The pinned Flutter SDK closes its desktop log reader after the first app.
+    # A fresh invocation per file isolates that state and still uses build caches.
+    status=0
+    for test in "${tests[@]}"; do
+        if "$flutter_command" test -d "$platform" "$test" --reporter expanded \
+            "--dart-define=AIRPLAY_OS_INPUT_TEST=$input"; then
+            printf 'PASS: %s\n' "$test"
+        else
+            status=$?
+            printf 'FAIL: %s (exit %s)\n' "$test" "$status" >&2
+        fi
+    done
+    exit "$status"
+)
+
 macos_tests() {
     local suite="${1:-player}"
     if [[ $# -gt 0 ]]; then shift; fi
@@ -341,6 +381,7 @@ windows_tests() {
     [[ -f "$project_root/build/windows-native/CTestTestfile.cmake" ]] ||
         fail 'Build Windows fixtures with windows/scripts/build_native.ps1 -Tests first.'
     ctest --test-dir "$project_root/build/windows-native" -C Release --output-on-failure "${test_args[@]}" "$@"
+    if [[ "$suite" == all && $# -eq 0 ]]; then windows_tests texture; fi
 }
 
 if [[ $# -eq 0 ]]; then
@@ -353,6 +394,13 @@ if [[ $# -eq 0 ]]; then
 else
     target="$1"
     shift
+fi
+
+# Desktop integration stays explicit; default native/player runs stay headless.
+if [[ "$target" == macos || "$target" == linux || "$target" == windows ]] && [[ "${1:-}" == desktop ]]; then
+    shift
+    desktop_tests "$target" "$@"
+    exit
 fi
 
 case "$target" in
@@ -390,6 +438,7 @@ case "$target" in
             linux_window "$@"
         else
             linux_tests "$@"
+            if [[ "${1:-}" == all && $# -eq 1 ]]; then linux_window; alac_tests; fi
         fi
         ;;
     windows) windows_tests "$@" ;;

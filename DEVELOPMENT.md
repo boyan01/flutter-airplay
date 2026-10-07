@@ -407,10 +407,28 @@ macOS 还保留 Dock 激活策略与系统菜单，避免 `nativeapi 0.4` 的 Ap
 编辑菜单继续使用系统 responder chain。
 Linux 托盘可用性按 `TrayManager.isSupported()` 判断，不再依赖 Ayatana AppIndicator。
 
-真实桌面回归：`flutter test -d macos integration_test/desktop_window_test.dart`。
+真实桌面回归统一入口：`./scripts/test_native.sh macos desktop --os-input`。
+将 `macos` 替换为 `linux` 或 `windows` 可运行对应平台；入口自动发现
+`integration_test/desktop_*_test.dart`，新增桌面用例不需要修改 CI。
+CI 只准备平台依赖和 GUI 会话，再调用固定的 `all` 和 `desktop --os-input` 套件。
+普通 widget 测试留在 `test/`；真实桌面窗口测试按上述文件名约定放在 `integration_test/`。
+依赖 OS 输入的用例使用 `AIRPLAY_OS_INPUT_TEST` 区分能力：请求后缺少权限或会话能力必须失败，
+不能跳过后报告成功。省略 `--os-input` 可本地只检查不依赖 OS 输入的 GUI 测试。
+请使用隔离桌面；OS 输入用例会移动鼠标。Linux 使用 X11、Xvfb、Openbox 和 session D-Bus；
+macOS 要求已登录 GUI 会话及用例所需的既有输入事件权限；Windows 要求交互式桌面。
+入口不会申请权限或改动安全设置。原生 fixture 仍通过 CTest/XCTest 或已有平台套件注册，
+新 fixture 应加入对应套件，不在 CI 中逐条列出。
+Linux / Windows 的无参数 `all` 保留 CI 原有全部测试；追加过滤或 CTest 参数时只运行
+原生 CTest 部分，不额外启动独立的拖动、ALAC 或纹理套件。
 同一用例也可选择 `windows` 或 `linux`；验证标题栏不参与导航、反复进入/退出全屏、
 窗口隐藏后仍通过 runner 提供的固定原生句柄恢复（不依赖活动窗口查询）、
 视频比例/旋转/原始像素尺寸、置顶、播放在全屏中结束、关闭到托盘、连接后显示和延迟隐藏。
+窗口尺寸回归通过合成接收事件驱动生产 `ReceiverModel → ReceiverApp → DesktopPresentation`
+链路，读取真实 OS 窗口，覆盖投屏前尺寸/位置恢复、iPad 后立即连接 iPhone、连续旋转、
+暂停/解码重置，以及全屏期间更新后退出。Dart 单元测试另覆盖手动缩放、减少动态效果、
+取消动画、DPI 与多屏边界。三端 CI 都运行桌面集成测试；Linux 使用隔离 Xvfb/Openbox/D-Bus。
+这些用例使用合成视频事件，不验证真实 AirPlay 设备或解码画面；macOS/Windows 的实际
+动画观感、混合 DPI 多屏和真机 iPad/iPhone 切换仍需对应桌面验收。
 Swift / GTK 原生窗口 fixture 检查启动显示策略、关闭与状态桥接；
 macOS CI 通过 `macos all` 统一运行窗口 fixture。它构造启动事件描述符并测试真实窗口状态机，
 不编译真实 AppDelegate，因此登录回调捕获时机仍需真实登录会话验收。

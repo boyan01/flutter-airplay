@@ -107,6 +107,7 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
   - "Match Native" queries your display resolution and decoder limits to request optimal dimensions.
   - Resolution changes take effect immediately during standby, or seamlessly after the active streaming session ends.
 - **Desktop Preferences (macOS, Windows & Linux)**:
+  - **Video-sized Window**: The first video frame fits the current display. Rotation keeps the window centered with a short transition (disabled by Reduce Motion); manual resizing preserves your chosen display scale. Disconnecting restores the pre-session window size and position. Pauses do not reset the window, and fullscreen, maximized, minimized, or hidden windows apply pending sizing when restored.
   - **Always on Top**: Keeps player window pinned above other desktop applications.
   - **Show / Fullscreen on Connect**: Automatically brings window to front or enters fullscreen upon stream arrival.
   - **System Tray / Menu Bar**: Manual launches open the main window; opening the app again brings its existing window forward. Login startup stays in the tray without opening a window. Use the tray menu to open the app, settings, logs, or quit. If the tray is unavailable or initialization fails, the window opens instead. The existing close-to-tray preference controls what happens when you close the window.

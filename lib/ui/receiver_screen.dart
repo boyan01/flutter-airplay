@@ -140,7 +140,10 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   Future<void> _updateDesktop() async {
     if (!mounted) return;
     try {
-      await _desktop.update(l10n(context));
+      await _desktop.update(
+        l10n(context),
+        reduceMotion: MediaQuery.disableAnimationsOf(context),
+      );
     } on MissingPluginException {
       // Widget tests do not have a desktop host.
     } on PlatformException catch (error) {
