@@ -163,12 +163,16 @@ void main() {
       native.Size? previous;
       late native.Size current;
       while (DateTime.now().isBefore(deadline)) {
-        await tester.pump();
-        // Flutter settling does not mean the OS has applied its resize request.
-        await tester.runAsync(() async {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          await controller.withWindow((value) => current = value.contentSize);
-        });
+        // Native configuration is asynchronous. Do not wait for a Flutter
+        // frame here: a tray-hidden window may stop delivering frames.
+        await tester
+            .runAsync(() async {
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+              await controller.withWindow(
+                (value) => current = value.contentSize,
+              );
+            })
+            .timeout(deadline.difference(DateTime.now()));
         expect(tester.takeException(), isNull);
         if (matches(current)) {
           if (previous == null ||
@@ -209,8 +213,10 @@ void main() {
     await update();
     // API support does not guarantee a registered shell tray (e.g. Openbox).
     // Without one, closing to tray must not make the app inaccessible.
-    if (!presentation.canHide) {
+    if (Platform.isLinux && !presentation.canHide) {
       expect(nativeWindow.isVisible, isTrue);
+    } else {
+      expect(presentation.canHide, native.TrayManager.instance.isSupported());
     }
     expect(nativeWindow.contentSize.width, closeTo(440, 2));
     expect(nativeWindow.contentSize.height, closeTo(560, 2));
