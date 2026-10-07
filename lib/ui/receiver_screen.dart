@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../app/app_logging.dart';
@@ -23,10 +24,12 @@ class ReceiverScreen extends StatefulWidget {
     this.launchAtLogin = const LaunchAtLogin(),
     this.window = const WindowController(),
     this.onControlsVisibility,
+    this.controlsInteraction,
     this.onDialogVisibility,
     this.onWindowExpanded,
   });
   final ReceiverModel model;
+  final ValueListenable<bool>? controlsInteraction;
   final LaunchAtLogin launchAtLogin;
   final WindowController window;
   final ValueChanged<bool>? onControlsVisibility,
@@ -300,6 +303,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                 onFullscreen: _toggleFullscreen,
                 onEscape: () => _toggleFullscreen(target: false),
                 dialogOpen: _dialogOpen,
+                controlsInteraction: widget.controlsInteraction,
                 onControlsVisibility: widget.onControlsVisibility,
               )
             : SafeArea(

@@ -5,6 +5,9 @@ import 'package:flutter_airplay/ui/settings/settings_page.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../receiver/fake_receiver.dart';
@@ -57,6 +60,107 @@ void main() {
     await tester.pumpAndSettle();
     addTearDown(backend.controller.close);
     return backend;
+  }
+
+  for (final platform in ['macos', 'windows', 'linux']) {
+    testWidgets('$platform stationary controls and title hover pause hiding', (
+      tester,
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: platform,
+        size: const Size(600, 650),
+      );
+      frame(backend);
+      await tester.pumpAndSettle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(300, 300));
+      await mouse.moveTo(const Offset(301, 300));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      await mouse.moveTo(tester.getCenter(find.byKey(const Key('disconnect'))));
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      await mouse.moveTo(const Offset(300, 20));
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      await mouse.moveTo(const Offset(300, 300));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsNothing);
+      await mouse.removePointer();
+    });
+
+    testWidgets(
+      '$platform keyboard control focus pauses hiding but video click dismisses',
+      (tester) async {
+        final backend = await launch(
+          tester,
+          platform: platform,
+          size: const Size(600, 650),
+        );
+        frame(backend);
+        await tester.pumpAndSettle();
+        await tester.tapAt(const Offset(300, 300));
+        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 4));
+        expect(find.byKey(const Key('playerControls')), findsOneWidget);
+        await tester.tapAt(const Offset(300, 300));
+        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('playerControls')), findsNothing);
+        await tester.pump(const Duration(seconds: 4));
+        expect(find.byKey(const Key('playerControls')), findsNothing);
+      },
+    );
+
+    testWidgets('$platform title double-click never enters video fullscreen', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      const channel = MethodChannel('tech.soit.flutterairplay/window');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final backend = await launch(
+        tester,
+        platform: platform,
+        windowCalls: calls,
+        size: const Size(600, 650),
+      );
+      frame(backend);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('playerPage')));
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      calls.clear();
+      // The expanded lower edge used to fall straight through to the video.
+      await tester.tapAt(const Offset(300, 41));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(const Offset(300, 41));
+      await tester.pumpAndSettle();
+      expect(
+        calls,
+        contains(platform == 'macos' ? 'titlebarDoubleClick' : 'maximize'),
+      );
+      expect(calls.where((value) => value.startsWith('fullscreen:')), isEmpty);
+    });
   }
 
   testWidgets('macOS title stays at the window center', (tester) async {
@@ -306,7 +410,7 @@ void main() {
         await tester.tap(find.byKey(const Key('openSettings')));
         await tester.pumpAndSettle();
         final panel = tester.getRect(find.byType(SettingsPage));
-        expect(panel.top, 36);
+        expect(panel.top, 44);
         expect(panel.bottom, size.height);
         expect(panel.width, size.width.clamp(0, 480));
         expect(find.byKey(const Key('closeSettings')), findsOneWidget);
@@ -1524,7 +1628,7 @@ void main() {
         'closeWindow',
         'minimize',
         'fullscreen:true',
-        'fullscreen:false',
+        'titlebarDoubleClick',
       ]);
     },
   );

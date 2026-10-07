@@ -38,6 +38,8 @@ class MainFlutterWindow: NSWindow {
 
   override func awakeFromNib() {
     let controller = FlutterViewController()
+    // Hover reveals controls without activating the window or changing click handling.
+    controller.mouseTrackingMode = .always
     styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
     configureContentWindow()
     contentViewController = controller
@@ -51,6 +53,7 @@ class MainFlutterWindow: NSWindow {
     presentation?.setMethodCallHandler { [weak self] call, result in
       if let self = self {
         switch call.method {
+        case "titlebarDoubleClick": self.performTitlebarDoubleClick(); result(nil); return
         case "closeWindow": self.close(); result(nil); return
         case "quitApp": NSApp.terminate(nil); result(nil); return
         case "desktopReady": self.desktopReady = true; result(true); return
@@ -80,6 +83,19 @@ class MainFlutterWindow: NSWindow {
     // its engine. Start after installing every host handler and plugin instead.
     _ = controller.engine.run(withEntrypoint: nil)
     DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.configureApplication() }
+  }
+
+  func performTitlebarDoubleClick(action: String? = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick")) {
+    // Keep the system's titlebar policy separate from the explicit fullscreen button.
+    guard !styleMask.contains(.fullScreen) else { return }
+    switch action?.lowercased() {
+    case "minimize": performMiniaturize(nil)
+    case "none": break
+    default:
+      // AppKit does not expose its newer Fill action publicly. Use native zoom
+      // rather than private selectors or maintaining a second geometry policy.
+      performZoom(nil)
+    }
   }
 
   private func scheduleStartupTimeout() {

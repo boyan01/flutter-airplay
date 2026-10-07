@@ -55,6 +55,27 @@ window.close()
 require(!window.isVisible && delegate.receiver.disposed, "real close must clean up the receiver")
 print("PASS: real close cleans up the receiver")
 
+// Verify the titlebar route honors supported preferences without entering a Space.
+final class TitlebarPolicyWindow: MainFlutterWindow {
+  var zooms = 0, minimizes = 0
+  override func performZoom(_ sender: Any?) { zooms += 1 }
+  override func performMiniaturize(_ sender: Any?) { minimizes += 1 }
+}
+let titlebarWindow = TitlebarPolicyWindow(contentRect: NSRect(x: 200, y: 200, width: 440, height: 560),
+  styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+titlebarWindow.performTitlebarDoubleClick(action: "Maximize")
+require(titlebarWindow.zooms == 1 && titlebarWindow.minimizes == 0, "title double-click zooms instead of entering fullscreen")
+titlebarWindow.performTitlebarDoubleClick(action: "Minimize")
+require(titlebarWindow.minimizes == 1, "title double-click honors minimize")
+titlebarWindow.performTitlebarDoubleClick(action: "None")
+require(titlebarWindow.zooms == 1 && titlebarWindow.minimizes == 1, "title double-click honors do nothing")
+titlebarWindow.performTitlebarDoubleClick(action: "Fill")
+require(titlebarWindow.zooms == 2, "Fill uses documented zoom fallback, not private API")
+titlebarWindow.performTitlebarDoubleClick(action: nil)
+require(titlebarWindow.zooms == 3, "missing titlebar preference defaults to zoom")
+require(!titlebarWindow.styleMask.contains(.fullScreen), "title double-click must not enter fullscreen")
+print("PASS: titlebar double-click policy")
+
 func launchEvent(eventID: AEEventID = kAEOpenApplication, property: OSType? = nil) -> NSAppleEventDescriptor {
   let event = NSAppleEventDescriptor(eventClass: kCoreEventClass, eventID: eventID,
     targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))

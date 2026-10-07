@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../receiver/receiver_model.dart';
 import '../widgets/receiver_strings.dart';
+import '../widgets/control_interaction_region.dart';
 import '../tv_focus.dart';
 import '../receiver_back.dart';
 import 'playback_stats_overlay.dart';
@@ -18,10 +21,12 @@ class PlayerPage extends StatefulWidget {
     required this.onEscape,
     required this.dialogOpen,
     this.onControlsVisibility,
+    this.controlsInteraction,
   });
   final ReceiverModel model;
   final VoidCallback onFullscreen, onEscape;
   final bool dialogOpen;
+  final ValueListenable<bool>? controlsInteraction;
   final ValueChanged<bool>? onControlsVisibility;
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -31,7 +36,9 @@ class _PlayerPageState extends State<PlayerPage> {
   final _surfaceFocus = FocusNode(debugLabel: 'Player surface');
   final _continueFocus = FocusNode(debugLabel: 'Continue watching');
   Timer? _timer, _backTimer;
-  bool _visible = false, _confirmBack = false;
+  bool _visible = false, _confirmBack = false, _interacting = false;
+  bool get _held =>
+      (widget.controlsInteraction?.value ?? false) || _interacting;
   bool get tv => widget.model.isTelevision;
   bool get mobile => widget.model.isMobile;
   Duration get _delay => Duration(
@@ -48,10 +55,11 @@ class _PlayerPageState extends State<PlayerPage> {
   void _show() {
     if (widget.dialogOpen) return;
     final newlyVisible = !_visible;
-    setState(() => _visible = true);
-    widget.onControlsVisibility?.call(true);
-    _timer?.cancel();
-    _timer = Timer(_delay, _hide);
+    if (newlyVisible) {
+      setState(() => _visible = true);
+      widget.onControlsVisibility?.call(true);
+    }
+    _scheduleHide();
     if (tv && newlyVisible) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _visible) _continueFocus.requestFocus();
@@ -59,12 +67,39 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  void _hide() {
+  void _scheduleHide() {
+    _timer?.cancel();
+    if (_visible && !_held && !widget.dialogOpen) {
+      _timer = Timer(_delay, _hide);
+    }
+  }
+
+  void _externalInteractionChanged() {
+    if (widget.controlsInteraction?.value ?? false) {
+      _show();
+    } else {
+      _scheduleHide();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controlsInteraction?.addListener(_externalInteractionChanged);
+  }
+
+  void _hide({bool force = false}) {
+    if (_held && !force) return;
     _timer?.cancel();
     if (!mounted) return;
-    setState(() => _visible = false);
+    setState(() {
+      _visible = false;
+      _interacting = false;
+    });
     widget.onControlsVisibility?.call(false);
-    _surfaceFocus.requestFocus();
+    // Passive auto-hide must not refocus an inactive native window. Flutter's
+    // view focus bridge turns requestFocus into SetFocus on Windows.
+    if (force || _surfaceFocus.hasFocus) _surfaceFocus.requestFocus();
   }
 
   void _back() {
@@ -96,14 +131,21 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void didUpdateWidget(PlayerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.controlsInteraction != oldWidget.controlsInteraction) {
+      oldWidget.controlsInteraction?.removeListener(
+        _externalInteractionChanged,
+      );
+      widget.controlsInteraction?.addListener(_externalInteractionChanged);
+    }
     if (widget.dialogOpen && !oldWidget.dialogOpen) {
+      _interacting = false;
       _timer?.cancel();
       _backTimer?.cancel();
       _visible = false;
       _confirmBack = false;
     } else if (!widget.dialogOpen && oldWidget.dialogOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _hide();
+        if (mounted) _hide(force: true);
       });
     }
   }
@@ -112,6 +154,7 @@ class _PlayerPageState extends State<PlayerPage> {
   void dispose() {
     _timer?.cancel();
     _backTimer?.cancel();
+    widget.controlsInteraction?.removeListener(_externalInteractionChanged);
     _surfaceFocus.dispose();
     _continueFocus.dispose();
     super.dispose();
@@ -289,60 +332,70 @@ class _PlayerPageState extends State<PlayerPage> {
                           );
                         }
 
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xdd202020),
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          child: Wrap(
-                            spacing: 4,
-                            runSpacing: 4,
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              action(
-                                'disconnect',
-                                l10n(context).disconnect,
-                                Icons.eject_rounded,
-                                widget.model.canStop
-                                    ? widget.model.disconnect
-                                    : null,
-                              ),
-                              if (widget.model.supportsWindowPreferences)
+                        return ControlInteractionRegion(
+                          onChanged: (active) {
+                            _interacting = active;
+                            if (active) {
+                              _show();
+                            } else {
+                              _scheduleHide();
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xdd202020),
+                              borderRadius: BorderRadius.circular(32),
+                            ),
+                            child: Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              alignment: WrapAlignment.center,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
                                 action(
-                                  'playerAlwaysOnTop',
-                                  l10n(context).alwaysOnTop,
-                                  widget.model.desktopOptions['alwaysOnTop']!
-                                      ? Icons.push_pin
-                                      : Icons.push_pin_outlined,
-                                  () => widget.model.save(
-                                    widget.model.name,
-                                    widget.model.path,
-                                    desktopOptions: {
-                                      ...widget.model.desktopOptions,
-                                      'alwaysOnTop': !widget
-                                          .model
-                                          .desktopOptions['alwaysOnTop']!,
-                                    },
+                                  'disconnect',
+                                  l10n(context).disconnect,
+                                  Icons.eject_rounded,
+                                  widget.model.canStop
+                                      ? widget.model.disconnect
+                                      : null,
+                                ),
+                                if (widget.model.supportsWindowPreferences)
+                                  action(
+                                    'playerAlwaysOnTop',
+                                    l10n(context).alwaysOnTop,
+                                    widget.model.desktopOptions['alwaysOnTop']!
+                                        ? Icons.push_pin
+                                        : Icons.push_pin_outlined,
+                                    () => widget.model.save(
+                                      widget.model.name,
+                                      widget.model.path,
+                                      desktopOptions: {
+                                        ...widget.model.desktopOptions,
+                                        'alwaysOnTop': !widget
+                                            .model
+                                            .desktopOptions['alwaysOnTop']!,
+                                      },
+                                    ),
+                                  ),
+                                SizedBox(
+                                  width: 48,
+                                  height: 48,
+                                  child: IconButton(
+                                    tooltip: widget.model.platform != 'macos'
+                                        ? l10n(context).fullscreenWindows
+                                        : l10n(context).fullscreen,
+                                    color: Colors.white,
+                                    onPressed: widget.onFullscreen,
+                                    icon: const Icon(Icons.fullscreen),
                                   ),
                                 ),
-                              SizedBox(
-                                width: 48,
-                                height: 48,
-                                child: IconButton(
-                                  tooltip: widget.model.platform != 'macos'
-                                      ? l10n(context).fullscreenWindows
-                                      : l10n(context).fullscreen,
-                                  color: Colors.white,
-                                  onPressed: widget.onFullscreen,
-                                  icon: const Icon(Icons.fullscreen),
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -389,7 +442,7 @@ class _PlayerPageState extends State<PlayerPage> {
             return KeyEventResult.handled;
           }
           _timer?.cancel();
-          _timer = Timer(_delay, _hide);
+          if (!_held) _timer = Timer(_delay, _hide);
         }
         return KeyEventResult.ignored;
       },
@@ -397,6 +450,9 @@ class _PlayerPageState extends State<PlayerPage> {
         cursor: !mobile && !_visible
             ? SystemMouseCursors.none
             : MouseCursor.defer,
+        onEnter: (event) {
+          if (event.kind == PointerDeviceKind.mouse) _show();
+        },
         onHover: (_) => _show(),
         child: Stack(
           key: const Key('playerPage'),
@@ -404,7 +460,7 @@ class _PlayerPageState extends State<PlayerPage> {
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => _visible ? _hide() : _show(),
+              onTap: () => _visible ? _hide(force: true) : _show(),
               onDoubleTap: mobile ? null : widget.onFullscreen,
               child: Center(
                 child: Semantics(
