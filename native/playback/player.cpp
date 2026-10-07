@@ -6,7 +6,9 @@ void AirplayPlayer::receive_video(const uint8_t* bytes, int size, int64_t local_
     if (p->closing || size < 5 || size > 4 * 1024 * 1024) return;
     const auto now = monotonic_ns();
     const auto due = p->timeline.deadline(local_pts ? int64_t(local_pts) : realtime_ns(), now);
-    if (due < now - kSecond || due > now + 2 * kSecond) { p->log("Rejected out-of-window video timestamp"); return; }
+    if (due > now + 2 * kSecond) { p->log("Rejected out-of-window video timestamp"); return; }
+    // Late compressed pictures can carry references needed by current input.
+    // Decode them in receive order; VideoScheduler drops their expired output.
     std::lock_guard<std::mutex> guard(p->lock);
     // Keep compressed dependencies intact: backpressure overflow forces a keyframe restart.
     if (p->queued_bytes + size > 16 * 1024 * 1024) {

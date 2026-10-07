@@ -101,6 +101,8 @@ if(AIRPLAY_BUILD_TESTS AND APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(session_tests PRIVATE airplay_player receiver_core "-framework CoreVideo")
     add_test(NAME sender_resume COMMAND session_tests)
     set_tests_properties(sender_resume PROPERTIES LABELS "protocol;playback;backend")
+    add_test(NAME video_interruption COMMAND session_tests --video-interruption)
+    set_tests_properties(video_interruption PROPERTIES LABELS "playback;backend")
 endif()
 
 include(cmake/ProductInputs.cmake)

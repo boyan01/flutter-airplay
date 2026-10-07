@@ -461,6 +461,11 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 
 运行时诊断在各平台进入同一份接收器日志，可从应用日志页导出。接收、提交和调度统计
 由公共 C++ 播放层输出；解码后端保留自己的队列、耗时和恢复信息。
+公共播放层在已消费的视频输入超过 3 秒仍无新输出时，于约 5 秒的统计周期记录
+`Video output stalled`，包含解码器、编码格式、输入/输出距今时长及音频状态。
+成功输出后停止输入，以及发送端主动暂停时不报警。失败输入尚未产生输出时，即使后续
+输入停止也保留告警。Apple 后端额外记录 VideoToolbox 回调错误码、
+flags、空图像和丢帧计数；每个统计周期最多输出一条详细回调失败日志，避免坏帧刷屏。
 macOS 与 iPad 共用 VideoToolbox、AudioUnit 和 Apple 纹理统计。
 Windows 的 GPU/像素纹理与 Linux GL/像素纹理共用 `TextureStats`。
 公共接收器约每 5 秒采集宿主纹理统计，停止前采集剩余数据；收到过帧后即使画面冻结，
@@ -502,6 +507,12 @@ Android 使用原生 Surface，记录 `released_to_surface`、提交失败和最
   这些回调测量的是提交到纹理适配器的时刻，不是 Flutter 栅格消费或实际屏幕扫描。
 - 会话测试在同一 GOP 内暂停/恢复红到蓝的画面，不依赖新 IDR，并保持音频和时钟。
   Android 还检查更换输出 surface 后恢复画面。
+- macOS HEVC 中断测试先验证 6 秒接收空档能保留参考帧，再送入过期 IDR 和后续 5 帧，
+  检查过期帧不显示，后续帧无需等待新 IDR 就能恢复，且音频 PCM 继续正常。
+  另外模拟 IDR 真正缺失，检查冻结诊断和新 IDR 到达后的恢复。单独运行：
+  `./scripts/test_native.sh macos player -R '^video_interruption$' --verbose`。
+  合成素材生成器为 `native/tests/fixtures/generate_interruption_fixtures.py`，需要 FFmpeg/libx265；
+  测试直接使用已提交的 fixture，不需要现场生成。
 - Android 默认检查系统选定 decoder，使用每批 9 帧的 60 FPS burst 输入。
   完整矩阵覆盖额外硬件、低延迟和软件 decoder，以及 1、3、9 帧批次，
   约 120 Hz 采样检查提前呈现、丢帧和间隙。

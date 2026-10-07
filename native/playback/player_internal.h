@@ -57,6 +57,8 @@ struct AirplayPlayer {
         TimingSamples queue_wait, ready_late, submit_late, submit_gap, pts_gap, host_call;
     } video_stats;
     int64_t last_video_submit = 0, last_video_due = 0, video_stats_started = 0;
+    int64_t last_video_decode = 0, last_video_output = 0;
+    int64_t video_no_output_started = 0;
     std::atomic<uint64_t> audio_packets{0}, audio_bytes{0}, audio_decode_errors{0}, audio_pcm_packets{0}, audio_timestamp_rejects{0}, audio_timestamp_fallbacks{0};
     std::atomic<int64_t> audio_lead_ms{0};
 
@@ -79,6 +81,10 @@ struct AirplayPlayer {
                     if (frame) ++video_stats.late_drop;
                     return;
                 }
+                // Android presents directly to Surface and reports a null
+                // frame; output progress must not depend on a Flutter texture.
+                last_video_output = submitted;
+                video_no_output_started = 0;
                 if (frame && callbacks.frame) {
                     ++video_stats.submitted;
                     video_stats.submit_late.add(submitted - due);
@@ -128,6 +134,8 @@ struct AirplayPlayer {
           ++video_generation; packets.clear(); queued_bytes = 0; video_reset = true;
           video_paused = false;
           video_stats = {}; last_video_submit = last_video_due = video_stats_started = 0;
+          last_video_decode = last_video_output = 0;
+          video_no_output_started = 0;
           video_report_ns = video_arrival_ns = video_gap_ns = 0;
           video_received = 0; video_peak_queue = 0;
           audio_playing = false; audio_ct = 0; audio_rtp_anchored = false;
@@ -163,6 +171,8 @@ struct AirplayPlayer {
               if (closing) break;
               reset = video_reset; video_reset = false; generation = video_generation; w = width; h = height;
               if ((reset || can_decode) && !packets.empty()) { packet = std::move(packets.front()); packets.pop_front(); queued_bytes -= packet.bytes.size();
+                  last_video_decode = monotonic_ns();
+                  if (!video_no_output_started) video_no_output_started = last_video_decode;
                   if (!video_stats_started) video_stats_started = monotonic_ns();
                   if (packet.received_ns) video_stats.queue_wait.add(monotonic_ns() - packet.received_ns);
               } }
@@ -224,7 +234,8 @@ struct AirplayPlayer {
     void receive_video(const uint8_t* bytes, int size, int64_t local_pts);
     void receive_audio(const uint8_t* bytes, int size, int ct, int64_t local_pts, uint32_t rtp);
     void report_video(int64_t now) {
-        std::string message;
+        std::string message, stall;
+        const auto *decoder = video->decoder_name();
         {
             std::lock_guard<std::mutex> guard(lock);
             if (!video_stats_started || now - video_stats_started < 5 * kSecond) return;
@@ -240,8 +251,23 @@ struct AirplayPlayer {
                     + video_stats.submit_late.text("submit_late") + video_stats.submit_gap.text("submit_gap")
                     + video_stats.pts_gap.text("pts_gap") + video_stats.host_call.text("host_call");
             }
+            // Successful output clears the pending-input timer, so an idle
+            // sender does not warn. A failed burst still needs a warning even
+            // when its last input fell in the previous statistics interval.
+            const auto output_age = now - (last_video_output ? last_video_output : video_stats_started);
+            if (!video_paused && video_no_output_started
+                && now - video_no_output_started >= 3 * kSecond) {
+                char text[384];
+                std::snprintf(text, sizeof(text),
+                    "Video output stalled: decoder=%s codec=%s consumed=%llu queued=%zu last_input_age_ms=%.1f last_output_age_ms=%.1f audio_playing=%d",
+                    decoder, video_hevc ? "HEVC" : "H.264",
+                    static_cast<unsigned long long>(video_stats.queue_wait.count), packets.size(),
+                    (now - last_video_decode) / 1e6, last_video_output ? output_age / 1e6 : -1.0, int(audio_playing));
+                stall = text;
+            }
             video_stats = {}; video_stats_started = now;
         }
         if (!message.empty()) log(message.c_str());
+        if (!stall.empty()) log(stall.c_str(), 4 /* syslog LOG_WARNING */);
     }
 };

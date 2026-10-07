@@ -29,6 +29,8 @@ public:
         close_session(); vps_.clear(); sps_.clear(); pps_.clear(); hevc_ = false;
         report_stats(true);
         stats_started_ = 0; submitted_ = decoded_ = encoded_bytes_ = 0;
+        callback_errors_ = no_image_ = dropped_ = 0;
+        last_callback_status_ = noErr; last_callback_flags_ = 0;
         max_queue_ns_ = max_decode_ns_ = 0;
     }
     bool decode(const VideoPacket &packet) override {
@@ -75,14 +77,39 @@ public:
                                                         &context, nullptr);
         if (!status) status = VTDecompressionSessionWaitForAsynchronousFrames(session_);
         CFRelease(buffer);
+        if (status) {
+            char text[192];
+            std::snprintf(text, sizeof(text), "VideoToolbox decode submission failed: codec=%s status=%d keyframe=%d bytes=%zu",
+                hevc_ ? "HEVC" : "H.264", int(status), int(keyframe), packet.bytes.size());
+            callbacks_.log(text);
+        }
         return status == noErr;
     }
 private:
     struct Context { MacVideo *video; int64_t deadline; uint64_t generation; int64_t submitted; };
-    static void decoded(void *, void *opaque, OSStatus status, VTDecodeInfoFlags, CVImageBufferRef image, CMTime, CMTime) {
+    static void decoded(void *, void *opaque, OSStatus status, VTDecodeInfoFlags flags, CVImageBufferRef image, CMTime, CMTime) {
         auto *context = static_cast<Context *>(opaque);
-        if (status || !image) return;
         auto *self = context->video;
+        if (status || !image) {
+            bool first;
+            {
+                std::lock_guard<std::mutex> guard(self->pending_lock_);
+                first = !self->callback_errors_ && !self->no_image_;
+                self->callback_errors_ += status != noErr;
+                self->no_image_ += !image;
+                self->dropped_ += bool(flags & kVTDecodeInfo_FrameDropped);
+                self->last_callback_status_ = status; self->last_callback_flags_ = flags;
+            }
+            // At most one detailed failure per statistics interval, followed
+            // by aggregate counts. A broken GOP can fail every input frame.
+            if (first) {
+                char text[192];
+                std::snprintf(text, sizeof(text), "VideoToolbox output missing: codec=%s status=%d flags=%u image=%d",
+                    self->hevc_ ? "HEVC" : "H.264", int(status), unsigned(flags), int(image != nullptr));
+                self->callbacks_.log(text);
+            }
+            return;
+        }
         // The callback must not wait for presentation: WaitForAsynchronousFrames
         // would keep the receive worker from decoding the rest of a burst.
         std::lock_guard<std::mutex> guard(self->pending_lock_);
@@ -155,15 +182,19 @@ private:
         const auto now = monotonic_ns();
         if (!stats_started_ || (!final && now - stats_started_ < 5 * kSecond)) return;
         std::lock_guard<std::mutex> guard(pending_lock_);
-        char text[384];
+        char text[640];
         std::snprintf(text, sizeof(text),
-            "VideoToolbox video stats: interval_ms=%lld input=%llu decoded=%llu max_queue_ms=%.1f max_decode_observed_ms=%.1f input_mbps=%.2f%s",
+            "VideoToolbox video stats: interval_ms=%lld input=%llu decoded=%llu max_queue_ms=%.1f max_decode_observed_ms=%.1f input_mbps=%.2f callback_errors=%llu no_image=%llu dropped=%llu last_callback_status=%d last_callback_flags=%u%s",
             static_cast<long long>((now - stats_started_) / 1000000),
             static_cast<unsigned long long>(submitted_), static_cast<unsigned long long>(decoded_),
             max_queue_ns_ / 1e6, max_decode_ns_ / 1e6,
-            double(encoded_bytes_) * 8 * 1000 / (now - stats_started_), final ? " final" : "");
+            double(encoded_bytes_) * 8 * 1000 / (now - stats_started_),
+            static_cast<unsigned long long>(callback_errors_), static_cast<unsigned long long>(no_image_),
+            static_cast<unsigned long long>(dropped_), int(last_callback_status_), unsigned(last_callback_flags_), final ? " final" : "");
         callbacks_.log(text);
         stats_started_ = now; submitted_ = decoded_ = encoded_bytes_ = 0;
+        callback_errors_ = no_image_ = dropped_ = 0;
+        last_callback_status_ = noErr; last_callback_flags_ = 0;
         max_queue_ns_ = max_decode_ns_ = 0;
     }
     mutable std::mutex pending_lock_;
@@ -172,6 +203,9 @@ private:
     VideoScheduler scheduler_{2000000, 16};
     int64_t stats_started_ = 0, max_queue_ns_ = 0, max_decode_ns_ = 0;
     uint64_t submitted_ = 0, decoded_ = 0, encoded_bytes_ = 0;
+    uint64_t callback_errors_ = 0, no_image_ = 0, dropped_ = 0;
+    OSStatus last_callback_status_ = noErr;
+    VTDecodeInfoFlags last_callback_flags_ = 0;
     VideoCallbacks callbacks_;
     bool hevc_ = false;
     std::vector<uint8_t> vps_, sps_, pps_;

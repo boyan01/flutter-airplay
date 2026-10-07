@@ -11,6 +11,7 @@
 #include <cstdlib>
 #ifdef __APPLE__
 #include <CoreVideo/CoreVideo.h>
+#include "../fixtures/interruption_fixtures.h"
 #endif
 
 void check_video_resume(void *surface, const char *decoder) {
@@ -115,6 +116,161 @@ void check_video_resume(void *surface, const char *decoder) {
 }
 
 #ifdef __APPLE__
+void check_video_stall_diagnostics() {
+    std::atomic<int> warnings{0};
+    AirplayCallbacks cb{}; cb.context = &warnings;
+    cb.log = [](void *context, int level, const char *message) {
+        if (level == 4 && strstr(message, "Video output stalled:"))
+            ++*static_cast<std::atomic<int> *>(context);
+    };
+    auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
+    auto report = [&](bool input, bool paused, bool output, int64_t blocked_ns) {
+        const auto now = monotonic_ns();
+        {
+            std::lock_guard<std::mutex> guard(p->lock);
+            p->video_stats = {};
+            p->video_stats_started = now - 5 * kSecond;
+            if (input) p->video_stats.queue_wait.add(0);
+            p->video_paused = paused;
+            p->last_video_decode = now - 10000000;
+            p->last_video_output = output ? now : now - 6 * kSecond;
+            p->video_no_output_started = output || !input ? 0 : now - blocked_ns;
+        }
+        p->report_video(now);
+    };
+    report(false, false, false, 4 * kSecond); // Sender stopped producing input.
+    report(true, true, false, 4 * kSecond); // Intentional sender pause.
+    report(true, false, true, 0); // Successful output clears the pending-input timer.
+    report(true, false, false, 10000000); // First input after an idle gap is still pending.
+    if (warnings) throw std::runtime_error("healthy or intentionally paused video reports a stall");
+    report(true, false, false, 4 * kSecond);
+    if (warnings != 1) throw std::runtime_error("video output stall has no warning");
+    p->report_video(monotonic_ns() + 5 * kSecond);
+    if (warnings != 2) throw std::runtime_error("failed video burst stops reporting when no newer input arrives");
+    p->report_video(monotonic_ns());
+    if (warnings != 2) throw std::runtime_error("video output stall warning is not rate limited");
+    report(true, false, true, 0);
+    if (warnings != 2) throw std::runtime_error("recovered video still reports a stall");
+    p->reset();
+    {
+        std::lock_guard<std::mutex> guard(p->lock);
+        if (p->video_no_output_started || p->last_video_output || p->last_video_decode)
+            throw std::runtime_error("session reset preserves stale video diagnostic timestamps");
+    }
+}
+
+void check_mac_video_interruption() {
+    check_video_stall_diagnostics();
+    struct Progress {
+        std::atomic<int> frames{0}, rejects{0}, stalls{0}, output_errors{0};
+        std::atomic<int> luma{0};
+    } progress;
+    AirplayCallbacks cb{}; cb.context = &progress;
+    cb.log = [](void *context, int, const char *message) {
+        auto *state = static_cast<Progress *>(context);
+        if (strstr(message, "Rejected out-of-window")) ++state->rejects;
+        if (strstr(message, "Video output stalled:")) ++state->stalls;
+        if (strstr(message, "VideoToolbox output missing:") && strstr(message, "status=")
+            && strstr(message, "flags=") && strstr(message, "image=")) ++state->output_errors;
+        std::puts(message);
+    };
+    cb.frame = [](void *context, void *frame) {
+        auto *state = static_cast<Progress *>(context);
+        auto image = static_cast<CVPixelBufferRef>(frame);
+        CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+        const auto *pixel = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
+        if (pixel) state->luma = pixel[0];
+        CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+        ++state->frames;
+    };
+    auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
+    if (!p->video->supports_hevc()) {
+        std::puts("SKIP: HEVC interruption fixture requires hardware decoding");
+        return;
+    }
+    const auto receive = receiver_callbacks(p.get());
+    if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H265)) throw std::runtime_error("HEVC selection failed");
+    auto feed = [&](int index, int64_t pts) {
+        const auto &packet = interruption_fixtures::packets[index];
+        video_decode_struct data{};
+        data.data = const_cast<uint8_t *>(interruption_fixtures::data + packet[0]);
+        data.data_len = int(packet[1]); data.ntp_time_local = pts;
+        receive.video_process(receive.cls, nullptr, &data);
+    };
+    const auto audio_bytes = make_alac_packet(352);
+    int audio_packets = 0;
+    auto wait_with_audio = [&](std::chrono::milliseconds duration) {
+        const auto until = monotonic_ns() + duration.count() * 1000000;
+        while (monotonic_ns() < until) {
+            audio_decode_struct data{};
+            data.ct = 2; data.data = const_cast<uint8_t *>(audio_bytes.data());
+            data.data_len = int(audio_bytes.size()); data.ntp_time_local = realtime_ns();
+            data.rtp_time = uint32_t(audio_packets * 352);
+            receive.audio_process(receive.cls, nullptr, &data);
+            int16_t pcm[352 * 2]{};
+            p->pcm->read(pcm, 352, p->timeline.deadline(data.ntp_time_local));
+            if (!std::any_of(std::begin(pcm), std::end(pcm), [](int16_t value) { return value != 0; }))
+                throw std::runtime_error("continuing audio has no signal during video interruption");
+            ++audio_packets;
+            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        }
+    };
+    auto feed_range = [&](int first, int end) {
+        for (int i = first; i < end; ++i) {
+            feed(i, realtime_ns());
+            wait_with_audio(std::chrono::milliseconds(17));
+        }
+        wait_with_audio(std::chrono::milliseconds(250));
+    };
+    feed_range(0, 6);
+    if (!progress.frames) throw std::runtime_error("HEVC interruption fixture has no initial picture");
+    const auto generation = p->pcm->generation();
+    wait_with_audio(std::chrono::seconds(6));
+    // Control: a long arrival gap alone must preserve the existing references.
+    auto before = progress.frames.load();
+    feed_range(6, 12);
+    if (progress.frames <= before) throw std::runtime_error("intact HEVC references do not survive an arrival gap");
+    if (progress.stalls) throw std::runtime_error("idle video input incorrectly reports a decoder stall");
+    // Mirror the captured trace: decode six overdue pictures, including the
+    // next IDR, without presenting them or resetting the audio timeline.
+    const auto overdue = realtime_ns() - 6 * kSecond;
+    before = progress.frames.load();
+    const auto old_picture = progress.luma.load();
+    for (int i = 30; i < 36; ++i) feed(i, overdue + (i - 30) * kSecond / 60);
+    wait_with_audio(std::chrono::milliseconds(250));
+    if (progress.frames != before) throw std::runtime_error("overdue HEVC pictures are presented");
+    feed_range(36, 60);
+    if (progress.frames <= before || progress.luma <= old_picture + 20)
+        throw std::runtime_error("overdue HEVC reference frames were discarded; resumed video has no new picture before the next IDR");
+    if (progress.rejects) throw std::runtime_error("valid overdue HEVC references are rejected before decoding");
+    std::puts("PASS: overdue HEVC references decoded without presentation; inter frames restore new video before the next IDR");
+    // Preserve callback/stall diagnostic coverage for actual missing data,
+    // which cannot be repaired by retaining overdue packets.
+    before = progress.frames.load();
+    feed_range(66, 90); // The IDR at 60 and following references never arrive.
+    const bool frozen = progress.frames == before;
+    // Allow the three-second stall threshold plus one five-second report
+    // interval, independent of where this burst lands within that interval.
+    const auto diagnostic_limit = monotonic_ns() + 9 * kSecond;
+    while (frozen && !progress.stalls && monotonic_ns() < diagnostic_limit)
+        wait_with_audio(std::chrono::milliseconds(50));
+    const auto stalled = progress.stalls.load();
+    std::printf("HEVC interruption: rejected=%d resumed_frames=%d stalled_logs=%d audio_packets=%d\n",
+        progress.rejects.load(), progress.frames.load() - before, stalled, audio_packets);
+    const auto old_luma = progress.luma.load();
+    before = progress.frames.load();
+    feed_range(0, 6); // A fresh IDR should restore visibly different output.
+    if (progress.frames <= before || std::abs(progress.luma.load() - old_luma) <= 20)
+        throw std::runtime_error("fresh HEVC IDR does not restore a new picture");
+    if (p->pcm->generation() != generation) throw std::runtime_error("video interruption flushes audio");
+    if (frozen && !stalled) throw std::runtime_error("HEVC input resumes with no picture and no stall diagnostic");
+    if (frozen && !progress.output_errors) throw std::runtime_error("VideoToolbox callback failure lacks status and flags");
+    feed(30, realtime_ns() + 3 * kSecond);
+    if (progress.rejects != 1) throw std::runtime_error("invalid future video timestamps are no longer rejected");
+    std::puts(frozen ? "PASS: diagnosed HEVC freeze after missing IDR, recovered on fresh IDR"
+                     : "PASS: missing HEVC IDR was concealed; this synthetic stream did not reproduce the freeze");
+}
+
 void check_mac_hevc() {
     struct Progress {
         std::atomic<int> frames{0}, width{0}, height{0}, red{0}, green{0}, blue{0};
@@ -286,8 +442,10 @@ void check_mac_arrival_jitter() {
     if (progress.times.size() != count || max_gap > 30000000)
         throw std::runtime_error("Mac arrival jitter produces a presentation stall");
 }
-int main() {
-    try { check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
+int main(int argc, char **argv) {
+    try {
+        if (argc == 2 && !strcmp(argv[1], "--video-interruption")) { check_mac_video_interruption(); return 0; }
+        check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
     catch (const std::exception &error) { std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
 }
 #else
