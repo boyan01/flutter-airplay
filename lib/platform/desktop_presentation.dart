@@ -10,6 +10,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../receiver/receiver_model.dart';
 import 'window_controller.dart';
 import 'desktop_window_sizing.dart';
+import 'desktop_tray_icon.dart';
 
 /// Owns desktop presentation resources for one mounted receiver screen.
 /// The receiver remains the source of truth for settings and playback state.
@@ -157,36 +158,9 @@ class DesktopPresentation {
       0xff20bfa9,
       0xfff06a6a,
     ]) {
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      final paint = ui.Paint()
-        ..color = ui.Color(color)
-        ..strokeWidth = 3
-        ..style = ui.PaintingStyle.stroke;
-      canvas.drawPath(
-        ui.Path()
-          ..moveTo(9, 22)
-          ..lineTo(4, 22)
-          ..lineTo(4, 5)
-          ..lineTo(28, 5)
-          ..lineTo(28, 22)
-          ..lineTo(23, 22),
-        paint,
-      );
-      paint.style = ui.PaintingStyle.fill;
-      canvas.drawPath(
-        ui.Path()
-          ..moveTo(16, 17)
-          ..lineTo(5, 28)
-          ..lineTo(27, 28)
-          ..close(),
-        paint,
-      );
-      final picture = recorder.endRecording();
-      final image = await picture.toImage(32, 32);
+      final image = await createDesktopTrayIcon(ui.Color(color));
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
-      picture.dispose();
       if (_disposed) return;
       final nativeImage = bytes == null
           ? null

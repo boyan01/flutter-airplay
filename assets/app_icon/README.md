@@ -48,7 +48,10 @@ Android 主题色图标以及桌面托盘／菜单栏状态图标使用单色或
 | 视频或音频播放 | 亮绿色 `#20BFA9` |
 | 接收异常 | 红色 `#F06A6A` |
 
-`lib/platform/desktop_presentation.dart` 使用 Flutter Canvas 在内存中绘制图标，
+`lib/platform/desktop_tray_icon.dart` 使用 Flutter Canvas 在内存中绘制图标，
+在 32 单位网格上定义圆角屏幕、圆头端点和圆角投送三角，输出 64 px 透明图像，
+供高密度菜单栏与各平台托盘缩放；无需生成或提交单独的位图文件。
+`lib/platform/desktop_presentation.dart` 选择状态色，
 交给 `nativeapi` 在 macOS、Windows 和 Linux 上显示。颜色与状态映射只维护一份。
 macOS 空闲和过渡状态使用系统模板图标，播放与异常状态使用状态色。
 
