@@ -90,11 +90,54 @@ jobs:
         run: |
           dart run build_runner build
           git diff --exit-code -- lib/receiver/receiver_settings.g.dart lib/receiver/receiver_state.g.dart lib/receiver/native/receiver_codec.g.dart
-      - name: Install FFI generator dependencies
-        run: sudo apt-get update && sudo apt-get install -y libclang-dev
       - name: Check generated FFI bindings
+        shell: bash
         run: |
-          dart run ffigen --config tool/ffigen_receiver.yaml
+          find_libclang() {
+            python3 - <<'CLANG_PROBE'
+          import ctypes
+          import glob
+          import re
+          import sys
+
+          # Probe the C API, not merely a clang executable or a development symlink.
+          paths = glob.glob('/usr/lib/llvm-*/lib/libclang.so*')
+          paths += glob.glob('/usr/lib/*/libclang-*.so*')
+          def version(path):
+              match = re.search(r'(?:llvm-|libclang-)(\d+)', path)
+              return int(match.group(1)) if match else 0
+          for path in sorted(set(paths), key=version, reverse=True):
+              try:
+                  library = ctypes.CDLL(path)
+                  library.clang_parseTranslationUnit2
+                  library.clang_createIndex.argtypes = [ctypes.c_int, ctypes.c_int]
+                  library.clang_createIndex.restype = ctypes.c_void_p
+                  library.clang_disposeIndex.argtypes = [ctypes.c_void_p]
+                  library.clang_disposeIndex.restype = None
+                  index = library.clang_createIndex(0, 0)
+                  if not index:
+                      continue
+                  library.clang_disposeIndex(index)
+              except (OSError, AttributeError):
+                  continue
+              print(path)
+              sys.exit(0)
+          sys.exit(1)
+          CLANG_PROBE
+          }
+          if ! libclang=$(find_libclang); then
+            echo 'No usable preinstalled libclang C API; installing the fallback.'
+            sudo timeout 120s apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+            sudo timeout 180s apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libclang-dev
+            libclang=$(find_libclang)
+          fi
+          echo "Using libclang: $libclang"
+          # Keep relative header/output paths anchored beside the authoritative config.
+          config=$(mktemp tool/ffigen_ci_XXXXXX.yaml)
+          trap 'rm -f "$config"' EXIT
+          cp tool/ffigen_receiver.yaml "$config"
+          printf '\nllvm-path:\n  - "%s"\n' "$libclang" >> "$config"
+          dart run ffigen --config "$config"
           git diff --exit-code -- lib/receiver/native/generated/receiver_bindings.dart
       - name: Check Dart format
         run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver

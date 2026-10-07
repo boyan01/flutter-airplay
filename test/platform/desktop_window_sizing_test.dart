@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter_airplay/platform/desktop_window_sizing.dart';
 import 'package:flutter_airplay/platform/window_controller.dart';
@@ -375,4 +377,111 @@ void main() {
     expect(window.position.x, greaterThanOrEqualTo(-1600));
     expect(window.position.x + window.size.width, lessThanOrEqualTo(0));
   });
+  test(
+    'late native configure cannot overwrite the final restored rectangle',
+    () async {
+      final nativeWindow = LateConfigureWindow()
+        ..contentSize = const native.Size(width: 620, height: 740);
+      window = nativeWindow;
+      addTearDown(nativeWindow.cancel);
+      await video(2048, 1536);
+      nativeWindow.requests.clear();
+      nativeWindow.disturbNext = true;
+      await disconnect();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expectBaseline();
+      expect(nativeWindow.requests, hasLength(2));
+      expect(nativeWindow.requests[0], nativeWindow.requests[1]);
+    },
+  );
+  test('new revision cancels an old final-target correction', () async {
+    final nativeWindow = LateConfigureWindow()
+      ..contentSize = const native.Size(width: 620, height: 740);
+    window = nativeWindow;
+    addTearDown(nativeWindow.cancel);
+    await video(2048, 1536);
+    nativeWindow.requests.clear();
+    nativeWindow.disturbNext = true;
+    final restoring = disconnect();
+    await Future<void>.delayed(const Duration(milliseconds: 70));
+    await video(1170, 2532);
+    await restoring;
+    expect(
+      nativeWindow.requests.where((r) => r.width == 620 && r.height == 740),
+      hasLength(1),
+    );
+    expect(window.aspectRatio, closeTo(1170 / 2532, .001));
+    await disconnect();
+    expectBaseline();
+  });
+  for (final state in ['hidden', 'maximized']) {
+    test('$state window cancels pending final-target correction', () async {
+      final nativeWindow = LateConfigureWindow()
+        ..contentSize = const native.Size(width: 620, height: 740);
+      window = nativeWindow;
+      addTearDown(nativeWindow.cancel);
+      await video(2048, 1536);
+      nativeWindow.requests.clear();
+      nativeWindow.disturbNext = true;
+      final restoring = disconnect();
+      await Future<void>.delayed(const Duration(milliseconds: 70));
+      if (state == 'hidden') window.isVisible = false;
+      if (state == 'maximized') window.maximized = true;
+      await restoring;
+      expect(nativeWindow.requests, hasLength(1));
+    });
+  }
+  test(
+    'a real native refusal still fails after one bounded correction',
+    () async {
+      final nativeWindow = LateConfigureWindow()
+        ..contentSize = const native.Size(width: 620, height: 740);
+      window = nativeWindow;
+      await video(2048, 1536);
+      nativeWindow.requests.clear();
+      nativeWindow.reject = true;
+      await expectLater(
+        disconnect(),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'window_resize_failed',
+          ),
+        ),
+      );
+      expect(nativeWindow.requests, hasLength(2));
+    },
+  );
+}
+
+/// Models a late native configure that overwrites an acknowledged frame.
+/// Writes are recorded separately from the simulated OS event.
+class LateConfigureWindow extends FakeWindow {
+  final requests = <native.Rectangle>[];
+  bool disturbNext = false, reject = false;
+  Timer? _lateConfigure;
+  @override
+  set bounds(native.Rectangle value) {
+    requests.add(value);
+    super.bounds = value;
+    final displaced = native.Rectangle(
+      x: value.x,
+      y: value.y,
+      width: value.width + 54,
+      height: value.height,
+    );
+    if (reject) {
+      _configure(displaced);
+    } else if (disturbNext) {
+      disturbNext = false;
+      _lateConfigure = Timer(
+        const Duration(milliseconds: 40),
+        () => _configure(displaced),
+      );
+    }
+  }
+
+  void _configure(native.Rectangle value) => super.bounds = value;
+  void cancel() => _lateConfigure?.cancel();
 }
