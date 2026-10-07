@@ -4,7 +4,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License: GPL v3"></a>
   <img src="https://img.shields.io/badge/Platform-macOS%20|%20Android%20|%20Windows%20|%20Linux%20|%20iPad-lightgrey.svg" alt="Platform Support">
   <img src="https://img.shields.io/badge/Flutter-3.x-02569B.svg?logo=flutter" alt="Flutter">
-  <img src="https://img.shields.io/badge/Version-0.1.2%2B3-brightgreen.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.3%2B4-brightgreen.svg" alt="Version">
 </p>
 
 <p align="center">
