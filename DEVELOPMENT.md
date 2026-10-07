@@ -564,10 +564,10 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 | 平台 | 命令 | 输出 / 注意事项 |
 | --- | --- | --- |
 | macOS | `./scripts/package_macos.sh` | `build/distribution/macos/` 下的 app、ZIP、SHA256；内部调用原生及 Release 构建，并进行 ad-hoc 签名和审计 |
-| Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；本地使用 debug signing |
+| Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；正式签名由 Gradle 从环境变量读取；CI 按版本命名 |
 | iPad 编译检查 | `flutter build ios --release --no-codesign` | 无签名设备构建，不能安装；可用 `flutter build ios --simulator --debug --no-codesign` 检查模拟器编译 |
 | Windows | `powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/package_windows.ps1` | `build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe` 和 `SHA256SUMS`；自动构建 Release、校验并打包完整运行时 |
-| Linux | `flutter build linux --release` | `build/linux/x64/release/bundle/`；保留整个目录及 `data/`、`lib/`，系统动态依赖另行安装 |
+| Linux | `python3 scripts/package_linux.py` | `build/distribution/linux/` 下的 `.deb`、`-bundle.tar.gz` 和校验和；完整 Release bundle，系统动态依赖另行安装 |
 
 macOS 包无需 Homebrew 运行时；Developer ID 签名与公证是额外分发步骤。
 Windows 安装包要求 Inno Setup 6.6+，可用 `winget install --id JRSoftware.InnoSetup -e -s winget`
@@ -590,6 +590,79 @@ Windows CI 在通过 Debug／原生回归后使用固定的 Inno Setup 6.7.3 编
 Android 授权更新使用同一 application ID/签名的 `adb install -r` 保留数据。
 Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及相关共享库，不启用 GPL/nonfree
 或外部 codec，包内包含固定来源和构建配置。Linux 系统依赖许可见 [NOTICE](linux/NOTICE)。
+
+### GitHub tag 自动发布
+
+`.github/workflows/release.yml` 在推送 `vMAJOR.MINOR.PATCH` tag 时构建并上传：
+
+- `Flutter-AirPlay-<version>-linux-x64.deb`
+- `Flutter-AirPlay-<version>-linux-x64-bundle.tar.gz`
+- `Flutter-AirPlay-<version>-windows-x64-setup.exe`
+- `Flutter-AirPlay-<version>-android-arm64.apk`（已配置正式签名时）
+- 所有应用产物的 `SHA256SUMS`
+
+先在 `pubspec.yaml` 更新 `version: MAJOR.MINOR.PATCH+BUILD` 并提交，再在这个提交上创建
+对应 tag（例如 `version: 0.1.2+3` 对应 `v0.1.2`）。tag 与 pubspec 不一致、预发布后缀、
+非法版本号会在构建前失败。`BUILD` 是 Android versionCode 和 Windows 文件版本的第四段，
+必须为 1..65535；更新时递增，不能仅改 tag 给旧二进制换版本。SDK 使用 `.flutter-version`。
+GitHub Actions 的手动运行只构建和保留 artifacts，永远不创建或发布 Release。
+Release 工作流仅允许手动运行和推送版本 tag 触发，不在 PR 创建或更新时运行。
+
+Linux 和 Windows 都成功，且 Android 成功构建或明确因未配置签名跳过后，才开始创建 draft
+Release。上传并验证完整资产集合后才转为公开；任一步失败会保留 draft。
+同一 tag 的失败运行可重试，只覆盖对应提交的 draft 中已知资产；已公开 Release 不覆盖，
+修改后发布新版本。工作流不会创建 tag；不要把 tag 的手动创建作为构建测试。
+第三方 Actions 固定到 commit SHA，构建 job 只有 contents:read，只有最终上传 job 获得
+contents:write；没有 pull_request_target 或来自 PR 的签名任务。
+
+Linux 发布环境是 Ubuntu 24.04 x64，需要 `dpkg-dev`、`fakeroot`、`desktop-file-utils`、
+`default-jdk-headless` 及前文 Linux 编译依赖，并设置 `JAVA_HOME=/usr/lib/jvm/default-java`。打包器扫描所有 ELF，通过 `dpkg-shlibdeps` 计算目标系统 Depends，
+另加 `avahi-daemon`。当前 JNI native asset 还需要 `default-jre-headless` 提供 `libjvm.so`，
+打包器检查稳定的 Java runtime 路径，避免带入 CI runner 私有 JDK 路径。不能在别的发行版
+上生成包后声称与 Ubuntu 24.04 兼容。
+`.deb` 用 `sudo apt install ./Flutter-AirPlay-<version>-linux-x64.deb` 安装，应用菜单或
+`flutter-airplay` 启动。bundle 解压后保持整个目录，以 `./flutter_airplay` 运行；其
+`README.txt` 列出必须由系统提供的依赖，它不是静态链接的跨发行版 AppImage。
+包中包含图标、desktop 文件、完整 Flutter/native libraries、LICENSE 和第三方声明。
+`--skip-build` 仅打包已构建且版本一致的 Release bundle。
+
+### Android 正式签名配置
+
+工作流使用 `android-release` GitHub Environment。仓库管理员应在其中配置以下四个
+Environment secrets，并设置所需审批和仅允许 release tags 的部署限制：
+
+| Secret | 内容 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | 已有、长期保管的正式签名 keystore 的 Base64 内容 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
+| `ANDROID_KEY_ALIAS` | 固定签名 key alias |
+| `ANDROID_KEY_PASSWORD` | 该 key 的密码 |
+
+四项全部缺失时，Android job 成功但明确跳过 APK，job summary 和 Release 说明都标注原因，
+桌面包仍可发布。只配置部分项、无效 keystore、错误密码或构建失败均使任务失败。
+配置签名后再手动构建验证；已发布的同名
+Release 不会补传，签名 APK 随下一版发布。
+
+CI 在 GitHub 托管的一次性 Ubuntu runner 的 `RUNNER_TEMP` 以 `0600` 权限解码已有
+keystore，然后直接执行 `flutter build apk --release --target-platform android-arm64`。
+Gradle 从 `AIRPLAY_ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、
+`ANDROID_KEY_PASSWORD` 环境变量读取签名配置；原生依赖仍由 Gradle 的 `preBuild` hook 自动准备，
+不需要额外的 Android 构建包装脚本。CI 将构建出的 APK 按版本重命名上传。
+
+keystore 不进入仓库、工作区、缓存或 artifacts，不输出密码或 Base64 密钥；不单独增加清理
+步骤，由托管的一次性 runner 生命周期销毁临时文件。不要将签名 job 改为持久化 self-hosted
+runner 而不重新评估密钥留存。Gradle daemon/configuration-cache 在签名构建时禁用，签名
+job 不缓存 Gradle 目录。
+
+本地同样直接使用 Flutter 命令。需要正式签名时设置上述四个 Gradle 环境变量，路径指向已有
+keystore；没有显式配置时 Release 不再使用 debug key，未签名结果不能直接安装。
+日常开发继续使用 `flutter run` / `flutter build apk --debug`。
+
+已安装应用要原地升级，必须保持 `tech.soit.flutterairplay` application ID、同一正式签名 key，
+并递增 versionCode。GitHub Secrets 是 CI 传递方式，不是唯一备份；在独立安全位置保存原始
+keystore 和恢复信息，限制能编辑 release workflow/tag 的人员。不要每次 CI 生成新 key，
+也不要将密码或 Base64 密钥粘贴到日志、issue 或聊天。已安装的 debug 签名版本不能用正式签名
+直接覆盖；切换前需要用户自行安排数据保留/重新安装。
 
 ## 资源与内部脚本
 

@@ -6,6 +6,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Release credentials exist only in the invoking process environment. In
+// particular, a missing release key must never fall back to Android's debug key.
+val releaseSigningNames = listOf(
+    "AIRPLAY_ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD",
+    "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD",
+)
+val releaseSigning = releaseSigningNames.associateWith { System.getenv(it)?.takeIf { value -> value.isNotEmpty() } }
+val hasReleaseSigning = releaseSigning.values.all { it != null }
+require(releaseSigning.values.all { it == null } || hasReleaseSigning) {
+    "Android release signing requires AIRPLAY_ANDROID_KEYSTORE_PATH, " +
+        "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD together."
+}
+
 android {
     buildFeatures { buildConfig = true }
     namespace = "tech.soit.flutterairplay"
@@ -36,13 +49,24 @@ android {
         versionName = flutter.versionName
     }
 
+    if (hasReleaseSigning) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseSigning.getValue("AIRPLAY_ANDROID_KEYSTORE_PATH")!!)
+                storePassword = releaseSigning.getValue("ANDROID_KEYSTORE_PASSWORD")!!
+                keyAlias = releaseSigning.getValue("ANDROID_KEY_ALIAS")!!
+                keyPassword = releaseSigning.getValue("ANDROID_KEY_PASSWORD")!!
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Unsigned local release builds remain possible; the release
+            // packaging script requires and verifies a real signing key.
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
         }
     }
 }

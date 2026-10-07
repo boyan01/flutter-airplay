@@ -1,0 +1,235 @@
+# All external actions are pinned to reviewed immutable commits.
+name: Release assets
+'on':
+  push:
+    tags:
+    - v*
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: release-assets-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      flutter_version: ${{ steps.metadata.outputs.flutter_version }}
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        persist-credentials: false
+    - name: Validate tag and pubspec version
+      id: metadata
+      env:
+        RELEASE_TAG: ${{ github.ref_name }}
+        RELEASE_EVENT: ${{ github.event_name }}
+        RELEASE_REF_TYPE: ${{ github.ref_type }}
+      run: python3 scripts/release_assets.py metadata
+    - name: Test packaging helpers
+      run: ./scripts/test_native.sh build
+  linux:
+    env:
+      JAVA_HOME: /usr/lib/jvm/default-java
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        persist-credentials: false
+    - name: Install Linux build and packaging dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+          libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+          libpulse-dev libavahi-client-dev libepoxy-dev libffmpeg-nvenc-dev \
+          libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
+          dpkg-dev fakeroot desktop-file-utils default-jdk-headless
+    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      with:
+        channel: stable
+        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
+        cache: true
+    - run: flutter pub get --enforce-lockfile
+    - name: Build Release .deb and portable bundle
+      run: python3 scripts/package_linux.py
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: release-linux
+        path: |-
+          build/distribution/linux/*.deb
+          build/distribution/linux/*-bundle.tar.gz
+        if-no-files-found: error
+        retention-days: 14
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+    - name: Preserve shell script line endings
+      run: git config --global core.autocrlf false
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        persist-credentials: false
+    - name: Ensure Media Foundation is available
+      shell: powershell
+      run: |
+        if (-not (Get-WindowsFeature Server-Media-Foundation).Installed) {
+          $result = Install-WindowsFeature Server-Media-Foundation
+          if (-not $result.Success -or $result.RestartNeeded -eq 'Yes') {
+            throw 'Media Foundation could not be enabled without restarting the runner.'
+          }
+        }
+    - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+      id: msys2
+      with:
+        msystem: MSYS
+        install: make diffutils
+    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      with:
+        channel: stable
+        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
+        cache: true
+    - run: flutter pub get --enforce-lockfile
+    - name: Prepare Inno Setup compiler
+      shell: powershell
+      run: |
+        $compilerSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+        Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $compilerSetup
+        if ((Get-FileHash $compilerSetup -Algorithm SHA256).Hash -ne '9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732') {
+          throw 'Inno Setup compiler download SHA-256 mismatch.'
+        }
+        $compilerDir = Join-Path $env:RUNNER_TEMP 'inno-6.7.3'
+        $process = Start-Process -FilePath $compilerSetup -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER /PORTABLE=1 /NOICONS /DIR=`"$compilerDir`"" -WindowStyle Hidden -Wait -PassThru
+        if ($process.ExitCode -ne 0) { throw 'Inno Setup portable compiler preparation failed.' }
+        "AIRPLAY_ISCC=$compilerDir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Build Windows Release installer
+      env:
+        AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
+        AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
+      run: ./windows/scripts/package_windows.ps1 -InnoCompiler $env:AIRPLAY_ISCC
+    - name: Verify install, upgrade, startup and uninstall
+      shell: bash
+      run: ./scripts/test_native.sh windows installer build/distribution/windows/Flutter-AirPlay-*-windows-x64-setup.exe
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: release-windows
+        path: build/distribution/windows/*-setup.exe
+        if-no-files-found: error
+        retention-days: 14
+  android:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: android-release
+    outputs:
+      signed: ${{ steps.signing.outputs.configured }}
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        persist-credentials: false
+    - name: Prepare Android signing key
+      id: signing
+      env:
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        if [[ -z "$ANDROID_KEYSTORE_BASE64" && -z "$ANDROID_KEYSTORE_PASSWORD" && -z "$ANDROID_KEY_ALIAS" && -z "$ANDROID_KEY_PASSWORD" ]]; then
+          echo 'configured=false' >> "$GITHUB_OUTPUT"
+          echo 'Android release skipped: signing secrets are not configured. No APK was packaged.' >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+          [[ -n "${!name}" ]] || { echo "Missing Android signing secret: $name" >&2; exit 1; }
+        done
+        umask 077
+        printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/airplay-release.keystore"
+        [[ -s "$RUNNER_TEMP/airplay-release.keystore" ]] || { echo 'Android keystore is empty.' >&2; exit 1; }
+        echo 'configured=true' >> "$GITHUB_OUTPUT"
+    - name: Install host build dependencies
+      if: steps.signing.outputs.configured == 'true'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build perl python3 libssl-dev
+    - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+      if: steps.signing.outputs.configured == 'true'
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      if: steps.signing.outputs.configured == 'true'
+      with:
+        channel: stable
+        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
+        cache: true
+    - run: flutter pub get --enforce-lockfile
+      if: steps.signing.outputs.configured == 'true'
+    - name: Install project Android native toolchain
+      if: steps.signing.outputs.configured == 'true'
+      run: |
+        ndk_version=$(sed -n 's/^airplay\.ndkVersion=//p' android/gradle.properties)
+        sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        if [[ ! -x "$sdkmanager" ]]; then
+          for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager; do
+            if [[ -x "$candidate" ]]; then sdkmanager="$candidate"; fi
+          done
+        fi
+        [[ -x "$sdkmanager" ]] || { echo 'Android SDK command-line tools are missing.' >&2; exit 1; }
+        "$sdkmanager" "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-36' 'build-tools;36.0.0'
+    - name: Build Android release APK
+      if: steps.signing.outputs.configured == 'true'
+      env:
+        AIRPLAY_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/airplay-release.keystore
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.configuration-cache=false
+      run: flutter build apk --release --target-platform android-arm64
+    - name: Name Android APK
+      if: steps.signing.outputs.configured == 'true'
+      env:
+        RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      run: |
+        apk=build/app/outputs/flutter-apk/app-release.apk
+        mkdir -p build/distribution/android
+        cp "$apk" "build/distribution/android/Flutter-AirPlay-$RELEASE_VERSION-android-arm64.apk"
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: release-android
+        path: build/distribution/android/*.apk
+        if-no-files-found: error
+        retention-days: 14
+      if: steps.signing.outputs.configured == 'true'
+  publish:
+    needs:
+    - prepare
+    - linux
+    - windows
+    - android
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      with:
+        persist-credentials: false
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        pattern: release-*
+        path: build/release-assets
+        merge-multiple: true
+    - name: Validate complete asset set and publish release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RELEASE_TAG: ${{ github.ref_name }}
+        RELEASE_SHA: ${{ github.sha }}
+        ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
+      run: python3 scripts/release_assets.py publish
