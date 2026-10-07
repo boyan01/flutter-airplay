@@ -1345,20 +1345,46 @@ void main() {
     expect(backend.starts, 1);
   });
 
-  testWidgets('Settings log entry opens the dedicated logs page', (
-    tester,
-  ) async {
-    await launch(tester, platform: 'android');
-    await tester.tap(find.byKey(const Key('openSettings')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('接收日志'));
-    await tester.tap(find.text('接收日志'));
-    await tester.pumpAndSettle();
-    expect(find.byType(LogsPage), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.text('分享日志文件'), findsOneWidget);
-    expect(find.text('复制日志'), findsOneWidget);
-  });
+  for (final platform in ['macos', 'windows', 'linux', 'android', 'ios']) {
+    for (final locale in ['zh', 'en']) {
+      testWidgets('$platform $locale Settings opens logs and can reopen', (
+        tester,
+      ) async {
+        final backend = await launch(
+          tester,
+          platform: platform,
+          locale: locale,
+        );
+        for (var attempt = 0; attempt < 2; attempt++) {
+          await tester.tap(find.byKey(const Key('openSettings')));
+          await tester.pumpAndSettle();
+          final entry = find.byKey(const Key('settingsLogs'));
+          await tester.ensureVisible(entry);
+          await tester.tap(entry);
+          // Repeated input during dismissal must not stack log routes.
+          await tester.tap(entry);
+          await tester.pump(const Duration(milliseconds: 50));
+          await tester.pumpAndSettle();
+          expect(find.byType(SettingsPage), findsNothing);
+          expect(find.byType(LogsPage), findsOneWidget);
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(
+            find.text(locale == 'zh' ? '分享日志文件' : 'Share log file'),
+            findsOneWidget,
+          );
+          expect(
+            find.text(locale == 'zh' ? '复制日志' : 'Copy logs'),
+            findsOneWidget,
+          );
+          await tester.binding.handlePopRoute();
+          await tester.pumpAndSettle();
+          expect(find.byType(LogsPage), findsNothing);
+          expect(find.byKey(const Key('openSettings')), findsOneWidget);
+        }
+        expect(backend.stops, 0);
+      });
+    }
+  }
   testWidgets('TV D-pad can select disconnect explicitly', (tester) async {
     final backend = await launch(
       tester,

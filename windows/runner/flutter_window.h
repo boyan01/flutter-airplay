@@ -38,6 +38,9 @@ class FlutterWindow : public Win32Window {
   bool hide_on_close_ = false, quit_requested_ = false, desktop_ready_ = false;
 
   void UpdateSnapshot(const flutter::EncodableMap& snapshot);
+  bool startup_finished_ = false, reopen_requested_ = false;
+  UINT_PTR startup_timer_ = 0;
+  bool FinishDesktopStartup(bool tray_available);
   void ShowApp();
   void CloseAppWindow();
   void FullscreenChanged();

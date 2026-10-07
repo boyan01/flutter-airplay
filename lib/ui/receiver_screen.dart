@@ -328,10 +328,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     if (_dialogOpen || !model.loaded) return;
     setState(() => _dialogOpen = true);
     widget.onDialogVisibility?.call(true);
+    var openLogs = false;
     final page = SettingsPage(
       model: model,
       editName: editName,
-      onLogs: _logs,
+      onLogs: () => openLogs = true,
       launchAtLogin: widget.launchAtLogin,
     );
     if (model.supportsWindowPreferences) {
@@ -360,7 +361,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     if (!mounted) return;
     setState(() => _dialogOpen = false);
     widget.onDialogVisibility?.call(false);
-    _restoreFocus();
+    if (openLogs) {
+      await _logs();
+    } else {
+      _restoreFocus();
+    }
   }
 
   Future<void> _logs() async {

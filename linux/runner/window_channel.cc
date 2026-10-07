@@ -2,10 +2,34 @@
 #include "window_channel.h"
 #include <cstring>
 #include <cstdint>
+#include <utility>
 
-WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window)
+namespace {
+bool TrayHostAvailable() {
+  // nativeapi 0.4 only tests session-bus connectivity. An actual host is needed
+  // to expose the icon/menu (for example GNOME without an indicator extension
+  // has a session bus but no tray).
+  g_autoptr(GDBusConnection) bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr);
+  if (!bus) return false;
+  for (const char* watcher : {"org.kde.StatusNotifierWatcher", "com.canonical.StatusNotifierWatcher"}) {
+    g_autoptr(GVariant) reply = g_dbus_connection_call_sync(bus,
+        watcher, "/StatusNotifierWatcher", "org.freedesktop.DBus.Properties", "Get",
+        g_variant_new("(ss)", watcher, "IsStatusNotifierHostRegistered"),
+        G_VARIANT_TYPE("(v)"), G_DBUS_CALL_FLAGS_NO_AUTO_START, 1000, nullptr, nullptr);
+    if (!reply) continue;
+    g_autoptr(GVariant) value = nullptr;
+    g_variant_get(reply, "(v)", &value);
+    if (g_variant_is_of_type(value, G_VARIANT_TYPE_BOOLEAN) && g_variant_get_boolean(value)) return true;
+  }
+  return false;
+}
+}  // namespace
+
+WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window,
+                             std::function<bool()> tray_host_available)
     : messenger_(FL_BINARY_MESSENGER(g_object_ref(messenger))),
-      window_(GTK_WINDOW(g_object_ref(window))) {
+      window_(GTK_WINDOW(g_object_ref(window))),
+      tray_host_available_(tray_host_available ? std::move(tray_host_available) : TrayHostAvailable) {
   state_handler_ = g_signal_connect(window_, "window-state-event",
       G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer data) -> gboolean {
         // nativeapi already reports maximize/restore. Only fullscreen lacks
@@ -24,9 +48,17 @@ WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window)
       [](FlMethodChannel*, FlMethodCall* call, gpointer data) {
         static_cast<WindowChannel*>(data)->Handle(call);
       }, this, nullptr);
+  // A broken Dart/tray initialization must never leave an unreachable process.
+  startup_timeout_ = g_timeout_add_seconds(10, [](gpointer data) -> gboolean {
+    auto* self = static_cast<WindowChannel*>(data);
+    self->startup_timeout_ = 0;
+    self->FinishDesktopStartup(false);
+    return G_SOURCE_REMOVE;
+  }, this);
 }
 
 WindowChannel::~WindowChannel() {
+  if (startup_timeout_) g_source_remove(startup_timeout_);
   if (g_signal_handler_is_connected(window_, state_handler_))
     g_signal_handler_disconnect(window_, state_handler_);
   fl_method_channel_set_method_call_handler(channel_, nullptr, nullptr, nullptr);
@@ -38,8 +70,22 @@ void WindowChannel::Invoke(const char* method, FlValue* args) {
   fl_method_channel_invoke_method(channel_, method, args, nullptr, nullptr, nullptr);
 }
 void WindowChannel::Show() {
-  if (ready_) Invoke("openApp");
-  else gtk_window_present(window_);
+  if (!startup_finished_) reopen_requested_ = true;
+  // Native presentation must work even if Dart failed after desktopReady.
+  gtk_window_present(window_);
+  if (startup_finished_ && ready_) Invoke("openApp");
+}
+bool WindowChannel::FinishDesktopStartup(bool tray_available) {
+  tray_available = tray_available && tray_host_available_();
+  if (startup_finished_ && tray_available) return true;
+  startup_finished_ = true;
+  if (startup_timeout_) { g_source_remove(startup_timeout_); startup_timeout_ = 0; }
+  if (!tray_available || reopen_requested_) {
+    if (!tray_available) hide_on_close_ = false;
+    gtk_window_present(window_);
+    if (ready_) Invoke("openApp");
+  }
+  return tray_available;
 }
 bool WindowChannel::HideOnClose() {
   if (quit_requested_ || !hide_on_close_) return false;
@@ -56,6 +102,13 @@ void WindowChannel::Handle(FlMethodCall* call) {
     ready_ = true;
     g_autoptr(FlValue) ready = fl_value_new_bool(true);
     fl_method_call_respond_success(call, ready, nullptr); return;
+  } else if (!std::strcmp(method, "finishDesktopStartup")) {
+    if (!args || fl_value_get_type(args) != FL_VALUE_TYPE_BOOL) {
+      fl_method_call_respond_error(call, "invalid_arguments", "finishDesktopStartup requires a boolean", nullptr, nullptr);
+      return;
+    }
+    g_autoptr(FlValue) available = fl_value_new_bool(FinishDesktopStartup(fl_value_get_bool(args)));
+    fl_method_call_respond_success(call, available, nullptr); return;
   } else if (!std::strcmp(method, "setClosePolicy")) {
     hide_on_close_ = args && fl_value_get_type(args) == FL_VALUE_TYPE_BOOL && fl_value_get_bool(args);
   } else if (!std::strcmp(method, "setDockVisible")) {

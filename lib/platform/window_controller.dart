@@ -189,6 +189,15 @@ class WindowController {
   Future<bool> initializeDesktop() async =>
       await _channel.invokeMethod<bool>('desktopReady') == true;
 
+  /// Complete startup only after the tray and its Open/Quit menu are usable.
+  /// Hosts keep a fallback timer until this decision reaches them.
+  Future<bool> finishDesktopStartup({required bool trayAvailable}) async =>
+      await _channel.invokeMethod<bool>(
+        'finishDesktopStartup',
+        trayAvailable,
+      ) ==
+      true;
+
   Future<void> setClosePolicy(bool hide) =>
       _channel.invokeMethod<void>('setClosePolicy', hide);
 

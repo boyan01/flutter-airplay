@@ -10,6 +10,9 @@ class MainFlutterWindow: NSWindow {
     set { (NSApp.delegate as? AppDelegate)?.keepRunningWithoutWindow = newValue }
   }
   private(set) var desktopReady = false
+  private var startupFinished = false
+  private var reopenRequested = false
+  private var startupTimeout: DispatchWorkItem?
   private var presentationObservers: [NSObjectProtocol] = []
 
   override func close() {
@@ -39,6 +42,11 @@ class MainFlutterWindow: NSWindow {
         case "closeWindow": self.close(); result(nil); return
         case "quitApp": NSApp.terminate(nil); result(nil); return
         case "desktopReady": self.desktopReady = true; result(true); return
+        case "finishDesktopStartup":
+          guard let trayAvailable = call.arguments as? Bool else {
+            result(FlutterError(code: "invalid_arguments", message: "finishDesktopStartup requires a boolean", details: nil)); return
+          }
+          result(self.finishDesktopStartup(trayAvailable: trayAvailable)); return
         case "getLaunchAtLogin", "setLaunchAtLogin":
           self.handleLaunchAtLogin(call, result: result); return
         case "getNativeWindowHandle":
@@ -52,10 +60,45 @@ class MainFlutterWindow: NSWindow {
       }
       result(FlutterMethodNotImplemented)
     }
+    let timeout = DispatchWorkItem { [weak self] in _ = self?.finishDesktopStartup(trayAvailable: false) }
+    startupTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
     installPresentationObservers()
     super.awakeFromNib()
     configureContentWindow()
+    // Hidden windows never reach viewWillAppear, where Flutter normally starts
+    // its engine. Start after installing every host handler and plugin instead.
+    _ = controller.engine.run(withEntrypoint: nil)
     DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.configureApplication() }
+  }
+
+  func showApp() {
+    if !startupFinished { reopenRequested = true }
+    // Keep OS reopen usable even when Dart initialization failed after its
+    // early desktopReady handshake. Dart still resets its auto-hide policy.
+    NSApp.setActivationPolicy(.regular)
+    if isMiniaturized { deminiaturize(nil) }
+    makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    if startupFinished && desktopReady { openFlutterPanel("openApp") }
+  }
+
+  @discardableResult
+  func finishDesktopStartup(trayAvailable: Bool) -> Bool {
+    guard !startupFinished || !trayAvailable else { return true }
+    startupFinished = true
+    startupTimeout?.cancel()
+    startupTimeout = nil
+    if !trayAvailable || reopenRequested {
+      if !trayAvailable { hideOnClose = false }
+      NSApp.setActivationPolicy(.regular)
+      makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+      if desktopReady { openFlutterPanel("openApp") }
+    } else if !isVisible {
+      NSApp.setActivationPolicy(.accessory)
+    }
+    return trayAvailable
   }
 
   private func handleLaunchAtLogin(_ call: FlutterMethodCall, result: FlutterResult) {
@@ -131,6 +174,7 @@ class MainFlutterWindow: NSWindow {
   func openFlutterPanel(_ method: String) { presentation?.invokeMethod(method, arguments: nil) }
 
   deinit {
+    startupTimeout?.cancel()
     for observer in presentationObservers { NotificationCenter.default.removeObserver(observer) }
   }
 }

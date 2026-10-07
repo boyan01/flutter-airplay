@@ -79,8 +79,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   }
 
   @objc func openApp() {
-    if window?.desktopReady == true { window?.openFlutterPanel("openApp") }
-    else { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    window?.showApp()
   }
   @objc func openSettings() { window?.openFlutterPanel("openSettings") }
   @objc func openLogs() { window?.openFlutterPanel("openLogs") }
