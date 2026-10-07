@@ -9,6 +9,11 @@ class LaunchAtLogin {
   const LaunchAtLogin();
   static const _channel = MethodChannel('tech.soit.flutterairplay/window');
 
+  /// Upgrade an existing app-owned Linux entry without enabling login startup.
+  Future<void> migrateLegacyRegistration() async {
+    if (Platform.isLinux) await LinuxLoginEntry().migrateLegacyRegistration();
+  }
+
   Future<bool> isEnabled() async => Platform.isLinux
       ? LinuxLoginEntry().isEnabled()
       : (await _channel.invokeMethod<bool>('getLaunchAtLogin'))!;
@@ -26,6 +31,7 @@ class LinuxLoginEntry {
   final Map<String, String> environment;
   final String executable;
   static const filename = 'tech.soit.flutterairplay.desktop';
+  static const launchArgument = '--launch-at-login';
 
   String get appPath => environment['APPIMAGE'] ?? executable;
   File get entry {
@@ -102,9 +108,20 @@ class LinuxLoginEntry {
         await _isRunnable(appPath);
   }
 
-  // Read one executable, not a shell command. No startup arguments are used by
-  // this app; registrations containing arguments are conservatively not adopted.
+  // Accept only the old no-argument entry or our explicit login marker.
+  // Do not interpret a shell command, field codes, or arbitrary arguments.
   static String _execPath(String command) {
+    final arguments = _execArguments(command);
+    if (arguments == null ||
+        arguments.isEmpty ||
+        arguments.length > 2 ||
+        (arguments.length == 2 && arguments[1] != launchArgument)) {
+      return '';
+    }
+    return arguments.first;
+  }
+
+  static List<String>? _execArguments(String command) {
     final decoded = command.replaceAllMapped(
       RegExp(r'\\([sntr\\])'),
       (match) => switch (match[1]) {
@@ -115,8 +132,16 @@ class LinuxLoginEntry {
         _ => match[1]!,
       },
     );
-    final result = StringBuffer();
-    var quoted = false, escaped = false;
+    final arguments = <String>[];
+    var result = StringBuffer();
+    var quoted = false, escaped = false, started = false;
+    void finish() {
+      if (!started) return;
+      arguments.add(result.toString());
+      result = StringBuffer();
+      started = false;
+    }
+
     for (final code in decoded.runes) {
       final character = String.fromCharCode(code);
       if (escaped) {
@@ -124,18 +149,61 @@ class LinuxLoginEntry {
         escaped = false;
       } else if (character == r'\') {
         escaped = true;
+        started = true;
       } else if (character == '"') {
         quoted = !quoted;
+        started = true;
       } else if (!quoted && RegExp(r'\s').hasMatch(character)) {
-        return '';
+        finish();
       } else {
         result.write(character);
+        started = true;
       }
     }
-    if (quoted || escaped) return '';
-    final value = result.toString();
-    if (RegExp(r'%(?!%)').hasMatch(value.replaceAll('%%', ''))) return '';
-    return value.replaceAll('%%', '%');
+    if (quoted || escaped) return null;
+    finish();
+    if (arguments.any(
+      (value) => RegExp(r'%(?!%)').hasMatch(value.replaceAll('%%', '')),
+    )) {
+      return null;
+    }
+    return arguments.map((value) => value.replaceAll('%%', '%')).toList();
+  }
+
+  /// Upgrade only our exact legacy user entry, preserving all external choices.
+  /// A legacy no-argument launch cannot be classified retrospectively and stays
+  /// visible; the marker takes effect on the next login.
+  Future<void> migrateLegacyRegistration() async {
+    final file = entry;
+    if (await FileSystemEntity.isLink(file.path) ||
+        !await file.exists() ||
+        !await isEnabled()) {
+      return;
+    }
+    final original = await file.readAsString();
+    final legacy = quoteExecutable(appPath);
+    final lines = original.split('\n');
+    var inEntry = false, sections = 0;
+    final matches = <int>[];
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.startsWith('[')) {
+        inEntry = line == '[Desktop Entry]';
+        if (inEntry) sections++;
+      } else if (inEntry && RegExp(r'^Exec\s*=').hasMatch(line)) {
+        // Whitespace or custom quoting means this was not our generated entry.
+        if (lines[i] != 'Exec=$legacy') return;
+        matches.add(i);
+      }
+    }
+    if (sections != 1 || matches.length != 1) return;
+    lines[matches.single] = 'Exec=$legacy $launchArgument';
+    // Avoid overwriting an externally edited or replaced entry while checking.
+    if (await FileSystemEntity.isLink(file.path) ||
+        await file.readAsString() != original) {
+      return;
+    }
+    await _writeEntry(file, lines.join('\n'));
   }
 
   Future<bool> _sameExecutable(String value) async {
@@ -175,7 +243,7 @@ class LinuxLoginEntry {
       await _writeEntry(
         file,
         '[Desktop Entry]\nType=Application\n'
-        'Name=Flutter AirPlay\nExec=$command\nTerminal=false\n'
+        'Name=Flutter AirPlay\nExec=$command $launchArgument\nTerminal=false\n'
         'Hidden=false\nX-GNOME-Autostart-enabled=true\n',
       );
     } else {

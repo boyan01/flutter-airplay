@@ -3,6 +3,16 @@ import Cocoa
 import FlutterMacOS
 import ServiceManagement
 
+enum DesktopLaunchSource {
+  case manual, loginItem
+
+  init(appleEvent: NSAppleEventDescriptor?) {
+    self = appleEvent?.eventID == kAEOpenApplication &&
+      appleEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+      ? .loginItem : .manual
+  }
+}
+
 class MainFlutterWindow: NSWindow {
   private var presentation: FlutterMethodChannel?
   var hideOnClose: Bool {
@@ -10,6 +20,8 @@ class MainFlutterWindow: NSWindow {
     set { (NSApp.delegate as? AppDelegate)?.keepRunningWithoutWindow = newValue }
   }
   private(set) var desktopReady = false
+  private var desktopLaunchSource: DesktopLaunchSource?
+  private var pendingTrayStartup = false
   private var startupFinished = false
   private var reopenRequested = false
   private var startupTimeout: DispatchWorkItem?
@@ -60,9 +72,7 @@ class MainFlutterWindow: NSWindow {
       }
       result(FlutterMethodNotImplemented)
     }
-    let timeout = DispatchWorkItem { [weak self] in _ = self?.finishDesktopStartup(trayAvailable: false) }
-    startupTimeout = timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+    scheduleStartupTimeout()
     installPresentationObservers()
     super.awakeFromNib()
     configureContentWindow()
@@ -70,6 +80,18 @@ class MainFlutterWindow: NSWindow {
     // its engine. Start after installing every host handler and plugin instead.
     _ = controller.engine.run(withEntrypoint: nil)
     DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.configureApplication() }
+  }
+
+  private func scheduleStartupTimeout() {
+    let timeout = DispatchWorkItem { [weak self] in _ = self?.finishDesktopStartup(trayAvailable: false) }
+    startupTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+  }
+
+  func setDesktopLaunchSource(_ source: DesktopLaunchSource) {
+    guard desktopLaunchSource == nil else { return }
+    desktopLaunchSource = source
+    if pendingTrayStartup { finishDesktopStartup(trayAvailable: true) }
   }
 
   func showApp() {
@@ -86,10 +108,18 @@ class MainFlutterWindow: NSWindow {
   @discardableResult
   func finishDesktopStartup(trayAvailable: Bool) -> Bool {
     guard !startupFinished || !trayAvailable else { return true }
+    // awakeFromNib starts Flutter before applicationDidFinishLaunching captures
+    // the launch event. Wait for that source before choosing silent startup,
+    // but keep the native watchdog/tray-failure fallback independent of it.
+    if trayAvailable && desktopLaunchSource == nil {
+      pendingTrayStartup = true
+      return true
+    }
+    pendingTrayStartup = false
     startupFinished = true
     startupTimeout?.cancel()
     startupTimeout = nil
-    if !trayAvailable || reopenRequested {
+    if !trayAvailable || desktopLaunchSource != .loginItem || reopenRequested {
       if !trayAvailable { hideOnClose = false }
       NSApp.setActivationPolicy(.regular)
       makeKeyAndOrderFront(nil)

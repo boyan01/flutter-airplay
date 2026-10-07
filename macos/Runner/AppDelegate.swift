@@ -7,6 +7,7 @@ import IOKit.pwr_mgt
 class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   let receiver = ReceiverBridge()
   var keepRunningWithoutWindow = false
+  private var desktopLaunchSource: DesktopLaunchSource?
   private var snapshot: [String: Any] = [:]
   private var displayAssertion: IOPMAssertionID = 0
   private var hasDisplayAssertion = false
@@ -24,11 +25,15 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   func preference(_ key: String, default fallback: Bool) -> Bool { snapshot[key] as? Bool ?? fallback }
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
+    // The launch Apple event is only current during this callback. Capture it
+    // before Flutter or an asynchronous startup handshake can replace it.
+    desktopLaunchSource = DesktopLaunchSource(appleEvent: NSAppleEventManager.shared().currentAppleEvent)
     super.applicationDidFinishLaunching(notification)
     configureApplication()
   }
 
   func configureApplication() {
+    if let source = desktopLaunchSource { window?.setDesktopLaunchSource(source) }
     installMainMenu()
     receiver.onSnapshot = { [weak self] value in self?.update(value) }
   }

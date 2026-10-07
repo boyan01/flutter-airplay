@@ -29,13 +29,17 @@ void CheckLoginStatus(LSTATUS status, const char* operation) {
   if (status != ERROR_SUCCESS) throw std::system_error(static_cast<int>(status), std::system_category(), operation);
 }
 
-std::wstring LoginCommand() {
+std::wstring LoginExecutablePath() {
   std::wstring path(32768, L'\0');
   const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
   if (!length) CheckLoginStatus(GetLastError(), "Cannot find the application for login startup");
   if (length >= path.size()) CheckLoginStatus(ERROR_INSUFFICIENT_BUFFER, "Login startup executable path is too long");
   path.resize(length);
-  return L"\"" + path + L"\"";
+  return path;
+}
+
+std::wstring LoginCommand() {
+  return airplay::windows::LoginStartupCommand(LoginExecutablePath());
 }
 
 bool LoginApproved() {
@@ -51,14 +55,14 @@ bool LoginApproved() {
   std::memcpy(&state, approval.data(), sizeof(state));
   // The shell uses 2/6 for enabled and 3/7 for disabled; zero is its
   // uninitialized state. Unknown states must not claim startup is enabled.
-  return state == 0 || state == 2 || state == 6;
+  return airplay::windows::StartupApprovalEnabled(state);
 }
 
-bool LaunchAtLoginEnabled() {
+std::wstring ReadLoginCommand(HKEY root = HKEY_CURRENT_USER, const wchar_t* subkey = kLoginRunKey) {
   DWORD size = 0;
-  auto status = RegGetValueW(HKEY_CURRENT_USER, kLoginRunKey, kLoginValue,
+  auto status = RegGetValueW(root, subkey, kLoginValue,
       RRF_RT_REG_SZ, nullptr, nullptr, &size);
-  if (MissingRegistryValue(status)) return false;
+  if (MissingRegistryValue(status)) return {};
   CheckLoginStatus(status, "Cannot read login startup registration");
   if (size > 65536 || size < sizeof(wchar_t) || size % sizeof(wchar_t) != 0) {
     CheckLoginStatus(ERROR_INVALID_DATA, "Invalid login startup command");
@@ -66,12 +70,46 @@ bool LaunchAtLoginEnabled() {
   // Reserve a terminator even if a malformed registry value lacks one.
   std::wstring value(size / sizeof(wchar_t) + 1, L'\0');
   size = static_cast<DWORD>(value.size() * sizeof(wchar_t));
-  status = RegGetValueW(HKEY_CURRENT_USER, kLoginRunKey, kLoginValue,
+  status = RegGetValueW(root, subkey, kLoginValue,
       RRF_RT_REG_SZ, nullptr, value.data(), &size);
-  if (MissingRegistryValue(status)) return false;
+  if (MissingRegistryValue(status)) return {};
   CheckLoginStatus(status, "Cannot read login startup registration");
   value.resize(value.find(L'\0'));
-  return value == LoginCommand() && LoginApproved();
+  return value;
+}
+
+bool LaunchAtLoginEnabled() {
+  return airplay::windows::IsOwnedLoginCommand(ReadLoginCommand(), LoginExecutablePath()) && LoginApproved();
+}
+
+void MigrateLegacyLoginCommand() {
+  // Upgrade only a registration this exact app version used to own. This runs
+  // once on ordinary process startup, never from a status read or receiver save.
+  // Missing, foreign/custom, disabled and unknown-approval entries stay intact.
+  // A legacy no-argument login already in flight remains indistinguishable from
+  // a manual launch; the new argument takes effect at the next login.
+  const auto executable = LoginExecutablePath();
+  if (!airplay::windows::NeedsLoginCommandMigration(ReadLoginCommand(), executable, LoginApproved())) return;
+  HKEY key = nullptr;
+  const auto status = RegOpenKeyExW(HKEY_CURRENT_USER, kLoginRunKey, 0,
+      KEY_QUERY_VALUE | KEY_SET_VALUE, &key);
+  if (MissingRegistryValue(status)) return;
+  CheckLoginStatus(status, "Cannot open legacy login startup registration");
+  try {
+    // Recheck after opening for write, without creating a key or clearing the
+    // Task Manager approval. An explicit enable remains the only re-enable path.
+    if (airplay::windows::NeedsLoginCommandMigration(ReadLoginCommand(key, nullptr), executable, LoginApproved())) {
+      const auto command = airplay::windows::LoginStartupCommand(executable);
+      CheckLoginStatus(RegSetValueExW(key, kLoginValue, 0, REG_SZ,
+          reinterpret_cast<const BYTE*>(command.c_str()),
+          static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t))),
+          "Cannot upgrade legacy login startup registration");
+    }
+  } catch (...) {
+    RegCloseKey(key);
+    throw;
+  }
+  RegCloseKey(key);
 }
 
 bool SetLaunchAtLogin(bool enabled) {
@@ -118,14 +156,22 @@ int Integer(const Map& values, const char* key) {
 bool Playing(const Map& snapshot) { return Integer(snapshot, "videoWidth") > 0 && Integer(snapshot, "videoHeight") > 0; }
 }  // namespace
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project, bool login_launch)
+    : project_(project), startup_(login_launch) {}
 
 FlutterWindow::~FlutterWindow() {}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
+  }
+
+  try {
+    MigrateLegacyLoginCommand();
+  } catch (const std::system_error& error) {
+    // A best-effort migration must not block a manual launch. Settings still
+    // read the legacy command and report registry errors through their channel.
+    OutputDebugStringA(error.what());
   }
 
   RECT frame = GetClientArea();
@@ -260,10 +306,9 @@ void FlutterWindow::FullscreenChanged() {
 }
 
 bool FlutterWindow::FinishDesktopStartup(bool tray_available) {
-  if (startup_finished_ && tray_available) return true;
-  startup_finished_ = true;
+  const bool show = startup_.Finish(tray_available);
   if (startup_timer_) { KillTimer(GetHandle(), startup_timer_); startup_timer_ = 0; }
-  if (!tray_available || reopen_requested_) {
+  if (show) {
     if (!tray_available) hide_on_close_ = false;
     ShowWindow(GetHandle(), SW_SHOW);
     SetForegroundWindow(GetHandle());
@@ -273,11 +318,11 @@ bool FlutterWindow::FinishDesktopStartup(bool tray_available) {
 }
 
 void FlutterWindow::ShowApp() {
-  if (!startup_finished_) reopen_requested_ = true;
+  startup_.RequestOpen();
   // Native presentation must work even if Dart failed after desktopReady.
   ShowWindow(GetHandle(), IsIconic(GetHandle()) ? SW_RESTORE : SW_SHOW);
   SetForegroundWindow(GetHandle());
-  if (startup_finished_ && desktop_ready_) Invoke("openApp");
+  if (startup_.finished() && desktop_ready_) Invoke("openApp");
 }
 
 void FlutterWindow::CloseAppWindow() {

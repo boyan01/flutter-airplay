@@ -9,6 +9,7 @@
 #include <flutter/method_channel.h>
 #include <flutter/encodable_value.h>
 
+#include "desktop_startup.h"
 #include "win32_window.h"
 #include "receiver_bridge.h"
 
@@ -16,7 +17,7 @@
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  explicit FlutterWindow(const flutter::DartProject& project);
+  explicit FlutterWindow(const flutter::DartProject& project, bool login_launch);
   virtual ~FlutterWindow();
   static constexpr UINT kShowWindowMessage = WM_APP + 74;
 
@@ -38,7 +39,7 @@ class FlutterWindow : public Win32Window {
   bool hide_on_close_ = false, quit_requested_ = false, desktop_ready_ = false;
 
   void UpdateSnapshot(const flutter::EncodableMap& snapshot);
-  bool startup_finished_ = false, reopen_requested_ = false;
+  airplay::windows::DesktopStartup startup_;
   UINT_PTR startup_timer_ = 0;
   bool FinishDesktopStartup(bool tray_available);
   void ShowApp();

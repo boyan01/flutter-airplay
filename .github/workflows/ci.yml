@@ -122,6 +122,9 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - name: Compile Debug app
         run: flutter build macos --debug
+      - name: Check AppKit startup visibility and window bridge
+        timeout-minutes: 3
+        run: ./scripts/test_native.sh macos window
       - name: Run player, host, texture and RTP tests
         run: ./scripts/test_native.sh macos all
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

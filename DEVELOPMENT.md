@@ -58,6 +58,12 @@ C++ 使用明确的设置结构和状态枚举持有运行时数据，JSON 只�
 登录启动通过独立的 OS adapter 读取与显式修改，不再随接收器设置保存或启动回放。
 macOS/Windows 使用窗口 channel；Linux 使用单个 XDG autostart desktop entry。旧的
 `launchAtLogin` 接收器偏好只保留兼容字段，不作为系统状态来源或自动重新登记的依据。
+手动冷启动及再次打开显示主窗口，只有明确的登录启动静默留在托盘；托盘不可用仍显示。
+Windows Run / Linux Exec 使用 `--launch-at-login`，二次登录调用不激活已有窗口。
+macOS 在 `applicationDidFinishLaunching` 同步捕获登录 Apple Event，再完成初始显示判断，
+不能从登录项 enabled 状态猜测本次来源。旧的无参数 Windows/Linux 本应用用户入口仅在
+已启用且精确匹配时原地升级；不创建缺失入口、不启用已禁用入口、不改系统级或自定义命令。
+升级前无参数调用无法追溯来源，首次仍显示窗口，之后登录才静默。
 `native/receiver/` 保留接收行为和串行线程，只提供复制事件的出口。
 `native/ffi/` 订阅该出口并管理 Dart port、订阅及 JSON 完成消息；同步宿主接口不依赖 Dart。
 `native/protocol/` 转换 UxPlay 回调、管理连接及发现记录；`native/playback/` 负责
@@ -403,7 +409,9 @@ Linux 托盘可用性按 `TrayManager.isSupported()` 判断，不再依赖 Ayata
 同一用例也可选择 `windows` 或 `linux`；验证标题栏不参与导航、反复进入/退出全屏、
 窗口隐藏后仍通过 runner 提供的固定原生句柄恢复（不依赖活动窗口查询）、
 视频比例/旋转/原始像素尺寸、置顶、播放在全屏中结束、关闭到托盘、连接后显示和延迟隐藏。
-Swift / GTK 原生窗口 fixture 只检查剩余的关闭与状态桥接。
+Swift / GTK 原生窗口 fixture 检查启动显示策略、关闭与状态桥接；
+macOS CI 独立运行 `macos window`。它构造启动事件描述符并测试真实窗口状态机，
+不编译真实 AppDelegate，因此登录回调捕获时机仍需真实登录会话验收。
 共享标题栏位于 `MaterialApp.builder` 的导航外层；页面和弹层只更新下面的内容。
 
 
@@ -721,6 +729,12 @@ swift scripts/generate_icons.swift
 
 `flutter test test/platform/launch_at_login_test.dart test/ui/launch_at_login_tile_test.dart`
 使用临时目录和 fake，不修改真实登录项。完整 `flutter test` 覆盖原有接收器和界面。
+启动回归按层区分：Dart 测试使用临时 XDG 文件验证参数、状态读取和旧入口升级；
+Linux window 套件使用真实 GTK 窗口与隔离 D-Bus 上的 GApplication 二进程转发；
+macOS window fixture 模拟启动 Apple Event 并检查 AppKit 窗口，不是真实登录会话；
+Windows native startup fixture 验证生产策略，installer smoke 检查真实进程、窗口与
+CI 测试用户下可恢复的注册值；没有 Windows shell/tray 会话时，
+installer smoke 明确跳过 hidden-login HWND 检查，其余启动/注册值检查继续执行。这些不等同于真实退出/重登；各平台未执行的套件应单独说明。
 真实打包验收还需分别在 macOS、Windows、Linux 登录会话中验证开关、退出/重登、
 系统外部禁用、路径带空格、移动安装目录和权限拒绝；Linux 云端不替代 Mac/Windows 验收。
 macOS 应使用固定位置的正常签名应用包；沙盒应用仍受系统登录项批准控制。

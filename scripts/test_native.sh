@@ -333,7 +333,7 @@ windows_tests() {
         return
     fi
     case "$suite" in
-        player) test_args+=(-R '^(windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery)|receiver_(control|lifecycle))$') ;;
+        player) test_args+=(-R '^(windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery|startup)|receiver_(control|lifecycle))$') ;;
         video) test_args+=(-R '^windows_(video|video_gpu|hevc_software)$') ;;
         all) ;;
         *) fail "Unknown Windows suite: $suite. Use --help." ;;

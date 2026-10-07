@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <cstring>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -14,6 +15,8 @@ struct _MyApplication {
   char** dart_entrypoint_arguments;
   ReceiverHost* receiver;
   WindowChannel* window_channel;
+  bool launch_at_login;
+  bool reopen_requested;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -23,7 +26,9 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
   if (windows) {
-    self->window_channel->Show();
+    // Preserve an activation even if Flutter is still constructing its view.
+    if (self->window_channel) self->window_channel->Show();
+    else self->reopen_requested = true;
     return;
   }
   GtkWindow* window =
@@ -53,7 +58,8 @@ static void my_application_activate(GApplication* application) {
 
   FlView* view = fl_view_new(project);
   FlEngine* engine = fl_view_get_engine(view);
-  self->window_channel = new WindowChannel(fl_engine_get_binary_messenger(engine), window);
+  self->window_channel = new WindowChannel(fl_engine_get_binary_messenger(engine),
+                                           window, self->launch_at_login);
   self->receiver = new ReceiverHost(fl_engine_get_binary_messenger(engine),
                                    fl_engine_get_texture_registrar(engine),
                                    [](FlValue*) {});
@@ -83,27 +89,33 @@ static void my_application_activate(GApplication* application) {
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
+  if (self->reopen_requested) self->window_channel->Show();
 }
 
-// Implements GApplication::local_command_line.
-static gboolean my_application_local_command_line(GApplication* application,
-                                                  gchar*** arguments,
-                                                  int* exit_status) {
+// Implements GApplication::command_line in the primary process. GApplication
+// forwards arguments from secondary invocations, preserving their launch source.
+static int my_application_command_line(GApplication* application,
+                                      GApplicationCommandLine* command_line) {
   MyApplication* self = MY_APPLICATION(application);
-  // Strip out the first argument as it is the binary name.
-  self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
-
-  g_autoptr(GError) error = nullptr;
-  if (!g_application_register(application, nullptr, &error)) {
-    g_warning("Failed to register: %s", error->message);
-    *exit_status = 1;
-    return TRUE;
+  g_auto(GStrv) arguments = g_application_command_line_get_arguments(command_line, nullptr);
+  g_autoptr(GPtrArray) dart_arguments = g_ptr_array_new_with_free_func(g_free);
+  bool launch_at_login = false;
+  for (gchar** argument = arguments + 1; *argument; ++argument) {
+    if (!std::strcmp(*argument, "--launch-at-login")) launch_at_login = true;
+    else g_ptr_array_add(dart_arguments, g_strdup(*argument));
   }
-
+  if (gtk_application_get_windows(GTK_APPLICATION(application))) {
+    // A delayed or repeated login invocation must not focus an existing app.
+    if (launch_at_login) return 0;
+  } else {
+    self->launch_at_login = launch_at_login;
+    g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+    g_ptr_array_add(dart_arguments, nullptr);
+    self->dart_entrypoint_arguments =
+        reinterpret_cast<gchar**>(g_ptr_array_free(g_steal_pointer(&dart_arguments), FALSE));
+  }
   g_application_activate(application);
-  *exit_status = 0;
-
-  return TRUE;
+  return 0;
 }
 
 // Implements GApplication::startup.
@@ -137,8 +149,7 @@ static void my_application_dispose(GObject* object) {
 
 static void my_application_class_init(MyApplicationClass* klass) {
   G_APPLICATION_CLASS(klass)->activate = my_application_activate;
-  G_APPLICATION_CLASS(klass)->local_command_line =
-      my_application_local_command_line;
+  G_APPLICATION_CLASS(klass)->command_line = my_application_command_line;
   G_APPLICATION_CLASS(klass)->startup = my_application_startup;
   G_APPLICATION_CLASS(klass)->shutdown = my_application_shutdown;
   G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
@@ -155,5 +166,5 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_DEFAULT_FLAGS, nullptr));
+                                     G_APPLICATION_HANDLES_COMMAND_LINE, nullptr));
 }
