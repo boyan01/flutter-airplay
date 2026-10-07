@@ -14,6 +14,7 @@ enum WindowCommand {
   enterFullscreen,
   exitFullscreen,
   startDragging,
+  titlebarDoubleClick,
   quitApp,
   requestBackgroundLaunch,
   openAppSettings,

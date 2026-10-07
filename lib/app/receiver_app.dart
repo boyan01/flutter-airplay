@@ -7,6 +7,7 @@ import '../platform/window_controller.dart';
 import '../platform/launch_at_login.dart';
 import '../ui/receiver_screen.dart';
 import '../ui/widgets/desktop_window_bar.dart';
+import '../ui/widgets/control_interaction_region.dart';
 import '../ui/tv_focus.dart';
 import '../ui/widgets/system_fonts.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -32,6 +33,7 @@ class ReceiverApp extends StatefulWidget {
 class _ReceiverAppState extends State<ReceiverApp> {
   bool _controlsVisible = false, _dialogOpen = false, _expanded = false;
   bool _hadVideo = false;
+  final _titleInteraction = ValueNotifier(false);
   ReceiverModel get model => widget.model;
   WindowController get window => widget.window;
   SystemFonts get systemFonts => widget.systemFonts;
@@ -47,11 +49,13 @@ class _ReceiverAppState extends State<ReceiverApp> {
     if (_hadVideo == model.hasVideo) return;
     _hadVideo = model.hasVideo;
     _controlsVisible = false;
+    _titleInteraction.value = false;
   }
 
   @override
   void dispose() {
     model.removeListener(_modeChanged);
+    _titleInteraction.dispose();
     super.dispose();
   }
 
@@ -92,7 +96,9 @@ class _ReceiverAppState extends State<ReceiverApp> {
             children: [
               Padding(
                 padding: EdgeInsets.only(
-                  top: desktop && (!model.hasVideo || _dialogOpen) ? 36 : 0,
+                  top: desktop && (!model.hasVideo || _dialogOpen)
+                      ? DesktopWindowBar.height
+                      : 0,
                 ),
                 child: child,
               ),
@@ -106,14 +112,19 @@ class _ReceiverAppState extends State<ReceiverApp> {
                     color: model.hasVideo
                         ? Colors.black
                         : Theme.of(context).scaffoldBackgroundColor,
-                    child: DesktopWindowBar(
-                      window: window,
-                      platform: model.platform,
-                      title: model.hasVideo
-                          ? model.clientName ?? 'iPhone'
-                          : 'Flutter AirPlay',
-                      dark: model.hasVideo,
-                      maximized: _expanded,
+                    child: ControlInteractionRegion(
+                      onChanged: (active) {
+                        _titleInteraction.value = active;
+                      },
+                      child: DesktopWindowBar(
+                        window: window,
+                        platform: model.platform,
+                        title: model.hasVideo
+                            ? model.clientName ?? 'iPhone'
+                            : 'Flutter AirPlay',
+                        dark: model.hasVideo,
+                        maximized: _expanded,
+                      ),
                     ),
                   ),
                 ),
@@ -153,9 +164,12 @@ class _ReceiverAppState extends State<ReceiverApp> {
       themeMode: model.isTelevision ? ThemeMode.dark : ThemeMode.system,
       home: ReceiverScreen(
         model: model,
+        controlsInteraction: _titleInteraction,
         launchAtLogin: widget.launchAtLogin,
         window: window,
         onControlsVisibility: (visible) {
+          // Removed regions do not receive MouseRegion.onExit or focus callbacks.
+          if (!visible) _titleInteraction.value = false;
           if (mounted && _controlsVisible != visible) {
             setState(() => _controlsVisible = visible);
           }

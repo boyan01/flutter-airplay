@@ -15,6 +15,7 @@ class DesktopWindowBar extends StatelessWidget {
     this.maximized = false,
     this.window = const WindowController(),
   });
+  static const double height = 44;
   final String title;
   final bool dark, maximized;
   final String platform;
@@ -30,7 +31,7 @@ class DesktopWindowBar extends StatelessWidget {
     message: tooltip,
     child: SizedBox(
       width: 26,
-      height: 32,
+      height: height,
       child: IconButton(
         key: Key(key),
         tooltip: tooltip,
@@ -59,7 +60,7 @@ class DesktopWindowBar extends StatelessWidget {
     WindowCommand command,
   ) => SizedBox(
     width: 46,
-    height: 36,
+    height: height,
     child: IconButton(
       key: Key(key),
       tooltip: tooltip,
@@ -84,7 +85,7 @@ class DesktopWindowBar extends StatelessWidget {
         onDoubleTap: () => window.execute(
           windows
               ? WindowCommand.toggleMaximize
-              : WindowCommand.toggleFullscreen,
+              : WindowCommand.titlebarDoubleClick,
         ),
         child: Align(
           alignment: windows ? Alignment.centerLeft : Alignment.center,
@@ -108,7 +109,7 @@ class DesktopWindowBar extends StatelessWidget {
     if (!windows) {
       return SizedBox(
         key: const Key('macWindowBar'),
-        height: 36,
+        height: height,
         child: Stack(
           children: [
             Positioned.fill(
@@ -117,7 +118,7 @@ class DesktopWindowBar extends StatelessWidget {
                 behavior: HitTestBehavior.opaque,
                 onPanStart: (_) => window.execute(WindowCommand.startDragging),
                 onDoubleTap: () =>
-                    window.execute(WindowCommand.toggleFullscreen),
+                    window.execute(WindowCommand.titlebarDoubleClick),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 86),
                   child: Center(
@@ -174,7 +175,7 @@ class DesktopWindowBar extends StatelessWidget {
     }
     return SizedBox(
       key: Key('${platform}WindowBar'),
-      height: 36,
+      height: height,
       child: Row(
         children: [
           titleArea,
