@@ -309,7 +309,11 @@ class DesktopPresentation {
           model.hasVideo &&
           !_fullscreen &&
           model.desktopOptions['alwaysOnTop']!;
-      if (value.isAlwaysOnTop != onTop) value.isAlwaysOnTop = onTop;
+      // nativeapi 0.4's Linux getter can report false for an X11 ABOVE window.
+      // Apply the desired state there even when its cached getter agrees.
+      if (model.platform == 'linux' || value.isAlwaysOnTop != onTop) {
+        value.isAlwaysOnTop = onTop;
+      }
     });
     final restore = _transitioning || (_expanded && !expanded);
     _transitioning = false;

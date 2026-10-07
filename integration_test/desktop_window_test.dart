@@ -15,9 +15,13 @@ import 'package:integration_test/integration_test.dart';
 import 'package:nativeapi/nativeapi.dart' as native;
 
 import '../test/receiver/fake_receiver.dart';
+import 'desktop_window_state.dart';
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  // Native resize may synchronously deliver frames. Follow the production
+  // scheduler even between tester pumps, so window writes can detect a frame.
+  binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets(
     'real desktop buttons enter and leave fullscreen through nativeapi',
@@ -172,7 +176,13 @@ void main() {
                 (value) => current = value.contentSize,
               );
             })
-            .timeout(deadline.difference(DateTime.now()));
+            .timeout(
+              deadline.difference(DateTime.now()),
+              onTimeout: () => fail(
+                '$reason did not settle; last OS size: '
+                '${previous?.width} x ${previous?.height}',
+              ),
+            );
         expect(tester.takeException(), isNull);
         if (matches(current)) {
           if (previous == null ||
@@ -231,7 +241,7 @@ void main() {
       nativeWindow.contentSize.width / nativeWindow.contentSize.height,
       closeTo(16 / 9, .01),
     );
-    expect(nativeWindow.isAlwaysOnTop, isTrue);
+    expect(await readWindowAlwaysOnTop(nativeWindow), isTrue);
     final landscape = nativeWindow.contentSize;
     for (var i = 0; i < 3; i++) {
       model.videoWidth = 1080;
@@ -271,7 +281,7 @@ void main() {
     expect(nativeWindow.isFullScreen, isTrue);
     await controller.execute(WindowCommand.exitFullscreen);
     await tester.pump(const Duration(seconds: 2));
-    expect(nativeWindow.isAlwaysOnTop, isTrue);
+    expect(await readWindowAlwaysOnTop(nativeWindow), isTrue);
     await controller.execute(WindowCommand.enterFullscreen);
     await tester.pump(const Duration(seconds: 2));
     model.videoWidth = 0;
@@ -283,7 +293,7 @@ void main() {
     expect(nativeWindow.contentSize.width, closeTo(440, 2));
     expect(nativeWindow.contentSize.height, closeTo(560, 2));
     expect(nativeWindow.aspectRatio, 0);
-    expect(nativeWindow.isAlwaysOnTop, isFalse);
+    expect(await readWindowAlwaysOnTop(nativeWindow), isFalse);
     if (presentation.canHide) {
       debugPrint('Checking close-to-tray after fullscreen restoration');
       await controller.execute(WindowCommand.closeWindow);

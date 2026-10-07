@@ -172,7 +172,8 @@ void main() {
     expect(window.contentSize.width, closeTo(1280, .01));
     expect(window.contentSize.height, closeTo(720, .01));
     expect(window.aspectRatio, 16 / 9);
-    expect(window.minimumSize.width, 160);
+    expect(window.minimumSize.width, closeTo(160 * 16 / 9, .01));
+    expect(window.minimumSize.height, 160);
     expect(
       window.position.x,
       0,
@@ -183,6 +184,39 @@ void main() {
     expect(window.aspectRatio, 0);
     expect(window.minimumSize, const native.Size(width: 360, height: 480));
   });
+  test(
+    'video minimum stays on ratio and fits small original pixel targets',
+    () async {
+      for (final size in [
+        const native.Size(width: 1920, height: 1080),
+        const native.Size(width: 1080, height: 1920),
+        const native.Size(width: 100, height: 75),
+      ]) {
+        final geometry = WindowController(
+          withWindow: (action) async => action(window),
+          getDisplays: () => [FakeDisplay()],
+        );
+        await geometry.setMode(
+          playing: true,
+          width: size.width.toInt(),
+          height: size.height.toInt(),
+          actualSize: true,
+        );
+        expect(
+          window.minimumSize.width / window.minimumSize.height,
+          closeTo(size.width / size.height, .0001),
+        );
+        expect(
+          window.minimumSize.width,
+          lessThanOrEqualTo(window.contentSize.width),
+        );
+        expect(
+          window.minimumSize.height,
+          lessThanOrEqualTo(window.contentSize.height),
+        );
+      }
+    },
+  );
   test(
     'fullscreen and maximized defer mode changes until restoration',
     () async {

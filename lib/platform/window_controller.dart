@@ -248,8 +248,16 @@ class WindowController {
         actualSize: actualSize,
       );
       window.aspectRatio = 0;
+      // GTK uses minimum size as the X11 base when no base is specified.
+      // Keeping that base on the video ratio makes both WM interpretations
+      // (full size or size minus base) enforce the same content ratio.
+      final ratio = video ? width / height : 1.0;
+      final minimumHeight = math.min(
+        math.max(160.0, 160.0 / ratio),
+        math.min(target.height, target.width / ratio),
+      );
       window.minimumSize = video
-          ? const native.Size(width: 160, height: 160)
+          ? native.Size(width: minimumHeight * ratio, height: minimumHeight)
           : native.Size(
               width: math.min(360, display.workArea.width),
               height: math.min(480, display.workArea.height),

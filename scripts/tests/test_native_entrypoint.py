@@ -53,7 +53,7 @@ class DesktopSuiteDiscoveryTest(unittest.TestCase):
         source = pathlib.Path(__file__).resolve().parents[1] / 'test_native.sh'
         shutil.copyfile(source, self.root / 'scripts/test_native.sh')
         flutter = self.root / 'bin/flutter'
-        flutter.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$CALL_LOG"\nprintf "%s\\n" "$0" > "$CALL_LOG.launcher"\nexit "${FLUTTER_EXIT:-0}"\n')
+        flutter.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" >> "$CALL_LOG"\nprintf "%s\\n" "$0" > "$CALL_LOG.launcher"\nexit "${FLUTTER_EXIT:-0}"\n')
         flutter.chmod(0o755)
         shutil.copyfile(flutter, self.root / 'bin/flutter.bat')
         (self.root / 'bin/flutter.bat').chmod(0o755)
@@ -61,6 +61,7 @@ class DesktopSuiteDiscoveryTest(unittest.TestCase):
                         CALL_LOG=str(self.root / 'call.log'))
 
     def run_suite(self, platform='linux', *arguments):
+        (self.root / 'call.log').unlink(missing_ok=True)
         return subprocess.run(['bash', str(self.root / 'scripts/test_native.sh'), platform,
                                'desktop', *arguments], cwd=self.root.parent, env=self.env,
                               capture_output=True, text=True, check=False)
@@ -88,15 +89,20 @@ class DesktopSuiteDiscoveryTest(unittest.TestCase):
         args = (self.root / 'call.log').read_text().splitlines()
         self.assertEqual(args.count('integration_test/desktop_future_feature_test.dart'), 1)
         self.assertEqual(args.count('integration_test/desktop_window_test.dart'), 1)
+        self.assertEqual(args.count('test'), 2)
 
     def test_input_is_explicit_and_failure_propagates(self):
         self.fixture('desktop_window_test.dart')
         result = self.run_suite()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('AIRPLAY_OS_INPUT_TEST=false', (self.root / 'call.log').read_text())
+        self.fixture('desktop_second_test.dart')
         self.env['FLUTTER_EXIT'] = '23'
         result = self.run_suite('linux', '--os-input')
         self.assertEqual(result.returncode, 23)
+        args = (self.root / 'call.log').read_text().splitlines()
+        self.assertEqual(args.count('test'), 2)
+        self.assertEqual(result.stderr.count('FAIL:'), 2)
 
     def test_empty_suite_and_unknown_arguments_fail_before_flutter(self):
         self.assertNotEqual(self.run_suite().returncode, 0)

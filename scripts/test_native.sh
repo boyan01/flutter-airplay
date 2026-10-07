@@ -301,15 +301,25 @@ desktop_tests() (
     if [[ "${1:-}" == --os-input ]]; then input=true; fi
     printf 'Desktop suite: %s; OS input requested: %s\n' "$platform" "$input"
     printf '  %s\n' "${tests[@]}"
-    # Flutter runs integration files serially on the selected real desktop host.
     # An OS-input fixture must fail, not silently skip, when input was requested
     # but its platform/session cannot provide it. Never grant permissions here.
     # On Windows use the native launcher: bin/flutter's Unix script overwrites
     # the inherited OS environment variable with uname, breaking native tools.
     flutter_command=flutter
     if [[ "$platform" == windows ]]; then flutter_command=flutter.bat; fi
-    "$flutter_command" test -d "$platform" "${tests[@]}" --reporter expanded \
-        "--dart-define=AIRPLAY_OS_INPUT_TEST=$input"
+    # The pinned Flutter SDK closes its desktop log reader after the first app.
+    # A fresh invocation per file isolates that state and still uses build caches.
+    status=0
+    for test in "${tests[@]}"; do
+        if "$flutter_command" test -d "$platform" "$test" --reporter expanded \
+            "--dart-define=AIRPLAY_OS_INPUT_TEST=$input"; then
+            printf 'PASS: %s\n' "$test"
+        else
+            status=$?
+            printf 'FAIL: %s (exit %s)\n' "$test" "$status" >&2
+        fi
+    done
+    exit "$status"
 )
 
 macos_tests() {
