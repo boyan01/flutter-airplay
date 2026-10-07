@@ -102,6 +102,12 @@ only when configured jobs cover the submitted revision.
 - License notices and `vendor/*/UPSTREAM.md`: third-party licensing and provenance.
 - `assets/app_icon/README.md`: asset provenance and platform export details.
 
+Update documentation when a change affects its intended reader's actions or
+decisions. Update `DEVELOPMENT.md` for changed development commands,
+prerequisites or verification steps; keep CI implementation details such as
+cache keys, job scheduling and internal checks in their configuration or code.
+Changing an internal rule alone does not require a documentation update.
+
 Update the existing authoritative document instead of adding platform READMEs
 or another command guide. Keep per-task reports, logs, screenshots and device
 identifiers in ignored `artifacts/`; generated products and caches belong in
