@@ -360,7 +360,9 @@ Kotlin 状态适配层属于 Android native 检查，使用已配置的 `GRADLE_
 | Linux 视频 / 宿主 / 全部 | `./scripts/test_native.sh linux video` / `linux host` / `linux all` | 视频矩阵需要 ffmpeg/ffprobe 和 Python 3；宿主需要 Flutter engine；all 包括可用的窗口宿主测试 |
 
 macOS 默认只运行 player，不重新编译 Swift 宿主/纹理 fixture；完整组合使用
-`./scripts/test_native.sh macos all`，窗口测试仍单独选择。
+`./scripts/test_native.sh macos all`，包括窗口 fixture，需先构建 macOS Debug 应用并处于
+已登录 GUI 会话；只查窗口时仍可使用 `macos window`。CI 先构建 Debug 应用，再统一运行 all，
+不另外重复执行窗口 fixture。
 只运行一个 CTest 用例可使用 `./scripts/test_native.sh macos player -R playback`。
 Windows 接受 CTest 参数，Linux 的 player/video/host/all 分支接受 CMake 参数。
 这些参数用于缩小验证范围，不会自动构建其他平台。
@@ -410,7 +412,7 @@ Linux 托盘可用性按 `TrayManager.isSupported()` 判断，不再依赖 Ayata
 窗口隐藏后仍通过 runner 提供的固定原生句柄恢复（不依赖活动窗口查询）、
 视频比例/旋转/原始像素尺寸、置顶、播放在全屏中结束、关闭到托盘、连接后显示和延迟隐藏。
 Swift / GTK 原生窗口 fixture 检查启动显示策略、关闭与状态桥接；
-macOS CI 独立运行 `macos window`。它构造启动事件描述符并测试真实窗口状态机，
+macOS CI 通过 `macos all` 统一运行窗口 fixture。它构造启动事件描述符并测试真实窗口状态机，
 不编译真实 AppDelegate，因此登录回调捕获时机仍需真实登录会话验收。
 共享标题栏位于 `MaterialApp.builder` 的导航外层；页面和弹层只更新下面的内容。
 

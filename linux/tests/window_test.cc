@@ -233,6 +233,14 @@ void RemoteLaunch(const char* application_id, const char* argument = nullptr) {
 }
 
 void ApplicationRoutingTest(gconstpointer data) {
+  if (!g_test_subprocess()) {
+    // GtkApplication exports the process-wide /org/gtk/Profiler object. These
+    // fixtures register without g_application_run's shutdown, so use a fresh
+    // process for each primary application, just as the real runner does.
+    g_test_trap_subprocess(nullptr, 15 * G_TIME_SPAN_SECOND, G_TEST_SUBPROCESS_DEFAULT);
+    g_test_trap_assert_passed();
+    return;
+  }
   const bool login_start = GPOINTER_TO_INT(data);
   g_autoptr(MyApplication) application = my_application_new();
   g_autofree gchar* id = g_strdup_printf("tech.soit.flutterairplay.WindowTest%d", login_start);
