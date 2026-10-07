@@ -9,6 +9,7 @@ import 'package:nativeapi/nativeapi.dart' as native;
 import '../l10n/generated/app_localizations.dart';
 import '../receiver/receiver_model.dart';
 import 'window_controller.dart';
+import 'desktop_window_sizing.dart';
 
 /// Owns desktop presentation resources for one mounted receiver screen.
 /// The receiver remains the source of truth for settings and playback state.
@@ -35,14 +36,25 @@ class DesktopPresentation {
   bool _ready = false, _disposed = false, _playing = false;
   bool _openedForSession = false, _expanded = false, _transitioning = false;
   bool _fullscreen = false, _trayVisible = false;
-  String _signature = '', _mode = '';
+  String _signature = '';
+  late final _sizing = DesktopWindowSizing(
+    window,
+    initiallyEnabled: false,
+    integerGeometry: model.platform == 'linux',
+  );
   AppLocalizations? _strings;
 
-  Future<void> update(AppLocalizations strings) {
+  Future<void> update(AppLocalizations strings, {bool reduceMotion = false}) {
     _strings = strings;
     if (_disposed || !model.loaded || !model.supportsWindowPreferences) {
       return Future.value();
     }
+    final geometry = _sizing.update(
+      connected: model.status == 'streaming',
+      width: model.hasVideo ? model.videoWidth : 0,
+      height: model.hasVideo ? model.videoHeight : 0,
+      reduceMotion: reduceMotion,
+    );
     final signature = jsonEncode([
       strings.localeName,
       model.name,
@@ -55,7 +67,9 @@ class DesktopPresentation {
       model.audioPlaying,
       model.desktopOptions,
     ]);
-    if (signature == _signature) return _pending;
+    if (signature == _signature) {
+      return Future.wait([_pending, geometry]).then((_) {});
+    }
     _signature = signature;
     // Serialize creation and updates; receiver events can arrive during PNG encoding.
     final operation = _pending.then((_) async {
@@ -75,6 +89,21 @@ class DesktopPresentation {
             _windowId = value.id;
           });
           _windowListener = native.WindowManager.instance.addListener((event) {
+            if (event.windowId == _windowId &&
+                (event is native.WindowResizedEvent ||
+                    event is native.WindowMovedEvent)) {
+              Timer.run(() {
+                if (!_disposed) {
+                  unawaited(
+                    _sizing.observeWindow().catchError((Object error) {
+                      if (!_disposed && error is PlatformException) {
+                        onError(error);
+                      }
+                    }),
+                  );
+                }
+              });
+            }
             if (event.windowId == _windowId &&
                 (event is native.WindowMaximizedEvent ||
                     event is native.WindowRestoredEvent)) {
@@ -107,13 +136,15 @@ class DesktopPresentation {
           rethrow;
         }
       }
+      await _sizing.enable();
+      await geometry;
       await _apply();
     });
     // Keep the queue usable after errors; return the failure to the UI caller.
     _pending = operation.catchError((Object _) {
       _signature = '';
     });
-    return operation;
+    return Future.wait([operation, geometry]).then((_) {});
   }
 
   Future<void> _createTray() async {
@@ -215,11 +246,6 @@ class DesktopPresentation {
   Future<void> _apply() async {
     if (_disposed) return;
     final playing = model.hasVideo;
-    final mode = '$playing:${model.videoWidth}:${model.videoHeight}';
-    if (_mode != mode) {
-      await resize();
-      _mode = mode;
-    }
     await window.withWindow((value) {
       value.isAlwaysOnTop =
           playing &&
@@ -273,6 +299,7 @@ class DesktopPresentation {
       value.show();
       value.focus();
     });
+    if (!_transitioning) await _sizing.resume();
   }
 
   Future<void> hide({bool disconnect = true}) async {
@@ -288,15 +315,13 @@ class DesktopPresentation {
 
   Future<void> resize({bool actualSize = false}) async {
     if (!_ready || _transitioning || _disposed) return;
-    await window.setMode(
-      playing: model.hasVideo,
-      width: model.videoWidth,
-      height: model.videoHeight,
-      actualSize: actualSize,
-    );
+    await _sizing.fit(actualSize: actualSize);
   }
 
-  void transitionStarted() => _transitioning = true;
+  void transitionStarted() {
+    _transitioning = true;
+    _sizing.suspend();
+  }
 
   Future<bool> stateChanged({bool transitionCompleted = false}) async {
     if (_transitioning && !transitionCompleted) return _expanded;
@@ -309,16 +334,15 @@ class DesktopPresentation {
           model.hasVideo &&
           !_fullscreen &&
           model.desktopOptions['alwaysOnTop']!;
-      // nativeapi 0.4's Linux getter can report false for an X11 ABOVE window.
-      // Apply the desired state there even when its cached getter agrees.
+      // nativeapi 0.4's X11 getter reads GDK state, which omits EWMH ABOVE.
+      // Apply the desired state on Linux even when that getter says false.
       if (model.platform == 'linux' || value.isAlwaysOnTop != onTop) {
         value.isAlwaysOnTop = onTop;
       }
     });
-    final restore = _transitioning || (_expanded && !expanded);
     _transitioning = false;
     _expanded = expanded;
-    if (restore && !expanded) await resize();
+    if (!expanded) await _sizing.resume();
     if (!_disposed) _updateMenu();
     return expanded;
   }
@@ -448,6 +472,7 @@ class DesktopPresentation {
 
   void dispose() {
     _disposed = true;
+    _sizing.dispose();
     _autoHide?.cancel();
     if (_ready) unawaited(window.setClosePolicy(false));
     _releaseResources();
