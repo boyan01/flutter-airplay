@@ -84,9 +84,14 @@ if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
     endif()
     set_tests_properties(linux_gpu_flutter_texture PROPERTIES LABELS "host;extended" TIMEOUT 30)
   endif()
-  add_executable(linux_window_tests window_test.cc ../runner/window_channel.cc)
-  target_include_directories(linux_window_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
-  target_link_libraries(linux_window_tests PRIVATE PkgConfig::GTK
+  add_executable(linux_window_tests window_test.cc ../runner/window_channel.cc
+    ../runner/my_application.cc ../runner/receiver_host.cc
+    ../runner/frame_texture.cc ../runner/discovery.cc)
+  set(AIRPLAY_BUILD_INFO_TARGET linux_window_tests)
+  include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
+  target_compile_definitions(linux_window_tests PRIVATE APPLICATION_ID="tech.soit.flutterairplay.WindowTest")
+  target_include_directories(linux_window_tests PRIVATE .. ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
+  target_link_libraries(linux_window_tests PRIVATE airplay_player PkgConfig::EPOXY PkgConfig::GTK PkgConfig::AVAHI
     "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   file(COPY ../icons DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
   find_program(XVFB_RUN xvfb-run)
@@ -94,7 +99,7 @@ if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   if(XVFB_RUN AND DBUS_RUN_SESSION)
     add_test(NAME linux_window_lifecycle COMMAND ${DBUS_RUN_SESSION} --
       ${XVFB_RUN} -a $<TARGET_FILE:linux_window_tests>)
-    set_tests_properties(linux_window_lifecycle PROPERTIES TIMEOUT 30)
+    set_tests_properties(linux_window_lifecycle PROPERTIES TIMEOUT 60)
   else()
     message(STATUS "Window lifecycle runtime tests need xvfb-run and dbus-run-session")
   endif()

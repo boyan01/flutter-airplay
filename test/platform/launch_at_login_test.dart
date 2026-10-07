@@ -100,6 +100,116 @@ void main() {
       expect(await actual.isEnabled(), true);
     }
   });
+  test(
+    'new entries use a login marker and reject unrelated arguments',
+    () async {
+      await login.setEnabled(true);
+      final original = await login.entry.readAsString();
+      expect(original, contains(' ${LinuxLoginEntry.launchArgument}\n'));
+      for (final arguments in [
+        '--hidden',
+        '--launch-at-login extra',
+        '--launch-at-login --launch-at-login',
+        '%u',
+        '"--launch-at-login',
+      ]) {
+        await login.entry.writeAsString(
+          original.replaceAll(LinuxLoginEntry.launchArgument, arguments),
+        );
+        expect(await login.isEnabled(), false, reason: arguments);
+      }
+    },
+  );
+  test(
+    'legacy migration preserves custom settings and is idempotent',
+    () async {
+      await login.setEnabled(true);
+      final modern = '${await login.entry.readAsString()}Comment=Keep this\n';
+      final legacy = modern.replaceAll(
+        ' ${LinuxLoginEntry.launchArgument}',
+        '',
+      );
+      await login.entry.writeAsString(legacy);
+      expect(await login.isEnabled(), true);
+      // Reading the state must not modify registration.
+      expect(await login.entry.readAsString(), legacy);
+      await login.migrateLegacyRegistration();
+      expect(await login.entry.readAsString(), modern);
+      expect(await login.isEnabled(), true);
+      await login.migrateLegacyRegistration();
+      expect(await login.entry.readAsString(), modern);
+    },
+  );
+  test(
+    'migration never creates or enables an absent or disabled entry',
+    () async {
+      await login.migrateLegacyRegistration();
+      expect(await login.entry.exists(), false);
+      await login.setEnabled(true);
+      final legacy = (await login.entry.readAsString()).replaceAll(
+        ' ${LinuxLoginEntry.launchArgument}',
+        '',
+      );
+      for (final disabled in [
+        legacy.replaceAll('Hidden=false', 'Hidden=true'),
+        legacy.replaceAll(
+          'X-GNOME-Autostart-enabled=true',
+          'X-GNOME-Autostart-enabled=false',
+        ),
+        '${legacy}OnlyShowIn=KDE;\n',
+      ]) {
+        await login.entry.writeAsString(disabled);
+        await login.migrateLegacyRegistration();
+        expect(await login.entry.readAsString(), disabled);
+        expect(await login.isEnabled(), false);
+      }
+    },
+  );
+  test(
+    'migration does not adopt modified commands or ambiguous desktop files',
+    () async {
+      await login.setEnabled(true);
+      final legacy = (await login.entry.readAsString()).replaceAll(
+        ' ${LinuxLoginEntry.launchArgument}',
+        '',
+      );
+      for (final custom in [
+        legacy.replaceAll('Exec=', 'Exec=/foreign '),
+        legacy.replaceAll('Exec=', 'Exec= '),
+        legacy.replaceAll('\nTerminal=', ' --custom\nTerminal='),
+        '$legacy[Desktop Entry]\n',
+        '${legacy}Exec=${LinuxLoginEntry.quoteExecutable(login.appPath)}\n',
+      ]) {
+        await login.entry.writeAsString(custom);
+        await login.migrateLegacyRegistration();
+        expect(await login.entry.readAsString(), custom);
+      }
+    },
+  );
+  test('migration never modifies a system entry or a symlink', () async {
+    final system = Directory('${fixture.path}/system/autostart');
+    await system.create(recursive: true);
+    final systemFile = File('${system.path}/${LinuxLoginEntry.filename}');
+    final content =
+        '[Desktop Entry]\nType=Application\n'
+        'Exec=${LinuxLoginEntry.quoteExecutable(login.appPath)}\n';
+    await systemFile.writeAsString(content);
+    final layered = LinuxLoginEntry(
+      environment: {
+        'XDG_CONFIG_HOME': '${fixture.path}/user',
+        'XDG_CONFIG_DIRS': '${fixture.path}/system',
+      },
+      executable: login.appPath,
+    );
+    await layered.migrateLegacyRegistration();
+    expect(await layered.entry.exists(), false);
+    expect(await systemFile.readAsString(), content);
+    await layered.entry.parent.create(recursive: true);
+    await Link(layered.entry.path).create(systemFile.path);
+    await layered.migrateLegacyRegistration();
+    expect(await FileSystemEntity.isLink(layered.entry.path), true);
+    expect(await systemFile.readAsString(), content);
+  });
   test('empty system config variable uses the XDG default', () {
     expect(
       LinuxLoginEntry(environment: {'XDG_CONFIG_DIRS': ''})

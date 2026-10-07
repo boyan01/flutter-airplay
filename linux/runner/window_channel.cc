@@ -46,10 +46,12 @@ bool TrayRegistered(GCancellable* cancellable) {
 }  // namespace
 
 WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window,
+                             bool launch_at_login,
                              std::function<bool()> tray_registered)
     : messenger_(FL_BINARY_MESSENGER(g_object_ref(messenger))),
       window_(GTK_WINDOW(g_object_ref(window))),
-      tray_registered_(std::move(tray_registered)) {
+      tray_registered_(std::move(tray_registered)),
+      launch_at_login_(launch_at_login) {
   state_handler_ = g_signal_connect(window_, "window-state-event",
       G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer data) -> gboolean {
         // nativeapi already reports maximize/restore. Only fullscreen lacks
@@ -146,7 +148,8 @@ bool WindowChannel::FinishDesktopStartup(bool tray_available) {
   const bool already_finished = startup_finished_;
   startup_finished_ = true;
   if (startup_timeout_) { g_source_remove(startup_timeout_); startup_timeout_ = 0; }
-  if (!tray_available || (!already_finished && reopen_requested_)) {
+  if (!tray_available ||
+      (!already_finished && (!launch_at_login_ || reopen_requested_))) {
     if (!tray_available) hide_on_close_ = false;
     gtk_window_present(window_);
     if (ready_) Invoke("openApp");

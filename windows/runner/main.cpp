@@ -3,21 +3,29 @@
 #include <windows.h>
 #include <filesystem>
 
+#include "desktop_startup.h"
 #include "flutter_window.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Parse launch intent before the single-instance path: a duplicate login
+  // launch must never activate an existing manual or background session.
+  auto command_line_arguments = GetCommandLineArguments();
+  const bool login_launch = airplay::windows::IsLoginLaunch(command_line_arguments);
   HANDLE instance_mutex = CreateMutexW(nullptr, FALSE, L"Local\\FlutterAirPlay.MainWindow");
   if (!instance_mutex) return EXIT_FAILURE;
   if (GetLastError() == ERROR_ALREADY_EXISTS) {
-    HWND existing = FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Flutter AirPlay");
-    if (existing) {
-      DWORD process = 0; GetWindowThreadProcessId(existing, &process);
-      AllowSetForegroundWindow(process);
-      PostMessageW(existing, FlutterWindow::kShowWindowMessage, 0, 0);
-    }
-    CloseHandle(instance_mutex); return EXIT_SUCCESS;
+    const bool delivered = airplay::windows::HandleDuplicateLaunch(login_launch,
+        [] { return FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Flutter AirPlay"); },
+        [](HWND existing) {
+          DWORD process = 0; GetWindowThreadProcessId(existing, &process);
+          AllowSetForegroundWindow(process);
+          return PostMessageW(existing, FlutterWindow::kShowWindowMessage, 0, 0) != FALSE;
+        },
+        [](unsigned milliseconds) { Sleep(milliseconds); });
+    CloseHandle(instance_mutex);
+    return delivered ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
@@ -38,12 +46,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // nativeapi window calls must execute on the HWND owner thread.
   project.set_ui_thread_policy(flutter::UIThreadPolicy::RunOnPlatformThread);
 
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
-
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
-  FlutterWindow window(project);
+  FlutterWindow window(project, login_launch);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(440, 560);
   if (!window.Create(L"Flutter AirPlay", origin, size)) {

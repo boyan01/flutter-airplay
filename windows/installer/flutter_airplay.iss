@@ -74,14 +74,16 @@ Filename: "{app}\flutter_airplay.exe"; Description: "{cm:LaunchProgram,Flutter A
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  Command: String;
+  Command, LegacyCommand: String;
 begin
   if CurUninstallStep = usUninstall then begin
     { Remove only a login entry pointing to this installation. Keep user settings
       and pairing data, and never remove another checkout's startup entry. }
     if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run',
       'FlutterAirPlay', Command) then begin
-      if CompareText(Command, '"' + ExpandConstant('{app}\flutter_airplay.exe') + '"') = 0 then
+      LegacyCommand := '"' + ExpandConstant('{app}\flutter_airplay.exe') + '"';
+      if (CompareText(Command, LegacyCommand) = 0) or
+         (CompareText(Command, LegacyCommand + ' --launch-at-login') = 0) then
         RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'FlutterAirPlay');
     end;
   end;

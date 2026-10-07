@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:mixin_logger/mixin_logger.dart';
 
 import 'app/app_logging.dart';
+import 'platform/launch_at_login.dart';
 import 'receiver/receiver_model.dart';
 import 'receiver/receiver_repository.dart';
 import 'app/receiver_app.dart';
@@ -16,6 +17,12 @@ void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     await initializeLogging();
+    try {
+      await const LaunchAtLogin().migrateLegacyRegistration();
+    } catch (error, stack) {
+      // A failed optional migration must not prevent opening the application.
+      e('Cannot upgrade the existing login startup entry', error, stack);
+    }
     final systemFonts = await SystemFonts.initialize();
     LicenseRegistry.addLicense(() async* {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);

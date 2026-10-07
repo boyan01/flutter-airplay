@@ -8,6 +8,7 @@
 class WindowChannel {
  public:
   WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window,
+                bool launch_at_login = false,
                 std::function<bool()> tray_registered = {});
   ~WindowChannel();
   WindowChannel(const WindowChannel&) = delete;
@@ -28,6 +29,7 @@ class WindowChannel {
   GCancellable* tray_probe_ = nullptr;
   FlMethodCall* startup_call_ = nullptr;
   std::function<bool()> tray_registered_;
+  const bool launch_at_login_;
   bool startup_finished_ = false, reopen_requested_ = false;
   bool hide_on_close_ = false, quit_requested_ = false, ready_ = false;
 };

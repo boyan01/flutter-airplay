@@ -9,8 +9,8 @@ Usage: ./scripts/test_native.sh [target] [suite] [arguments]
 
 Without a target, run the current OS's basic native suite.
   macos [player|all|host|texture|rtp|window]
-      player is the default; all adds host, texture and RTP.
-      window requires a GUI session.
+      player is the default; all adds host, texture, RTP and GUI window tests.
+      all/window require a Debug Flutter app and a logged-in GUI session.
       player accepts CTest arguments, e.g. macos player -R playback.
   linux [player|video|gpu|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
       player is the default; all includes available GTK/window tests.
@@ -287,7 +287,7 @@ macos_tests() {
     if [[ $# -gt 0 ]]; then shift; fi
     if [[ "$suite" != player && $# -gt 0 ]]; then fail 'Only the player suite accepts CTest arguments.'; fi
     case "$suite" in
-        all) macos_player; macos_host; macos_texture; macos_rtp ;;
+        all) macos_player; macos_host; macos_texture; macos_rtp; macos_window ;;
         player) macos_player "$@" ;;
         host) macos_host ;;
         texture) macos_texture ;;
@@ -333,7 +333,7 @@ windows_tests() {
         return
     fi
     case "$suite" in
-        player) test_args+=(-R '^(windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery)|receiver_(control|lifecycle))$') ;;
+        player) test_args+=(-R '^(windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery|startup)|receiver_(control|lifecycle))$') ;;
         video) test_args+=(-R '^windows_(video|video_gpu|hevc_software)$') ;;
         all) ;;
         *) fail "Unknown Windows suite: $suite. Use --help." ;;

@@ -3,7 +3,7 @@ import Cocoa
 import FlutterMacOS
 
 // Geometry and tray coverage lives in the real Flutter desktop integration test.
-// This fixture checks the remaining host close and transition bridge.
+// This fixture checks host startup visibility, close and transition bridges.
 final class TestReceiver {
   var disposed = false
   func dispose() { disposed = true }
@@ -19,6 +19,10 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {}
 extension MainFlutterWindow {
   func installTestObservers() { installPresentationObservers() }
   func markDesktopReady() { desktopReady = true }
+  func installTestStartupTimeout() { scheduleStartupTimeout() }
+  func fireTestStartupTimeout() { startupTimeout?.perform() }
+  var hasStartupTimeout: Bool { startupTimeout != nil }
+  var hasFinishedStartup: Bool { startupFinished }
 }
 final class RecordingWindow: MainFlutterWindow {
   var actions: [String] = []
@@ -51,35 +55,103 @@ window.close()
 require(!window.isVisible && delegate.receiver.disposed, "real close must clean up the receiver")
 print("PASS: real close cleans up the receiver")
 
+func launchEvent(eventID: AEEventID = kAEOpenApplication, property: OSType? = nil) -> NSAppleEventDescriptor {
+  let event = NSAppleEventDescriptor(eventClass: kCoreEventClass, eventID: eventID,
+    targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+  if let property = property { event.setParam(NSAppleEventDescriptor(enumCode: property), forKeyword: keyAEPropData) }
+  return event
+}
+require(DesktopLaunchSource(appleEvent: nil) == .manual, "missing launch event must default to manual")
+require(DesktopLaunchSource(appleEvent: launchEvent()) == .manual, "ordinary app open must be manual")
+require(DesktopLaunchSource(appleEvent: launchEvent(property: keyAELaunchedAsLogInItem)) == .loginItem,
+  "the login-item Apple event must be recognized")
+require(DesktopLaunchSource(appleEvent: launchEvent(property: kAEOpenApplication)) == .manual,
+  "unrelated launch properties must not be treated as login")
+require(DesktopLaunchSource(appleEvent: launchEvent(eventID: kAEReopenApplication, property: keyAELaunchedAsLogInItem)) == .manual,
+  "reopen must remain manual even with a login property")
+print("PASS: login Apple-event classification")
+
 func startupWindow() -> RecordingWindow {
   let value = RecordingWindow(contentRect: NSRect(x: 200, y: 200, width: 440, height: 560),
     styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
   value.isReleasedWhenClosed = false
+  value.installTestStartupTimeout()
   return value
 }
+let manualWindow = startupWindow()
+require(!manualWindow.isVisible, "startup window must initially be hidden")
+manualWindow.setDesktopLaunchSource(.manual)
+manualWindow.finishDesktopStartup(trayAvailable: true)
+require(manualWindow.isVisible, "manual cold launch must show the window even with a tray")
+require(app.activationPolicy() == .regular, "manual cold launch must show the Dock icon")
+require(!manualWindow.hasStartupTimeout, "completed startup must cancel its watchdog")
+manualWindow.orderOut(nil)
+manualWindow.finishDesktopStartup(trayAvailable: true)
+require(!manualWindow.isVisible, "duplicate completion must not reopen a window the user hid")
+
 let trayWindow = startupWindow()
-require(!trayWindow.isVisible, "startup window must be hidden")
+trayWindow.setDesktopLaunchSource(.loginItem)
 trayWindow.finishDesktopStartup(trayAvailable: true)
-require(!trayWindow.isVisible, "tray startup must not show the window")
-require(app.activationPolicy() == .accessory, "tray startup must remove the Dock icon")
+require(!trayWindow.isVisible, "login startup with a tray must not show the window")
+require(app.activationPolicy() == .accessory, "login startup must remove the Dock icon")
+trayWindow.markDesktopReady()
 trayWindow.showApp()
-require(trayWindow.isVisible, "reopen must show the existing window")
+require(trayWindow.isVisible, "reopen must show the existing login-started window")
+require(app.activationPolicy() == .regular, "reopen must restore the Dock icon")
+require(trayWindow.actions.contains("openApp"), "reopen must also reset the shared presentation policy")
 trayWindow.orderOut(nil)
+trayWindow.hideOnClose = true
 trayWindow.finishDesktopStartup(trayAvailable: false)
-require(trayWindow.isVisible, "later tray failure must show fallback")
+require(trayWindow.isVisible && !trayWindow.hideOnClose, "later tray failure must show a closable fallback")
 trayWindow.orderOut(nil)
+
+for source in [DesktopLaunchSource.manual, .loginItem] {
+  let pendingWindow = startupWindow()
+  pendingWindow.finishDesktopStartup(trayAvailable: true)
+  require(!pendingWindow.isVisible && !pendingWindow.hasFinishedStartup,
+    "tray success before the launch callback must wait for the launch source")
+  require(pendingWindow.hasStartupTimeout, "waiting for the launch source must retain the watchdog")
+  pendingWindow.setDesktopLaunchSource(source)
+  require(pendingWindow.isVisible == (source == .manual), "deferred startup must honor the captured launch source")
+  require(pendingWindow.hasFinishedStartup && !pendingWindow.hasStartupTimeout,
+    "the launch callback must complete pending tray startup and cancel its watchdog")
+  pendingWindow.orderOut(nil)
+}
+
 let fallbackWindow = startupWindow()
+fallbackWindow.setDesktopLaunchSource(.loginItem)
 fallbackWindow.markDesktopReady()
 fallbackWindow.finishDesktopStartup(trayAvailable: false)
-require(fallbackWindow.isVisible, "unavailable tray must show fallback")
+require(fallbackWindow.isVisible, "unavailable tray must show fallback even for login startup")
 require(app.activationPolicy() == .regular, "fallback must restore the Dock icon")
 fallbackWindow.orderOut(nil)
 fallbackWindow.showApp()
 require(fallbackWindow.isVisible, "native reopen must work when Dart readiness was premature")
 fallbackWindow.orderOut(nil)
-let reopenedWindow = startupWindow()
-reopenedWindow.showApp()
-reopenedWindow.finishDesktopStartup(trayAvailable: true)
-require(reopenedWindow.isVisible, "startup completion must preserve explicit reopen")
-reopenedWindow.orderOut(nil)
-print("PASS: tray startup, fallback and pending reopen")
+
+for source in [DesktopLaunchSource.manual, .loginItem] {
+  let reopenedWindow = startupWindow()
+  reopenedWindow.showApp()
+  reopenedWindow.finishDesktopStartup(trayAvailable: true)
+  reopenedWindow.setDesktopLaunchSource(source)
+  require(reopenedWindow.isVisible, "startup completion must preserve reopen before source or tray readiness")
+  require(app.activationPolicy() == .regular, "pending reopen must keep its Dock icon")
+  reopenedWindow.orderOut(nil)
+}
+
+// Invoke the actual scheduled native callback without waiting ten seconds or
+// starting Dart. A missing launch callback must never suppress this fallback.
+let watchdogWindow = startupWindow()
+watchdogWindow.hideOnClose = true
+watchdogWindow.markDesktopReady()
+watchdogWindow.finishDesktopStartup(trayAvailable: true)
+watchdogWindow.fireTestStartupTimeout()
+require(watchdogWindow.isVisible && !watchdogWindow.hideOnClose,
+  "watchdog must show a closable native window even before the launch source is known")
+require(app.activationPolicy() == .regular, "watchdog fallback must restore the Dock icon")
+watchdogWindow.setDesktopLaunchSource(.loginItem)
+watchdogWindow.finishDesktopStartup(trayAvailable: true)
+require(watchdogWindow.isVisible && app.activationPolicy() == .regular,
+  "late login source or tray success must not undo watchdog recovery")
+watchdogWindow.orderOut(nil)
+print("PASS: manual/login startup, deferred launch source, native fallback and reopen")
