@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -124,6 +125,49 @@ class NativePreparationTest(unittest.TestCase):
         native.prepare_dependencies("android")
         self.assertFalse(cache.exists())
         self.assertTrue((self.root / "native/playback/player.cpp").is_file())
+
+    def test_restored_windows_dependencies_reuse_and_invalidate(self):
+        recipes = ("windows/scripts/build_dependencies.ps1", "windows/scripts/build_ffmpeg.sh")
+        for name in recipes:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("original")
+        with patch.object(native, "host_toolchain", return_value="Visual Studio fixture") as toolchain:
+            native.prepare_dependencies("windows")
+            prefixes = ("build/windows-deps/crypto", "build/windows-deps/ffmpeg-aac")
+            stamp = "build/native-preparation/windows-dependencies.txt"
+            for name in prefixes:
+                path = self.root / name
+                path.mkdir(parents=True)
+                (path / "library").write_bytes(b"cached dependency")
+            # Restore only the installed prefixes and marker into a fresh build tree.
+            snapshot = self.root / "cache-snapshot"
+            for name in (*prefixes, stamp):
+                source = self.root / name
+                destination = snapshot / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if source.is_dir():
+                    shutil.copytree(source, destination)
+                else:
+                    shutil.copy2(source, destination)
+            shutil.rmtree(self.root / "build")
+            shutil.copytree(snapshot / "build", self.root / "build")
+            (self.root / "native/playback/player.cpp").write_text("new product source")
+            native.prepare_dependencies("windows")
+            for name in prefixes:
+                self.assertEqual((self.root / name / "library").read_bytes(), b"cached dependency")
+
+            for changed in ("native/dependencies.lock.json", *recipes, "toolchain"):
+                with self.subTest(changed=changed):
+                    for name in prefixes:
+                        (self.root / name).mkdir(parents=True, exist_ok=True)
+                    if changed == "toolchain":
+                        toolchain.return_value = "new Visual Studio version"
+                    else:
+                        (self.root / changed).write_text("changed")
+                    native.prepare_dependencies("windows")
+                    for name in prefixes:
+                        self.assertFalse((self.root / name).exists())
 
     def test_xcode_environment_does_not_mix_platform_targets(self):
         values = {"IPHONEOS_DEPLOYMENT_TARGET": "18.5", "XROS_DEPLOYMENT_TARGET": "1.3",

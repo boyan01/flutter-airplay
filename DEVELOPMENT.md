@@ -308,6 +308,10 @@ Dart 用例按 `test/receiver/`、`test/ui/` 组织，fixture 位于对应测试
 macOS 和 iPad 使用 Apple Silicon runner，Android 编译及 host/Kotlin 测试使用 Ubuntu x86_64 runner。
 Linux 的窗口测试在隔离 X11 显示和 session bus 中运行。
 Windows Server runner 会检查并启用 Media Foundation，软件解码使用项目构建的 FFmpeg。
+Windows CI 缓存已编译的 OpenSSL、FFmpeg 及依赖失效标记，不缓存应用或测试产物。
+缓存按 runner image、Visual Studio 版本、依赖 lock 和原生构建脚本精确匹配；
+首次运行或输入变化时从源码构建，成功后保存缓存。产品源码变化仍重新构建应用和测试，
+但可复用未变化的第三方依赖。
 Android 播放器 fixture 与应用集成测试要求 arm64 设备，目前不在托管 CI 中运行；
 macOS 全屏窗口测试、真实投屏发现、设备音频/视频输出及音画同步仍需目标设备验证。
 CI 的编译与合成媒体结果不能替代这些检查。
