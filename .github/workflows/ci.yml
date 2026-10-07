@@ -47,6 +47,9 @@ jobs:
               - 'pubspec.*'
               - '.flutter-version'
               - 'lib/**'
+              - 'test/**'
+              - 'integration_test/**'
+              - 'test_driver/**'
               - 'assets/**'
               - 'native/**'
               - 'vendor/**'
@@ -124,6 +127,12 @@ jobs:
         run: flutter build macos --debug
       - name: Run all macOS native and window tests
         run: ./scripts/test_native.sh macos all
+      - name: Run desktop integration suite
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          mkdir -p artifacts/macos
+          ./scripts/test_native.sh macos desktop --os-input 2>&1 | tee artifacts/macos/desktop.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
@@ -150,7 +159,7 @@ jobs:
             libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
             libpulse-dev libavahi-client-dev libepoxy-dev libffmpeg-nvenc-dev \
             libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
-            xvfb dbus-x11 at-spi2-core openbox xdotool
+            xvfb dbus-x11 at-spi2-core openbox xdotool x11-utils
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
@@ -161,15 +170,36 @@ jobs:
         run: flutter build linux --debug
       - name: Run player, video, host and GTK tests
         run: ./scripts/test_native.sh linux all
-      - name: Run caption drag and close test
-        run: ./scripts/test_native.sh linux window
-      - name: Run standalone ALAC decoder tests
-        run: ./scripts/test_native.sh alac
+      - name: Run desktop integration suite
+        timeout-minutes: 15
+        shell: bash
+        env:
+          GIO_USE_VFS: local
+          GTK_USE_PORTAL: '0'
+          NO_AT_BRIDGE: '1'
+        run: |
+          mkdir -p artifacts/linux
+          xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- bash -euo pipefail <<'DESKTOP' 2>&1 | tee artifacts/linux/desktop.log
+            openbox --sm-disable > artifacts/linux/openbox.log 2>&1 &
+            wm=$!
+            trap 'kill "$wm" 2>/dev/null || true' EXIT
+            for _attempt in {1..100}; do
+              if xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"; then
+                break
+              fi
+              kill -0 "$wm"
+              sleep 0.1
+            done
+            xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"
+            ./scripts/test_native.sh linux desktop --os-input
+          DESKTOP
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: linux-test-logs
-          path: build/linux-native/Testing/Temporary/
+          path: |
+            artifacts/linux/
+            build/linux-native/Testing/Temporary/
           retention-days: 7
 
   windows:
@@ -246,14 +276,22 @@ jobs:
           cmake --build build/windows/x64 --config Debug --target windows_texture_test
       - name: Run native tests
         shell: bash
+        run: ./scripts/test_native.sh windows all
+      - name: Run desktop integration suite
+        timeout-minutes: 15
+        shell: bash
+        env:
+          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
+          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
         run: |
-          ./scripts/test_native.sh windows all
-          ./scripts/test_native.sh windows texture
+          mkdir -p artifacts/windows
+          ./scripts/test_native.sh windows desktop --os-input 2>&1 | tee artifacts/windows/desktop.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: windows-test-logs
           path: |
+            artifacts/windows/
             build/windows-native/Testing/Temporary/
             build/windows/x64/Testing/Temporary/
           retention-days: 7

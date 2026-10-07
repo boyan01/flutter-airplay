@@ -154,14 +154,64 @@ void main() {
     });
     addTearDown(backend.controller.close);
     final strings = AppLocalizationsEn();
+    Future<void> waitForGeometry(
+      bool Function(native.Size) matches,
+      String reason,
+    ) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      DateTime? stableSince;
+      native.Size? previous;
+      late native.Size current;
+      while (DateTime.now().isBefore(deadline)) {
+        await tester.pump();
+        // Flutter settling does not mean the OS has applied its resize request.
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          await controller.withWindow((value) => current = value.contentSize);
+        });
+        expect(tester.takeException(), isNull);
+        if (matches(current)) {
+          if (previous == null ||
+              (current.width - previous.width).abs() > 1 ||
+              (current.height - previous.height).abs() > 1) {
+            stableSince = DateTime.now();
+          }
+          stableSince ??= DateTime.now();
+          if (DateTime.now().difference(stableSince) >=
+              const Duration(milliseconds: 300)) {
+            return;
+          }
+        } else {
+          stableSince = null;
+        }
+        previous = current;
+      }
+      fail('$reason did not settle: ${current.width} x ${current.height}');
+    }
+
     Future<void> update() async {
       await tester.runAsync(() => presentation.update(strings));
       await tester.pumpAndSettle();
       expect(errors, isEmpty);
+      if (!nativeWindow.isFullScreen && !nativeWindow.isMaximized) {
+        final ratio = model.hasVideo && model.videoHeight > 0
+            ? model.videoWidth / model.videoHeight
+            : 0.0;
+        await waitForGeometry(
+          (size) => ratio > 0
+              ? (size.width / size.height - ratio).abs() < .01
+              : (size.width - 440).abs() <= 2 && (size.height - 560).abs() <= 2,
+          ratio > 0 ? 'Video ratio $ratio' : 'Waiting window',
+        );
+      }
     }
 
     await update();
-    expect(presentation.canHide, native.TrayManager.instance.isSupported());
+    // API support does not guarantee a registered shell tray (e.g. Openbox).
+    // Without one, closing to tray must not make the app inaccessible.
+    if (!presentation.canHide) {
+      expect(nativeWindow.isVisible, isTrue);
+    }
     expect(nativeWindow.contentSize.width, closeTo(440, 2));
     expect(nativeWindow.contentSize.height, closeTo(560, 2));
     expect(nativeWindow.aspectRatio, 0);
@@ -196,6 +246,12 @@ void main() {
     await update();
     await presentation.resize(actualSize: true);
     await tester.pumpAndSettle();
+    await waitForGeometry(
+      (size) =>
+          (size.width * tester.view.devicePixelRatio - 640).abs() <= 2 &&
+          (size.height * tester.view.devicePixelRatio - 360).abs() <= 2,
+      'Original pixel size',
+    );
     expect(
       nativeWindow.contentSize.width * tester.view.devicePixelRatio,
       closeTo(640, 2),
