@@ -140,6 +140,14 @@ class MacPackagingTests(unittest.TestCase):
         with patch.object(audit.subprocess, 'check_output', return_value=plistlib.dumps({})), self.assertRaisesRegex(ValueError, 'entitlements'):
             audit.audit(self.app)
 
+    def test_signing_removes_external_rpaths_before_sealing(self):
+        with patch.object(audit, 'raw_rpaths', return_value=['/usr/local/lib/.', '@loader_path', '/usr/lib/swift', '/usr/local/lib/.']), patch.object(audit.subprocess, 'run') as run:
+            audit.sign(self.app)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[0], ['/usr/bin/install_name_tool', '-delete_rpath', '/usr/local/lib/.', str(self.paths[0])])
+        self.assertEqual(commands[1][:4], ['/usr/bin/codesign', '--force', '--sign', '-'])
+        self.assertEqual(sum(command[0].endswith('install_name_tool') for command in commands), len(self.paths))
+
     def test_signs_inside_out_without_deep_signing(self):
         with patch.object(audit.subprocess, 'run') as run:
             audit.sign(self.app)

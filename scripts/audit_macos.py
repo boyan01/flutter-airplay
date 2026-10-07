@@ -24,6 +24,13 @@ def binaries(app):
 def sign(app):
     # No --deep signing: sign each leaf, then enclosing bundles, then the app.
     for path in binaries(app):
+        # Flutter's prebuilt engine may retain its build-host /usr/local/lib
+        # runpath. Remove external search roots in the staging copy only;
+        # the subsequent dependency audit still rejects unbundled libraries.
+        for value in dict.fromkeys(raw_rpaths(path)):
+            resolved = loader_path(value, path, app)
+            if resolved is None or not (resolved.resolve().is_relative_to(app.resolve()) or system_path(resolved)):
+                subprocess.run(['/usr/bin/install_name_tool', '-delete_rpath', value, str(path)], check=True)
         subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(path)], check=True)
     bundles = [path for path in app.rglob('*') if path.is_dir() and not path.is_symlink()
                and path.suffix in ('.framework', '.app', '.xpc', '.appex', '.bundle')]
@@ -49,16 +56,19 @@ def system_path(path):
     return any(resolved.is_relative_to(root) for root in (pathlib.Path('/usr/lib'), pathlib.Path('/System/Library')))
 
 
-def rpaths(binary, app):
+def raw_rpaths(binary):
     lines = output('/usr/bin/otool', '-l', binary).splitlines()
+    return [lines[index + 2].strip().removeprefix('path ').rsplit(' (offset ', 1)[0]
+            for index, line in enumerate(lines) if line.strip() == 'cmd LC_RPATH']
+
+
+def rpaths(binary, app):
     result = []
-    for index, line in enumerate(lines):
-        if line.strip() == 'cmd LC_RPATH':
-            value = lines[index + 2].strip().removeprefix('path ').rsplit(' (offset ', 1)[0]
-            resolved = loader_path(value, binary, app)
-            if resolved is None or not (resolved.resolve().is_relative_to(app.resolve()) or system_path(resolved)):
-                raise ValueError(f'External or unsupported runtime search path in {binary.relative_to(app)}: {value}')
-            result.append(resolved)
+    for value in raw_rpaths(binary):
+        resolved = loader_path(value, binary, app)
+        if resolved is None or not (resolved.resolve().is_relative_to(app.resolve()) or system_path(resolved)):
+            raise ValueError(f'External or unsupported runtime search path in {binary.relative_to(app)}: {value}')
+        result.append(resolved)
     return result
 
 

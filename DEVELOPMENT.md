@@ -586,7 +586,7 @@ Ad-hoc 签名只封存代码完整性，不认证开发者身份；不需要 App
 签名密钥或额外 GitHub Secrets，也没有 Developer ID 签名或 Apple 公证。
 从网络下载后 macOS 仍可能阻止打开；不要关闭 Gatekeeper / SIP 或清除隔离属性来绕过检查。
 面向免提示的公开分发需另行配置 Developer ID 签名与公证。
-打包会逐层签名并检查 arm64、实际 rpath 依赖、许可证、Bonjour 声明和 Release entitlements；
+打包先从副本移除预编译框架残留的外部 rpath（如 `/usr/local/lib`），再逐层签名并检查 arm64、实际 rpath 依赖、许可证、Bonjour 声明和 Release entitlements；
 生成只读压缩 DMG 后重新挂载审计，并加载包内 dylib 检查 FFI ABI，不启动接收服务。
 这不等于已验证 GUI 启动、Gatekeeper 下载体验或真实 iPhone 投屏。
 
