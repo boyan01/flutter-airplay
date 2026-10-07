@@ -25,6 +25,7 @@ class DesktopWindowSizing {
   bool _dirty = false;
   bool _enabled;
   int _width = 0, _height = 0, _revision = 0, _scheduled = 0;
+  int _correctedRevision = -1;
   native.Rectangle? _baseline, _lastApplied;
   native.Size? _baselineMinimum;
   double _baselineAspect = 0;
@@ -352,7 +353,9 @@ class DesktopWindowSizing {
         if (progress == 1) break;
         await Future<void>.delayed(const Duration(milliseconds: 16));
       }
-      if (!await _settle(revision, target!)) return;
+      // Both verification phases share one budget and at most one final snap.
+      final settling = Stopwatch()..start();
+      if (!await _settle(revision, target!, settling)) return;
       deferred = false;
       await window.withWindow((value) {
         if (_disposed ||
@@ -369,7 +372,7 @@ class DesktopWindowSizing {
       if (deferred) return;
       // The final native constraints can themselves cause a configure event.
       await Future<void>.delayed(const Duration(milliseconds: 32));
-      if (!await _settle(revision, target!)) return;
+      if (!await _settle(revision, target!, settling)) return;
       _dirty = false;
       if (restore) {
         _baseline = null;
@@ -385,9 +388,14 @@ class DesktopWindowSizing {
     }
   }
 
-  Future<bool> _settle(int revision, native.Rectangle target) async {
-    final clock = Stopwatch()..start();
-    native.Rectangle? observed;
+  Future<bool> _settle(
+    int revision,
+    native.Rectangle target,
+    Stopwatch clock,
+  ) async {
+    const stableInterval = Duration(milliseconds: 64);
+    Stopwatch? stableTarget, stableMismatch;
+    native.Rectangle? observed, previousMismatch;
     while (clock.elapsed < const Duration(seconds: 1)) {
       if (_disposed || revision != _revision || _suspended) return false;
       var deferred = false;
@@ -404,8 +412,42 @@ class DesktopWindowSizing {
       });
       if (deferred || _disposed || revision != _revision) return false;
       if (observed != null && _same(observed!, target)) {
-        _lastApplied = observed;
-        return true;
+        stableMismatch = null;
+        previousMismatch = null;
+        stableTarget ??= Stopwatch()..start();
+        // A single matching allocation can precede a late native configure.
+        if (stableTarget.elapsed >= stableInterval) {
+          _lastApplied = observed;
+          return true;
+        }
+      } else if (observed != null) {
+        stableTarget = null;
+        if (previousMismatch == null || !_same(observed!, previousMismatch)) {
+          stableMismatch = Stopwatch()..start();
+        }
+        previousMismatch = observed;
+        if (_correctedRevision != revision &&
+            stableMismatch!.elapsed >= stableInterval) {
+          // Recover one overwritten/dropped final resize without restarting
+          // animation or altering the session baseline. Persistent refusal
+          // still fails within the original shared deadline.
+          await window.withWindow((value) {
+            if (_disposed ||
+                revision != _revision ||
+                _suspended ||
+                _expanded(value) ||
+                !value.isVisible) {
+              deferred = true;
+              return;
+            }
+            if (clock.elapsed >= const Duration(seconds: 1)) return;
+            _correctedRevision = revision;
+            value.bounds = target;
+          });
+          if (deferred || _disposed || revision != _revision) return false;
+          stableMismatch = null;
+          previousMismatch = null;
+        }
       }
       await Future<void>.delayed(const Duration(milliseconds: 16));
     }
