@@ -8,7 +8,7 @@
 class WindowChannel {
  public:
   WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window,
-                std::function<bool()> tray_host_available = {});
+                std::function<bool()> tray_registered = {});
   ~WindowChannel();
   WindowChannel(const WindowChannel&) = delete;
   WindowChannel& operator=(const WindowChannel&) = delete;
@@ -17,13 +17,17 @@ class WindowChannel {
   bool FinishDesktopStartup(bool tray_available);
  private:
   void Handle(FlMethodCall* call);
+  void ProbeTrayRegistration();
+  void CancelTrayProbe();
   void Invoke(const char* method, FlValue* args = nullptr);
   FlBinaryMessenger* messenger_;
   FlMethodChannel* channel_;
   GtkWindow* window_;
   gulong state_handler_ = 0;
-  guint startup_timeout_ = 0;
-  std::function<bool()> tray_host_available_;
+  guint startup_timeout_ = 0, tray_retry_ = 0, tray_timeout_ = 0;
+  GCancellable* tray_probe_ = nullptr;
+  FlMethodCall* startup_call_ = nullptr;
+  std::function<bool()> tray_registered_;
   bool startup_finished_ = false, reopen_requested_ = false;
   bool hide_on_close_ = false, quit_requested_ = false, ready_ = false;
 };
