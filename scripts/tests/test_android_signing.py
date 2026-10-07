@@ -23,7 +23,8 @@ class AndroidSigningContractTest(unittest.TestCase):
         self.assertIn('"$RUNNER_TEMP/airplay-release.keystore"', workflow)
         self.assertIn('umask 077', workflow)
         self.assertNotIn('package_android.py', workflow)
-        self.assertIn('if: github.event_name != \'pull_request\'', workflow)
+        self.assertNotIn('\n  pull_request:', workflow)
+        self.assertNotIn('\n  pull_request_target:', workflow)
         self.assertIn('apksigner" verify --print-certs', workflow)
 
 
