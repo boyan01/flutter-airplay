@@ -43,7 +43,7 @@ def metadata():
 def asset_names(current, signed):
     prefix = f'Flutter-AirPlay-{current}'
     names = [f'{prefix}-linux-x64.deb', f'{prefix}-linux-x64-bundle.tar.gz',
-             f'{prefix}-windows-x64-setup.exe']
+             f'{prefix}-windows-x64-setup.exe', f'{prefix}-macos-arm64.dmg']
     if signed:
         names.append(f'{prefix}-android-arm64.apk')
     return names
@@ -102,7 +102,9 @@ def publish():
                      any(a['name'] not in {p.name for p in files} for a in existing['assets'])):
         raise ValueError('Existing draft does not match this release run; inspect it manually.')
     notes = ('Linux x64: Ubuntu 24.04 or compatible system with the documented runtime dependencies.\n'
-             'Windows x64: Setup is not Authenticode-signed.\n')
+             'Windows x64: Setup is not Authenticode-signed.\n'
+             'macOS arm64 (Apple Silicon, macOS 12+): App in DMG is ad-hoc signed, not Developer ID signed or notarized.\n'
+             'Drag the app to Applications. macOS may block downloaded apps from unidentified developers.\n')
     notes += ('Android arm64: signed release APK included.\n' if signed else
               'Android APK omitted: release signing secrets have not been configured.\n')
     notes += '\nChecksums: SHA256SUMS. Source and license notices are included in the application packages.\n'
