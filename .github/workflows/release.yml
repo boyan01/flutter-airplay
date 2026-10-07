@@ -5,22 +5,11 @@ name: Release assets
     tags:
     - v*
   workflow_dispatch: {}
-  pull_request:
-    paths:
-    - '.github/workflows/release.yml'
-    - 'scripts/package_*.py'
-    - 'scripts/release_assets.py'
-    - 'scripts/tests/test_*release*.py'
-    - 'scripts/tests/test_android_signing.py'
-    - 'scripts/tests/test_linux_packaging.py'
-    - 'android/app/build.gradle.kts'
-    - 'windows/installer/**'
-    - 'windows/scripts/package_windows.ps1'
 permissions:
   contents: read
 concurrency:
   group: release-assets-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 jobs:
   prepare:
     runs-on: ubuntu-24.04
@@ -132,8 +121,6 @@ jobs:
         if-no-files-found: error
         retention-days: 14
   android:
-    # Signing credentials and environment are never available to PR builds.
-    if: github.event_name != 'pull_request'
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 60

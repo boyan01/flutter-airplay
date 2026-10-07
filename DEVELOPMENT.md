@@ -606,8 +606,7 @@ Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及�
 非法版本号会在构建前失败。`BUILD` 是 Android versionCode 和 Windows 文件版本的第四段，
 必须为 1..65535；更新时递增，不能仅改 tag 给旧二进制换版本。SDK 使用 `.flutter-version`。
 GitHub Actions 的手动运行只构建和保留 artifacts，永远不创建或发布 Release。
-打包相关 PR 也运行 Linux/Windows 实际打包验证，只保存 artifacts；PR 事件完全排除 Android
-签名 job，不能访问签名 Environment 或 secrets。
+Release 工作流仅允许手动运行和推送版本 tag 触发，不在 PR 创建或更新时运行。
 
 Linux 和 Windows 都成功，且 Android 成功构建或明确因未配置签名跳过后，才开始创建 draft
 Release。上传并验证完整资产集合后才转为公开；任一步失败会保留 draft。
