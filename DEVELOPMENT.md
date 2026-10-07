@@ -574,13 +574,22 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 
 | 平台 | 命令 | 输出 / 注意事项 |
 | --- | --- | --- |
-| macOS | `./scripts/package_macos.sh` | `build/distribution/macos/` 下的 app、ZIP、SHA256；内部调用原生及 Release 构建，并进行 ad-hoc 签名和审计 |
+| macOS | `./scripts/package_macos.sh` | `build/distribution/macos/` 下的 app、带版本号的 arm64 DMG、SHA256；自动 Release 构建、ad-hoc 签名、挂载审计和原生加载检查 |
 | Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；正式签名由 Gradle 从环境变量读取；CI 按版本命名 |
 | iPad 编译检查 | `flutter build ios --release --no-codesign` | 无签名设备构建，不能安装；可用 `flutter build ios --simulator --debug --no-codesign` 检查模拟器编译 |
 | Windows | `powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/package_windows.ps1` | `build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe` 和 `SHA256SUMS`；自动构建 Release、校验并打包完整运行时 |
 | Linux | `python3 scripts/package_linux.py` | `build/distribution/linux/` 下的 `.deb`、`-bundle.tar.gz` 和校验和；完整 Release bundle，系统动态依赖另行安装 |
 
-macOS 包无需 Homebrew 运行时；Developer ID 签名与公证是额外分发步骤。
+macOS DMG 面向 Apple Silicon（arm64）、macOS 12+，不是 universal / Intel 包；
+无需 Homebrew 运行时。打开 DMG 后将 `Flutter AirPlay.app` 拖到 `Applications`。
+Ad-hoc 签名只封存代码完整性，不认证开发者身份；不需要 Apple 开发者账户、付费证书、
+签名密钥或额外 GitHub Secrets，也没有 Developer ID 签名或 Apple 公证。
+从网络下载后 macOS 仍可能阻止打开；不要关闭 Gatekeeper / SIP 或清除隔离属性来绕过检查。
+面向免提示的公开分发需另行配置 Developer ID 签名与公证。
+打包先从副本移除预编译框架残留的外部 rpath（如 `/usr/local/lib`），再逐层签名并检查 arm64、实际 rpath 依赖、许可证、Bonjour 声明和 Release entitlements；
+生成只读压缩 DMG 后重新挂载审计，并加载包内 dylib 检查 FFI ABI，不启动接收服务。
+这不等于已验证 GUI 启动、Gatekeeper 下载体验或真实 iPhone 投屏。
+
 Windows 安装包要求 Inno Setup 6.6+，可用 `winget install --id JRSoftware.InnoSetup -e -s winget`
 安装，或为脚本传入 `-InnoCompiler 'C:\path\ISCC.exe'`。`-SkipBuild` 仅复用已生成、版本号与
 `pubspec.yaml` 一致的 Release bundle；原生代码改动后应使用默认构建流程。
@@ -604,11 +613,16 @@ Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及�
 
 ### GitHub tag 自动发布
 
+手动运行 `Release assets` 时可勾选 `macos_only`，只构建和验证 macOS DMG，
+不读取 Android 签名密钥、不发布 release；下载运行中的 `release-macos` artifact。
+默认手动运行仍构建所有平台。
+
 `.github/workflows/release.yml` 在推送 `vMAJOR.MINOR.PATCH` tag 时构建并上传：
 
 - `Flutter-AirPlay-<version>-linux-x64.deb`
 - `Flutter-AirPlay-<version>-linux-x64-bundle.tar.gz`
 - `Flutter-AirPlay-<version>-windows-x64-setup.exe`
+- `Flutter-AirPlay-<version>-macos-arm64.dmg`（ad-hoc 签名，无公证）
 - `Flutter-AirPlay-<version>-android-arm64.apk`（已配置正式签名时）
 - 所有应用产物的 `SHA256SUMS`
 

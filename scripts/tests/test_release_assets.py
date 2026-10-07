@@ -59,13 +59,22 @@ class ReleaseTests(unittest.TestCase):
             (directory / name).write_bytes(b'package fixture')
         return directory
 
+    def test_macos_dmg_is_required_even_without_android_signing(self):
+        names = release.asset_names('1.2.3', False)
+        self.assertIn('Flutter-AirPlay-1.2.3-macos-arm64.dmg', names)
+        with tempfile.TemporaryDirectory() as directory:
+            assets = self.fill(Path(directory), False)
+            (assets / 'Flutter-AirPlay-1.2.3-macos-arm64.dmg').unlink()
+            with self.assertRaises(ValueError):
+                release.collect(assets, '1.2.3', False)
+
     def test_collection_exact_assets_and_checksums(self):
         for signed in (True, False):
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 assets = self.fill(root, signed)
                 result = release.collect(assets, '1.2.3', signed)
-                self.assertEqual(len(result), 5 if signed else 4)
+                self.assertEqual(len(result), 6 if signed else 5)
                 self.assertEqual(len(result[-1].read_text().splitlines()), len(result) - 1)
                 with self.assertRaises(ValueError):
                     release.collect(assets, '1.2.3', signed)  # Reject stale/extra inputs.
