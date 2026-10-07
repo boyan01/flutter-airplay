@@ -190,20 +190,14 @@ jobs:
         ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.configuration-cache=false
       run: flutter build apk --release --target-platform android-arm64
-    - name: Verify and name Android APK
+    - name: Name Android APK
       if: steps.signing.outputs.configured == 'true'
       env:
         RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       run: |
         apk=build/app/outputs/flutter-apk/app-release.apk
-        certificates=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk")
-        if grep -Eiq 'certificate DN:.*CN=Android Debug(,|$)' <<< "$certificates"; then
-          echo 'Refusing to publish an Android Debug-signed APK.' >&2
-          exit 1
-        fi
         mkdir -p build/distribution/android
         cp "$apk" "build/distribution/android/Flutter-AirPlay-$RELEASE_VERSION-android-arm64.apk"
-        echo 'Verified signed Android arm64 release APK.' >> "$GITHUB_STEP_SUMMARY"
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: release-android

@@ -564,7 +564,7 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 | 平台 | 命令 | 输出 / 注意事项 |
 | --- | --- | --- |
 | macOS | `./scripts/package_macos.sh` | `build/distribution/macos/` 下的 app、ZIP、SHA256；内部调用原生及 Release 构建，并进行 ad-hoc 签名和审计 |
-| Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；正式签名由 Gradle 从环境变量读取；CI 验签后按版本命名 |
+| Android | `flutter build apk --release --target-platform android-arm64` | `build/app/outputs/flutter-apk/app-release.apk`；正式签名由 Gradle 从环境变量读取；CI 按版本命名 |
 | iPad 编译检查 | `flutter build ios --release --no-codesign` | 无签名设备构建，不能安装；可用 `flutter build ios --simulator --debug --no-codesign` 检查模拟器编译 |
 | Windows | `powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/package_windows.ps1` | `build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe` 和 `SHA256SUMS`；自动构建 Release、校验并打包完整运行时 |
 | Linux | `python3 scripts/package_linux.py` | `build/distribution/linux/` 下的 `.deb`、`-bundle.tar.gz` 和校验和；完整 Release bundle，系统动态依赖另行安装 |
@@ -639,16 +639,15 @@ Environment secrets，并设置所需审批和仅允许 release tags 的部署�
 | `ANDROID_KEY_PASSWORD` | 该 key 的密码 |
 
 四项全部缺失时，Android job 成功但明确跳过 APK，job summary 和 Release 说明都标注原因，
-桌面包仍可发布。只配置部分项、无效 keystore、错误密码、构建失败或签名验证失败均使任务失败，
-不会静默退回 debug 签名，也不会发布未签名 APK。配置签名后再手动构建验证；已发布的同名
+桌面包仍可发布。只配置部分项、无效 keystore、错误密码或构建失败均使任务失败。
+配置签名后再手动构建验证；已发布的同名
 Release 不会补传，签名 APK 随下一版发布。
 
 CI 在 GitHub 托管的一次性 Ubuntu runner 的 `RUNNER_TEMP` 以 `0600` 权限解码已有
 keystore，然后直接执行 `flutter build apk --release --target-platform android-arm64`。
 Gradle 从 `AIRPLAY_ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、
 `ANDROID_KEY_PASSWORD` 环境变量读取签名配置；原生依赖仍由 Gradle 的 `preBuild` hook 自动准备，
-不需要额外的 Android 构建包装脚本。CI 随后用 `apksigner` 验证 APK，拒绝 Android Debug
-证书，并按版本重命名上传。
+不需要额外的 Android 构建包装脚本。CI 将构建出的 APK 按版本重命名上传。
 
 keystore 不进入仓库、工作区、缓存或 artifacts，不输出密码或 Base64 密钥；不单独增加清理
 步骤，由托管的一次性 runner 生命周期销毁临时文件。不要将签名 job 改为持久化 self-hosted
