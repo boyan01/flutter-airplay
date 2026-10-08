@@ -55,6 +55,8 @@ struct AirplayPlayer {
     struct VideoStats {
         uint64_t ready = 0, submitted = 0, late_drop = 0, cancelled = 0, nonpositive_pts_step = 0;
         TimingSamples queue_wait, ready_late, submit_late, submit_gap, pts_gap, host_call;
+        TimingSamples oldest_age, oldest_late;
+        DeadlineSamples submit_slack;
     } video_stats;
     int64_t last_video_submit = 0, last_video_due = 0, video_stats_started = 0;
     int64_t last_video_decode = 0, last_video_output = 0;
@@ -88,6 +90,7 @@ struct AirplayPlayer {
                 if (frame && callbacks.frame) {
                     ++video_stats.submitted;
                     video_stats.submit_late.add(submitted - due);
+                    video_stats.submit_slack.add(due - submitted);
                     if (last_video_submit) video_stats.submit_gap.add(submitted - last_video_submit);
                     if (last_video_due) {
                         if (due <= last_video_due) ++video_stats.nonpositive_pts_step;
@@ -170,6 +173,7 @@ struct AirplayPlayer {
               wake.wait_for(guard, std::chrono::nanoseconds(wait_ns), [&] { return closing || video_reset || (can_decode && !packets.empty()); });
               if (closing) break;
               reset = video_reset; video_reset = false; generation = video_generation; w = width; h = height;
+              sample_video_queue(monotonic_ns());
               if ((reset || can_decode) && !packets.empty()) { packet = std::move(packets.front()); packets.pop_front(); queued_bytes -= packet.bytes.size();
                   last_video_decode = monotonic_ns();
                   if (!video_no_output_started) video_no_output_started = last_video_decode;
@@ -233,23 +237,34 @@ struct AirplayPlayer {
     int select_codec(bool hevc);
     void receive_video(const uint8_t* bytes, int size, int64_t local_pts);
     void receive_audio(const uint8_t* bytes, int size, int ct, int64_t local_pts, uint32_t rtp);
+    // Called with lock held, before dequeue and on arrival. Age measures local
+    // residence; lateness measures how far the oldest input missed its PTS.
+    void sample_video_queue(int64_t now) {
+        if (packets.empty()) return;
+        video_stats.oldest_age.add(now - packets.front().received_ns);
+        video_stats.oldest_late.add(now - packets.front().deadline);
+    }
     void report_video(int64_t now) {
         std::string message, stall;
         const auto *decoder = video->decoder_name();
         {
             std::lock_guard<std::mutex> guard(lock);
             if (!video_stats_started || now - video_stats_started < 5 * kSecond) return;
-            char counts[320];
+            char counts[448];
             std::snprintf(counts, sizeof(counts),
-                "Video submit stats: interval_ms=%lld ready=%llu submitted=%llu late_drop=%llu cancelled=%llu nonpositive_pts_step=%llu queued=%zu",
+                "Video submit stats: interval_ms=%lld ready=%llu submitted=%llu late_drop=%llu cancelled=%llu nonpositive_pts_step=%llu queued=%zu oldest_age_ms=%.3f oldest_late_ms=%.3f",
                 static_cast<long long>((now - video_stats_started) / 1000000),
                 static_cast<unsigned long long>(video_stats.ready), static_cast<unsigned long long>(video_stats.submitted),
                 static_cast<unsigned long long>(video_stats.late_drop), static_cast<unsigned long long>(video_stats.cancelled),
-                static_cast<unsigned long long>(video_stats.nonpositive_pts_step), packets.size());
-            if (video_stats.queue_wait.count || video_stats.ready) {
+                static_cast<unsigned long long>(video_stats.nonpositive_pts_step), packets.size(),
+                packets.empty() ? 0 : double(std::max<int64_t>(0, now - packets.front().received_ns)) / 1e6,
+                packets.empty() ? 0 : double(std::max<int64_t>(0, now - packets.front().deadline)) / 1e6);
+            if (video_stats.queue_wait.count || video_stats.ready || video_stats.oldest_age.count) {
                 message = std::string(counts) + video_stats.queue_wait.text("queue_wait") + video_stats.ready_late.text("ready_late")
                     + video_stats.submit_late.text("submit_late") + video_stats.submit_gap.text("submit_gap")
-                    + video_stats.pts_gap.text("pts_gap") + video_stats.host_call.text("host_call");
+                    + video_stats.pts_gap.text("pts_gap") + video_stats.host_call.text("host_call")
+                    + video_stats.submit_slack.text("submit_slack")
+                    + video_stats.oldest_age.text("queue_oldest_age") + video_stats.oldest_late.text("queue_oldest_late");
             }
             // Successful output clears the pending-input timer, so an idle
             // sender does not warn. A failed burst still needs a warning even

@@ -58,13 +58,10 @@ public:
     }
     void reset() override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
-        report_stats(true);
-        stats_started_ = 0; submitted_ = 0;
+        // Unregister before clearing samples or destroying userdata. The callback
+        // only takes render_lock_, never surface_lock_ or a player/host lock.
+        if (codec_ && render_callback_enabled_) frame_rendered_setter()(codec_, nullptr, nullptr);
         scheduler_.clear();
-        inputs_.clear();
-        max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = 0;
-        decoded_ = unmatched_ = released_ = release_errors_ = 0;
-        last_input_ns_ = last_decoded_ns_ = last_release_ns_ = 0;
         if (codec_) {
             const auto begin = monotonic_ns();
             AMediaCodec_stop(codec_); AMediaCodec_delete(codec_); codec_ = nullptr;
@@ -72,6 +69,15 @@ public:
             std::snprintf(message, sizeof(message), "Android video decoder stop: elapsed_ms=%.1f", (monotonic_ns() - begin) / 1000000.0);
             callbacks_.log(message);
         }
+        // Deletion also retires callbacks if unregistering was rejected.
+        report_stats(true);
+        render_callback_enabled_ = false;
+        { std::lock_guard<std::mutex> guard(render_lock_); render_stats_ = {}; }
+        stats_started_ = 0; submitted_ = 0;
+        inputs_.clear();
+        max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = 0;
+        decoded_ = unmatched_ = released_ = release_errors_ = 0;
+        last_input_ns_ = last_decoded_ns_ = last_release_ns_ = 0;
     }
     bool decode(const VideoPacket &packet) override {
         std::lock_guard<std::recursive_mutex> guard(surface_lock_);
@@ -180,6 +186,22 @@ public:
     }
 private:
     mutable std::recursive_mutex surface_lock_;
+    std::mutex render_lock_;
+    RenderTimingSamples render_stats_;
+    bool render_callback_enabled_ = false;
+    using SetFrameRendered = media_status_t (*)(AMediaCodec *, AMediaCodecOnFrameRendered, void *);
+    static SetFrameRendered frame_rendered_setter() {
+        // Optional API 33 symbol: keep the shared library loadable on API 26-32.
+        static auto setter = reinterpret_cast<SetFrameRendered>(dlsym(RTLD_DEFAULT, "AMediaCodec_setOnFrameRenderedCallback"));
+        return setter;
+    }
+    static void on_frame_rendered(AMediaCodec *, void *userdata, int64_t media_us, int64_t rendered_ns) {
+        auto *self = static_cast<AndroidVideo *>(userdata);
+        if (media_us <= 0 || media_us > INT64_MAX / 1000 || rendered_ns <= 0) return;
+        const auto notified_ns = monotonic_ns();
+        std::lock_guard<std::mutex> guard(self->render_lock_);
+        self->render_stats_.add(media_us * 1000, rendered_ns, notified_ns);
+    }
     void report_stats(bool final) {
         const auto now = monotonic_ns();
         if (!stats_started_) { stats_started_ = now; return; }
@@ -197,6 +219,15 @@ private:
             last_decoded_ns_ ? double(now - last_decoded_ns_) / 1e6 : -1,
             last_release_ns_ ? double(now - last_release_ns_) / 1e6 : -1, final ? " final" : "");
         callbacks_.log(message);
+        std::string display;
+        {
+            std::lock_guard<std::mutex> guard(render_lock_);
+            display = std::string("Android display stats: render_callback=")
+                + (render_callback_enabled_ ? "enabled" : "unavailable") + render_stats_.text();
+            const auto last = render_stats_.last_render_ns;
+            render_stats_ = {}; render_stats_.last_render_ns = last;
+        }
+        callbacks_.log(display.c_str());
         stats_started_ = now; submitted_ = decoded_ = unmatched_ = released_ = release_errors_ = 0;
         max_queue_ns_ = max_input_wait_ns_ = max_decode_ns_ = 0;
     }
@@ -224,6 +255,11 @@ private:
             AMediaFormat_delete(format);
             if (status == AMEDIA_OK && AMediaCodec_start(candidate) == AMEDIA_OK) {
                 codec_ = candidate; visible_width_ = width_; visible_height_ = height_; callbacks_.log(name.c_str());
+                if (const auto setter = frame_rendered_setter()) {
+                    render_callback_enabled_ = setter(codec_, on_frame_rendered, this) == AMEDIA_OK;
+                }
+                callbacks_.log(render_callback_enabled_ ? "Android frame-rendered callback enabled"
+                    : "Android frame-rendered callback unavailable; submissions are not measured presentations");
                 char message[256];
                 std::snprintf(message, sizeof(message), "Android video decoder open: codec=%s decoder=%s attempt=%d elapsed_ms=%.1f size=%dx%d",
                     hevc_ ? "HEVC" : "H.264", name.c_str(), attempt + 1, (monotonic_ns() - begin) / 1000000.0, width_, height_);

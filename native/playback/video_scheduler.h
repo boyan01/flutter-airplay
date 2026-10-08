@@ -60,11 +60,17 @@ public:
                 auto first = std::min_element(frames_.begin(), frames_.end(), earlier);
                 if (first->due - lead_ns_ > now) break;
                 frame = std::move(*first); frames_.erase(first);
+                // Only coalesce completed, already-due pictures. Future PTSs
+                // stay queued even when the host accepts an early handoff.
+                const bool superseded = frame.due <= now && std::any_of(frames_.begin(), frames_.end(),
+                    [&](const Frame &next) { return next.due > frame.due && next.due <= now; });
                 show = frame.due > last_due_ && frame.due >= now - kVideoLateToleranceNs;
                 if (frame.due <= last_due_) { ++order_; ++total_dropped_; }
                 else if (!show) { ++late_; ++total_dropped_; }
+                else if (superseded) { show = false; ++coalesced_; ++total_dropped_; }
                 else {
                     ++submitted_; ++total_submitted_; lateness_.add(now - frame.due);
+                    slack_.add(frame.due - now);
                     if (last_submit_) gap_.add(now - last_submit_);
                     last_due_ = frame.due; last_submit_ = now;
                 }
@@ -86,19 +92,19 @@ public:
         std::lock_guard<std::mutex> guard(lock_);
         if (!report_at_) report_at_ = now;
         if (now - report_at_ < 5000000000LL) return {};
-        if (!(ready_ || submitted_ || late_ || order_ || overflow_ || cancelled_)) {
+        if (!(ready_ || submitted_ || late_ || order_ || coalesced_ || overflow_ || cancelled_)) {
             report_at_ = now; return {};
         }
         char text[384];
         std::snprintf(text, sizeof(text),
-            "Video scheduler: ready=%llu submitted=%llu late_drop=%llu order_drop=%llu overflow_drop=%llu cancelled=%llu pending=%zu peak_pending=%zu decode_ahead=%zu lead_ms=%.1f",
+            "Video scheduler: ready=%llu submitted=%llu late_drop=%llu order_drop=%llu coalesced_drop=%llu overflow_drop=%llu cancelled=%llu pending=%zu peak_pending=%zu decode_ahead=%zu lead_ms=%.1f",
             static_cast<unsigned long long>(ready_), static_cast<unsigned long long>(submitted_),
             static_cast<unsigned long long>(late_), static_cast<unsigned long long>(order_),
-            static_cast<unsigned long long>(overflow_), static_cast<unsigned long long>(cancelled_),
+            static_cast<unsigned long long>(coalesced_), static_cast<unsigned long long>(overflow_), static_cast<unsigned long long>(cancelled_),
             frames_.size(), peak_, decode_ahead_, lead_ns_ / 1e6);
-        auto result = std::string(text) + lateness_.text("release_late") + gap_.text("release_gap");
-        ready_ = submitted_ = late_ = order_ = overflow_ = cancelled_ = 0;
-        peak_ = frames_.size(); lateness_ = {}; gap_ = {}; report_at_ = now;
+        auto result = std::string(text) + slack_.text("release_slack") + lateness_.text("release_late") + gap_.text("release_gap");
+        ready_ = submitted_ = late_ = order_ = coalesced_ = overflow_ = cancelled_ = 0;
+        peak_ = frames_.size(); slack_ = {}; lateness_ = {}; gap_ = {}; report_at_ = now;
         return result;
     }
 private:
@@ -133,7 +139,8 @@ private:
     int64_t lead_ns_, last_due_ = 0, last_submit_ = 0, report_at_ = 0;
     size_t decode_ahead_, peak_ = 0;
     uint64_t total_submitted_ = 0, total_dropped_ = 0;
-    uint64_t ready_ = 0, submitted_ = 0, late_ = 0, order_ = 0, overflow_ = 0, cancelled_ = 0;
+    uint64_t ready_ = 0, submitted_ = 0, late_ = 0, order_ = 0, coalesced_ = 0, overflow_ = 0, cancelled_ = 0;
     TimingSamples lateness_, gap_;
+    DeadlineSamples slack_;
 };
 } // namespace airplay

@@ -501,6 +501,15 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 
 运行时诊断在各平台进入同一份接收器日志，可从应用日志页导出。接收、提交和调度统计
 由公共 C++ 播放层输出；解码后端保留自己的队列、耗时和恢复信息。
+`Video scheduler` 的 `release_slack` 和 `Video submit stats` 的 `submit_slack`
+记录截止时间减去提交时间的毫秒值：正值表示提前量，负值表示迟到。每约 5 秒输出
+样本数、平均值、最小值和最大值，避免把提前提交全部记成零而掩盖缓冲余量变化。
+`oldest_age_ms` 是输入队列队首包当前的本地等待时间，`oldest_late_ms` 是它落后于
+显示截止时间的时长；空队列为零。`queue_oldest_age`、`queue_oldest_late` 保存周期内
+采样的平均值和峰值。前者从接收回调计时，不等于发送端采集到显示的端到端延迟。
+同一次调度恢复只提交最新的已到期画面，被合并的解码画面计为 `coalesced_drop`。
+未来画面按原截止时间保留，压缩参考帧仍按输入顺序解码。16 MiB 输入上限继续用于
+限制内存；当前没有输入年龄硬上限，也没有从队列内关键帧跳转的恢复策略。
 公共播放层在已消费的视频输入超过 3 秒仍无新输出时，于约 5 秒的统计周期记录
 `Video output stalled`，包含解码器、编码格式、输入/输出距今时长及音频状态。
 成功输出后停止输入，以及发送端主动暂停时不报警。失败输入尚未产生输出时，即使后续
@@ -508,6 +517,18 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 flags、空图像和丢帧计数；每个统计周期最多输出一条详细回调失败日志，避免坏帧刷屏。
 macOS 与 iPad 共用 VideoToolbox 和 AudioUnit 统计。iPad 使用 Apple 纹理统计；macOS 的
 `Apple native display stats` 区分收到、入队、丢弃及待提交的帧数。入队计数不等于实际屏幕呈现。
+macOS 14.4+ 在同一个约 5 秒周期异步采集系统指标：`system_total_frames`、
+`system_dropped_frames`、`system_corrupted_frames` 和 `system_accumulated_delay_ms`。
+这些是系统 renderer 提供的累计值，不能假定 flush 后归零；相邻快照可用于观察增量。
+日志返回最近完成的快照，`system_sample_age_ms` 表示快照距今时长。首次采样或系统未提供
+数据时标记 `system_metrics=unavailable`，旧系统标记 `unsupported`。停止、清空或重连
+会使旧的异步结果失效。AppKit 主线程积压也只入队最新的已到期画面，未来画面仍按原时间入队。
+Android 13 / API 33+ 尝试启用 MediaCodec 帧渲染回调，`Android display stats` 记录
+`rendered_callbacks`、`render_gap`、`render_slack` 和 `render_callback_delay`。
+间隔和截止时间余量使用回调携带的渲染时间戳，回调送达延迟单独计算。回调可能延后、合并，
+Android 13 也可能漏报，不能把“提交数减回调数”解释成系统丢帧。旧系统或注册失败时标记
+`render_callback=unavailable`。iPad、Windows 和 Linux 暂无对应的系统显示统计，
+继续使用已有的纹理消费指标；公共队列、截止时间余量和追帧逻辑在这些平台同样生效。
 Windows 的 GPU/像素纹理与 Linux GL/像素纹理共用 `TextureStats`。
 公共接收器约每 5 秒采集宿主纹理统计，停止前采集剩余数据；收到过帧后即使画面冻结，
 仍记录零计数区间及 `last_receive_age_ms`、`last_acquire_age_ms`，未取过新帧时后者为 -1。

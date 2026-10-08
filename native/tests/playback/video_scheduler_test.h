@@ -29,6 +29,38 @@ inline void video_scheduler_test() {
     check(released && !visible, "default drain clock still discards expired frames");
 
     constexpr int64_t now = 1000000000;
+    // A short stall is inside the late tolerance, but replaying every missed
+    // picture still floods the display. Keep the latest due picture instead.
+    {
+        airplay::VideoScheduler recovery(0, 16);
+        recovery.begin(1);
+        std::vector<int> visible, skipped;
+        for (int i : {3, 0, 6, 1, 5, 2, 4}) {
+            recovery.enqueue(now - 100000000 + i * 16000000, 1,
+                [&, i](bool show) { (show ? visible : skipped).push_back(i); });
+        }
+        recovery.enqueue(now + 16000000, 1, [&](bool show) { if (show) visible.push_back(7); });
+        recovery.drain(now);
+        check(visible == std::vector<int>{6} && skipped.size() == 6,
+              "100 ms recovery coalesces missed pictures into the latest due frame");
+        check(recovery.stats().pending == 1, "recovery retains future pictures");
+        recovery.diagnostics(now);
+        const auto recovery_report = recovery.diagnostics(now + 5000000000LL);
+        check(recovery_report.find("coalesced_drop=6") != std::string::npos && recovery.stats().dropped == 6,
+              "recovery drops are visible in diagnostics and cumulative counters");
+        recovery.drain(now + 16000000);
+        check(visible == std::vector<int>({6, 7}), "future picture still presents at its deadline");
+    }
+    {
+        airplay::VideoScheduler timed(50000000, 16);
+        timed.begin(1);
+        int submitted = 0, dropped = 0;
+        for (auto due : {now - 10000000, now + 10000000, now + 30000000}) {
+            timed.enqueue(due, 1, [&](bool show) { show ? ++submitted : ++dropped; });
+        }
+        timed.drain(now);
+        check(submitted == 3 && dropped == 0, "early host handoff does not coalesce future pictures");
+    }
     std::vector<int> shown, discarded;
     airplay::VideoScheduler scheduler(0);
     scheduler.begin(7);
@@ -44,6 +76,7 @@ inline void video_scheduler_test() {
     check(shown.empty() && discarded.empty(), "future output does not block or submit early");
     scheduler.drain(now + 10000000);
     check(shown == std::vector<int>{1} && scheduler.can_decode(), "presentation frees decode capacity");
+    scheduler.drain(now + 20000000);
     scheduler.drain(now + 30000000);
     check(shown == std::vector<int>({1, 2, 3}), "B-frame timestamps present monotonically");
     scheduler.enqueue(now + 20000000, 7, lease(4));
@@ -87,5 +120,25 @@ inline void video_scheduler_test() {
     check(shown.back() == 7, "acquisition lead remains bounded");
     flutter.drain(now + 8000000);
     check(shown.back() == 8, "Flutter texture is submitted with acquisition lead");
+
+    airplay::DeadlineSamples slack;
+    slack.add(50000000); slack.add(-10000000);
+    check(slack.min_ns == -10000000 && slack.max_ns == 50000000 && slack.total_ns / int64_t(slack.count) == 20000000,
+          "deadline samples preserve both positive headroom and negative lateness");
+    flutter.diagnostics(now);
+    const auto report = flutter.diagnostics(now + 6000000000LL);
+    check(report.find("release_slack_min_ms=2.000") != std::string::npos,
+          "early submission is reported as positive deadline headroom");
+
+    airplay::RenderTimingSamples rendered;
+    rendered.add(now, now + 1000000, now + 100000000);
+    rendered.add(now + 16000000, now + 17000000, now + 100000000);
+    check(rendered.gap.count == 1 && rendered.gap.max_ns == 16000000,
+          "batched render callbacks use carried timestamps for frame pacing");
+    check(rendered.callback_delay.max_ns == 99000000 && rendered.slack.min_ns == -1000000,
+          "callback delivery delay is separate from actual display lateness");
+    rendered.add(now, now + 1000000, now + 101000000);
+    check(rendered.nonpositive_steps == 1 && rendered.last_render_ns == now + 17000000,
+          "out-of-order notifications do not move the render watermark backwards");
 }
 } // namespace airplay_test

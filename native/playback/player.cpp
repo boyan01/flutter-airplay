@@ -17,6 +17,7 @@ void AirplayPlayer::receive_video(const uint8_t* bytes, int size, int64_t local_
     }
     p->packets.push_back({std::vector<uint8_t>(bytes, bytes + size), due, p->video_generation, now, p->video_hevc});
     p->queued_bytes += size;
+    p->sample_video_queue(now);
     if (!p->video_report_ns) p->video_report_ns = now;
     if (p->video_arrival_ns) p->video_gap_ns = std::max(p->video_gap_ns, now - p->video_arrival_ns);
     p->video_arrival_ns = now;

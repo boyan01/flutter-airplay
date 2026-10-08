@@ -118,13 +118,32 @@ void check_video_resume(void *surface, const char *decoder) {
 
 #ifdef __APPLE__
 void check_video_stall_diagnostics() {
-    std::atomic<int> warnings{0};
-    AirplayCallbacks cb{}; cb.context = &warnings;
+    struct Diagnostics { std::atomic<int> warnings{0}, queue_reports{0}; } diagnostics;
+    auto &warnings = diagnostics.warnings;
+    AirplayCallbacks cb{}; cb.context = &diagnostics;
     cb.log = [](void *context, int level, const char *message) {
+        auto *diagnostics = static_cast<Diagnostics *>(context);
         if (level == 4 && strstr(message, "Video output stalled:"))
-            ++*static_cast<std::atomic<int> *>(context);
+            ++diagnostics->warnings;
+        if (strstr(message, "queue_oldest_age_max_ms=200.000") && strstr(message, "queue_oldest_late_max_ms=100.000"))
+            ++diagnostics->queue_reports;
     };
     auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
+    {
+        std::lock_guard<std::mutex> guard(p->lock);
+        constexpr int64_t now = 10 * kSecond;
+        p->packets.push_back({{}, now - 100000000, p->video_generation, now - 200000000, false});
+        p->packets.push_back({{}, now + 100000000, p->video_generation, now - 1000000, false});
+        p->sample_video_queue(now);
+        if (p->video_stats.oldest_age.max_ns != 200000000 || p->video_stats.oldest_late.max_ns != 100000000)
+            throw std::runtime_error("queue diagnostics confuse oldest input residence with presentation lateness");
+        p->packets.clear();
+        p->video_stats_started = monotonic_ns() - 5 * kSecond;
+    }
+    p->report_video(monotonic_ns());
+    if (diagnostics.queue_reports != 1)
+        throw std::runtime_error("oldest input measurements disappear in intervals without dequeue or output");
+    p->reset();
     auto report = [&](bool input, bool paused, bool output, int64_t blocked_ns) {
         const auto now = monotonic_ns();
         {

@@ -37,6 +37,10 @@ do { try texture.begin(); require(false, "Disposed texture accepted restart") } 
 
 extension VideoSurface {
     var testPending: [CMSampleBuffer] { pending }
+    var testEnqueued: Int { submitted }
+    var testDropped: Int { dropped }
+    var testMetricsEpoch: UInt64 { metricsEpoch }
+    var testSystemMetrics: String? { systemMetrics }
     func testDrain() { drain() }
 }
 func deadlineAfter(_ nanoseconds: Int64) -> Int64 {
@@ -68,6 +72,29 @@ surface.receive(buffer!, deadline: deadlineAfter(-300_000_000))
 surface.testDrain()
 require(surface.testPending.isEmpty && surface.diagnostics()!.contains("dropped=1"),
         "Main thread stalls discard expired decoded samples")
+try surface.begin(); surface.testDrain()
+let recoveryDeadline = deadlineAfter(-100_000_000)
+for i in 0..<7 { surface.receive(buffer!, deadline: recoveryDeadline + Int64(i) * 16_000_000) }
+surface.receive(buffer!, deadline: deadlineAfter(500_000_000))
+surface.testDrain()
+require(surface.testDropped == 6 && surface.testEnqueued == 2,
+        "Main thread recovery enqueues only the latest missed sample and preserves the future sample")
+if #available(macOS 14.4, *) {
+    let epoch = surface.testMetricsEpoch
+    let report = surface.diagnostics()!
+    require(report.contains("system_metrics=unavailable"), "Unmeasured system display metrics remain explicitly unavailable")
+    surface.clear()
+    require(surface.testMetricsEpoch != epoch && surface.testSystemMetrics == nil,
+            "Flush invalidates outstanding system metric snapshots")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    require(surface.testSystemMetrics == nil, "Old-session metric request cannot repopulate cleared diagnostics")
+    surface.testDrain()
+    _ = surface.diagnostics()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    let sample = surface.diagnostics()!
+    require(sample.contains("system_total_frames=") || sample.contains("system_metrics=unavailable"),
+            "Asynchronous system sampling returns a snapshot or explicitly unavailable metrics")
+}
 surface.clear(); surface.testDrain()
 var yuv: CVPixelBuffer?
 require(CVPixelBufferCreate(nil, 128, 72, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,

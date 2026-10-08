@@ -15,6 +15,9 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
     private var failureReported = false
     private var failureObserver: NSObjectProtocol?
     private var clockReady = false
+    private var metricsEpoch: UInt64 = 0
+    private var systemMetrics: String?
+    private var metricsSampledAt: TimeInterval = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -66,6 +69,7 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
         }
         pending.removeAll(); needsFlush = true; active = true; failureReported = false
         received = 0; submitted = 0; dropped = 0
+        resetMetricsLocked()
         scheduleLocked()
     }
     func receive(_ frame: CVPixelBuffer, deadline: Int64) {
@@ -96,14 +100,17 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
     }
     func clear() {
         lock.lock(); defer { lock.unlock() }
+        resetMetricsLocked()
         pending.removeAll(); needsFlush = true; scheduleLocked()
     }
     func end() {
         lock.lock(); defer { lock.unlock() }
+        resetMetricsLocked()
         active = false; pending.removeAll(); needsFlush = true; scheduleLocked()
     }
     func dispose() {
         lock.lock(); defer { lock.unlock() }
+        resetMetricsLocked()
         active = false; disposed = true; pending.removeAll(); needsFlush = true; scheduleLocked()
     }
     private func scheduleLocked() {
@@ -136,6 +143,12 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
         }
         let now = CMClockGetTime(CMClockGetHostTimeClock())
         while !pending.isEmpty {
+            // The main thread can stall after scheduler handoff. Coalesce only
+            // missed samples here as well; preserve all future presentation times.
+            if pending.count > 1,
+               CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(pending[1]), now) <= 0 {
+                pending.removeFirst(); dropped += 1; continue
+            }
             if CMTimeGetSeconds(CMTimeSubtract(now, CMSampleBufferGetPresentationTimeStamp(pending[0]))) > 0.15 {
                 pending.removeFirst(); dropped += 1; continue
             }
@@ -156,6 +169,37 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
     func diagnostics() -> String? {
         lock.lock(); defer { lock.unlock() }
         guard received > 0 else { return nil }
-        return "Apple native display stats: received=\(received) enqueued=\(submitted) dropped=\(dropped) pending=\(pending.count)"
+        var metrics = "system_metrics=unsupported"
+        if #available(macOS 14.4, *) {
+            // ReceiverHost requests diagnostics every five seconds. The system
+            // snapshot is asynchronous; publish its age and never block playback.
+            metrics = systemMetrics.map {
+                "\($0) system_sample_age_ms=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - metricsSampledAt) * 1000))"
+            } ?? "system_metrics=unavailable"
+            let epoch = metricsEpoch
+            if active && !disposed {
+                DispatchQueue.main.async { [weak self] in self?.sampleMetrics(epoch: epoch) }
+            }
+        }
+        return "Apple native display stats: received=\(received) enqueued=\(submitted) dropped=\(dropped) pending=\(pending.count) \(metrics)"
+    }
+    private func resetMetricsLocked() {
+        metricsEpoch &+= 1; systemMetrics = nil; metricsSampledAt = 0
+    }
+    @available(macOS 14.4, *)
+    private func sampleMetrics(epoch: UInt64) {
+        lock.lock()
+        let valid = active && !disposed && !needsFlush && metricsEpoch == epoch
+        lock.unlock()
+        guard valid else { return }
+        displayLayer.sampleBufferRenderer.loadVideoPerformanceMetrics { [weak self] metrics in
+            guard let self = self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            guard self.active, !self.disposed, self.metricsEpoch == epoch else { return }
+            self.metricsSampledAt = ProcessInfo.processInfo.systemUptime
+            self.systemMetrics = metrics.map {
+                "system_total_frames=\($0.totalNumberOfFrames) system_dropped_frames=\($0.numberOfDroppedFrames) system_corrupted_frames=\($0.numberOfCorruptedFrames) system_accumulated_delay_ms=\(String(format: "%.3f", $0.totalAccumulatedFrameDelay * 1000))"
+            }
+        }
     }
 }
