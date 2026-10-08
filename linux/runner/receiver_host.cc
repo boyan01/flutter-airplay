@@ -117,7 +117,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     hooks.texture_id = [](void* context) { return static_cast<State*>(context)->texture_id.load(); };
     hooks.end_video = [](void* context, bool) { static_cast<State*>(context)->ClearFrame(); };
     hooks.clear_video = [](void* context) { static_cast<State*>(context)->ClearFrame(); };
-    hooks.frame = [](void* context, void* frame) {
+    hooks.frame = [](void* context, void* frame, int64_t) {
       auto* self = static_cast<State*>(context);
       if (frame && !self->closing) {
         const auto error = self->texture->TakeError();

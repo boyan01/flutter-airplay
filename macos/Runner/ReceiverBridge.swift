@@ -5,14 +5,17 @@ import Cocoa
 final class ReceiverBridge: NSObject {
     let host = ReceiverHost()
     var onSnapshot: (([String: Any]) -> Void)?
-    private var video: FrameTexture?
+    private var video: VideoSurface?
     private var methods: FlutterMethodChannel?
 
-    func install(on messenger: FlutterBinaryMessenger, textures: FlutterTextureRegistry) {
+    func install(on messenger: FlutterBinaryMessenger, video output: VideoSurface) {
         if video != nil { dispose() }
-        let output = FrameTexture(registry: textures)
         video = output
         host.videoOutput = output
+        output.onError = { [weak self] detail in
+            guard let self = self else { return }
+            self.host.reportOutputError(detail)
+        }
         methods = FlutterMethodChannel(name: "org.airplayreceiver/platform", binaryMessenger: messenger)
         host.onEvent = { [weak self] event in
             guard event["type"] as? String == "snapshot", let snapshot = event["data"] as? [String: Any] else { return }
@@ -21,7 +24,6 @@ final class ReceiverBridge: NSObject {
         methods?.setMethodCallHandler { [weak self] call, result in
             guard let self = self else { return }
             guard call.method == "bootstrap" else { result(FlutterMethodNotImplemented); return }
-            self.video?.register()
             self.host.queue.async {
                 do {
                     let handle = try self.host.bootstrap()

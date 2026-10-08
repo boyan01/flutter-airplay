@@ -18,7 +18,10 @@ void main() {
     'macOS cold startup completes with a usable tray before the watchdog',
     (tester) async {
       final backend = FakeReceiver(
-        capabilities: {'platform': Platform.operatingSystem},
+        capabilities: {
+          'platform': Platform.operatingSystem,
+          'nativeVideoSurface': Platform.isMacOS,
+        },
       );
       final model = ReceiverModel(backend);
       const window = WindowController();

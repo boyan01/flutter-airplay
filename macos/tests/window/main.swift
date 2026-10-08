@@ -7,7 +7,7 @@ import FlutterMacOS
 final class TestReceiver {
   var disposed = false
   func dispose() { disposed = true }
-  func install(on: FlutterBinaryMessenger, textures: FlutterTextureRegistry) {}
+  func install(on: FlutterBinaryMessenger, video: VideoSurface) {}
   func setDisplay(_ display: CGDirectDisplayID) {}
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -176,3 +176,62 @@ require(watchdogWindow.isVisible && app.activationPolicy() == .regular,
   "late login source or tray success must not undo watchdog recovery")
 watchdogWindow.orderOut(nil)
 print("PASS: manual/login startup, deferred launch source, native fallback and reopen")
+
+// Exercise real AppKit animation cancellation without requiring a sender.
+let resizeWindow = MainFlutterWindow(contentRect: NSRect(x: 200, y: 200, width: 440, height: 560),
+  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+resizeWindow.makeKeyAndOrderFront(nil)
+func runUntil(_ done: () -> Bool) {
+  let deadline = Date().addingTimeInterval(2)
+  while !done() && Date() < deadline {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+  }
+  require(done(), "native window animation must finish within its deadline")
+}
+let resizeTarget = NSRect(x: 180, y: 180, width: 800, height: 600)
+var resizeResults: [Bool] = []
+let started = Date()
+resizeWindow.resizeWindow(to: resizeTarget, duration: 0.2) { resizeResults.append($0) }
+require(Date().timeIntervalSince(started) < 0.1 && resizeResults.isEmpty,
+  "animated resize must return before completion and leave the event loop running")
+var resizeFrames = Set<String>()
+runUntil {
+  resizeFrames.insert(NSStringFromRect(resizeWindow.frame))
+  return !resizeResults.isEmpty
+}
+print("Native resize: elapsed=\(Date().timeIntervalSince(started)) frames=\(resizeFrames.count)")
+require(resizeFrames.count > 3, "animation must produce intermediate window frames")
+require(resizeResults == [true] && resizeWindow.frame.equalTo(resizeTarget), "animation must reach its target exactly once")
+
+let nextTarget = NSRect(x: 250, y: 200, width: 600, height: 700)
+resizeWindow.resizeWindow(to: nextTarget, duration: 0.2) { resizeResults.append($0) }
+RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+let interruptedFrame = resizeWindow.frame
+resizeWindow.cancelWindowResize()
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+require(resizeResults == [true, false] && resizeWindow.frame.equalTo(interruptedFrame),
+  "cancellation must complete once without snapping to the stale target")
+resizeWindow.resizeWindow(to: nextTarget, duration: 0) { resizeResults.append($0) }
+require(resizeResults == [true, false, true] && resizeWindow.frame.equalTo(nextTarget),
+  "reduced motion must apply the target without an animation")
+resizeWindow.resizeWindow(to: resizeTarget, duration: 0.2) { resizeResults.append($0) }
+resizeWindow.orderOut(nil)
+require(resizeResults.last == false, "hiding must cancel an active resize")
+resizeWindow.resizeWindow(to: nextTarget, duration: 0.2) { resizeResults.append($0) }
+require(resizeResults.last == false, "hidden windows must defer resizing")
+print("PASS: asynchronous resize, cancellation, reduced motion and hidden-window deferral")
+
+resizeWindow.setFrame(NSRect(x: 200, y: 200, width: 440, height: 560), display: true)
+resizeWindow.makeKeyAndOrderFront(nil)
+var zoomResults: [Bool] = []
+resizeWindow.resizeWindow(to: resizeTarget, duration: 0.2) { zoomResults.append($0) }
+RunLoop.main.run(until: Date().addingTimeInterval(0.04))
+resizeWindow.performTitlebarDoubleClick(action: "Zoom")
+let zoomedFrame = resizeWindow.frame
+require(resizeWindow.isZoomed, "titlebar Zoom must maximize during an automatic resize")
+runUntil { !zoomResults.isEmpty }
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+require(zoomResults == [false] && resizeWindow.isZoomed && resizeWindow.frame.equalTo(zoomedFrame),
+  "Zoom must cancel the animation once and preserve the maximized window")
+resizeWindow.orderOut(nil)
+print("PASS: titlebar Zoom cancels resize and preserves maximized geometry")

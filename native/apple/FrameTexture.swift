@@ -36,7 +36,7 @@ final class FrameTexture: NSObject, FlutterTexture, ReceiverVideoOutput {
         received = 0; copied = 0; overwritten = 0; repeated = 0
         maxAge = 0; maxCopyGap = 0; maxNotifyDelay = 0
     }
-    func receive(_ frame: CVPixelBuffer) {
+    func receive(_ frame: CVPixelBuffer, deadline: Int64 = 0) {
         lock.lock()
         guard active, !disposed else { lock.unlock(); return }
         let now = DispatchTime.now().uptimeNanoseconds

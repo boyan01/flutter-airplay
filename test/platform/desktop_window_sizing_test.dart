@@ -23,6 +23,45 @@ class Display implements native.Display {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class NativeResizeController extends WindowController {
+  NativeResizeController(this.value)
+    : super(
+        withWindow: (action) async => action(value),
+        getDisplays: () => [Display()],
+      );
+  final FakeWindow value;
+  final requests = <(native.Rectangle, Duration)>[];
+  Completer<bool>? pending;
+  int cancellations = 0;
+
+  @override
+  bool get usesNativeResize => true;
+
+  @override
+  Future<bool> resizeBounds(native.Rectangle bounds, Duration duration) {
+    requests.add((bounds, duration));
+    if (duration == Duration.zero) {
+      value.bounds = bounds;
+      return Future.value(true);
+    }
+    pending = Completer<bool>();
+    return pending!.future;
+  }
+
+  void finish() {
+    value.bounds = requests.last.$1;
+    pending!.complete(true);
+    pending = null;
+  }
+
+  @override
+  Future<void> cancelResize() async {
+    cancellations++;
+    pending?.complete(false);
+    pending = null;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late FakeWindow window;
@@ -56,6 +95,111 @@ void main() {
     expect(window.position, const native.Point(x: 100, y: 100));
     expect(window.aspectRatio, 0);
   }
+
+  test(
+    'native resize submits one target and cancels obsolete orientations',
+    () async {
+      sizing.dispose();
+      final controller = NativeResizeController(window);
+      sizing = DesktopWindowSizing(controller);
+      final first = video(2048, 1536, animation: true);
+      while (controller.pending == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(controller.requests, hasLength(1));
+      expect(window.calls, isNot(contains('bounds')));
+      final rotated = video(1536, 2048, animation: true);
+      await first;
+      while (controller.pending == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(controller.cancellations, 1);
+      expect(controller.requests, hasLength(2));
+      expect(controller.requests.last.$2, const Duration(milliseconds: 200));
+      controller.finish();
+      await rotated;
+      expect(
+        window.contentSize.width / window.contentSize.height,
+        closeTo(.75, .001),
+      );
+      await disconnect();
+      expect(controller.requests.last.$2, Duration.zero);
+      expectBaseline();
+    },
+  );
+
+  test('fullscreen suspension and disposal cancel native resize', () async {
+    sizing.dispose();
+    final controller = NativeResizeController(window);
+    sizing = DesktopWindowSizing(controller);
+    final first = video(2048, 1536, animation: true);
+    while (controller.pending == null) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    sizing.suspend();
+    await first;
+    expect(controller.cancellations, 1);
+    final resumed = sizing.resume();
+    while (controller.pending == null) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    sizing.dispose();
+    await resumed;
+    expect(controller.cancellations, 2);
+  });
+
+  for (final interruption in ['suspend', 'dispose']) {
+    testWidgets(
+      'native resize skips $interruption during the constraint yield',
+      (tester) async {
+        sizing.dispose();
+        final controller = NativeResizeController(window);
+        sizing = DesktopWindowSizing(controller);
+        final operation = video(2048, 1536);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 8));
+        expect(controller.requests, isEmpty);
+
+        if (interruption == 'suspend') {
+          sizing.suspend();
+        } else {
+          sizing.dispose();
+        }
+        await tester.pump(const Duration(milliseconds: 16));
+        await operation;
+
+        expect(controller.requests, isEmpty);
+        expect(window.calls, isNot(contains('bounds')));
+      },
+    );
+  }
+
+  testWidgets('native resize coalesces rotation during the constraint yield', (
+    tester,
+  ) async {
+    sizing.dispose();
+    final controller = NativeResizeController(window);
+    sizing = DesktopWindowSizing(controller);
+    final first = video(2048, 1536);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 8));
+    expect(controller.requests, isEmpty);
+
+    final rotated = video(1536, 2048);
+    await tester.pump(const Duration(milliseconds: 16));
+    await first;
+    await tester.pump(const Duration(milliseconds: 16));
+    sizing.dispose();
+    await tester.pump(const Duration(milliseconds: 16));
+    await rotated;
+
+    expect(controller.requests, hasLength(1));
+    expect(window.calls.where((call) => call == 'bounds'), hasLength(1));
+    expect(
+      window.bounds,
+      const native.Rectangle(x: 110, y: 70, width: 600, height: 800),
+    );
+  });
 
   test(
     'unrepresentable bounded integer aspect uses natural GTK minimum',

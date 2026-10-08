@@ -10,7 +10,7 @@ final class TestVideoOutput: ReceiverVideoOutput {
     var textureIdentifier: Int64 = 0
     var begins = 0, ends = 0
     func begin() throws { begins += 1 }
-    func receive(_ frame: CVPixelBuffer) {}
+    func receive(_ frame: CVPixelBuffer, deadline: Int64) {}
     func clear() {}
     func end() { ends += 1 }
 }
@@ -77,5 +77,11 @@ try host.queue.sync {
     require((host.snapshot()["activeSettings"] as? [String: Any])?["videoQuality"] as? String == "720", "idle restart applies quality with the name")
     host.stop(); host.stop()
     require(host.snapshot()["status"] as? String == "stopped", "stopping an idle host is idempotent")
+    try host.start(name: "Synthetic Receiver", path: "")
+    host.reportOutputError("Synthetic native display failure")
+    require(host.snapshot()["status"] as? String == "error" &&
+            host.snapshot()["message"] as? String == "Synthetic native display failure",
+            "asynchronous display failure stops playback and reaches shared receiver state")
+    host.stop()
 }
 host.shutdown()

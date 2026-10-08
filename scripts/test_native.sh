@@ -77,12 +77,13 @@ macos_texture() (
     mkdir -p "$test_root"
     swiftc -emit-library -emit-module -module-name FlutterMacOS \
         "$project_root/macos/tests/texture/FlutterMacOS.swift" -o "$test_root/libFlutterMacOS.dylib"
+    cat "$project_root/macos/Runner/VideoSurface.swift" "$project_root/macos/tests/texture/main.swift" > "$test_root/main.swift"
     swiftc -import-objc-header "$project_root/macos/Runner/Receiver-Bridging-Header.h" \
         -I "$test_root" -L "$test_root" -lFlutterMacOS \
         -L "$project_root/build/macos-native" -lairplay_player \
         -Xlinker -rpath -Xlinker "$test_root" -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
         "$project_root/native/apple/ReceiverHost.swift" "$project_root/native/apple/FrameTexture.swift" \
-        "$project_root/macos/tests/texture/main.swift" -o "$test_root/texture-tests"
+        "$test_root/main.swift" -o "$test_root/texture-tests"
     "$test_root/texture-tests"
 )
 
@@ -104,7 +105,12 @@ macos_window() (
     # Same-file extensions access private test seams without rewriting production code.
     cat "$project_root/macos/Runner/MainFlutterWindow.swift" "$project_root/macos/tests/window/main.swift" > "$test_root/main.swift"
     swiftc -F "$framework_root" -framework FlutterMacOS \
-      -Xlinker -rpath -Xlinker "$framework_root" "$test_root/main.swift" -o "$test_root/window-tests"
+      -import-objc-header "$project_root/macos/Runner/Receiver-Bridging-Header.h" \
+      -L "$project_root/build/macos-native" -lairplay_player \
+      -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
+      -Xlinker -rpath -Xlinker "$framework_root" \
+      "$project_root/native/apple/ReceiverHost.swift" "$project_root/macos/Runner/VideoSurface.swift" \
+      "$test_root/main.swift" -o "$test_root/window-tests"
     # Requires a logged-in macOS GUI session. AppKit performs real fullscreen transitions.
     "$test_root/window-tests"
 )

@@ -55,8 +55,15 @@ std::unique_ptr<VideoOutput> make_video_output(void *surface, const char *decode
 std::unique_ptr<AudioOutput> make_audio_output(std::shared_ptr<AudioBuffer>);
 
 // H.264/HEVC Annex B input from UxPlay; also accepts three-byte start codes.
-inline std::vector<std::vector<uint8_t>> split_nals(const uint8_t *data, size_t size) {
-    std::vector<std::vector<uint8_t>> result;
+struct NalView {
+    const uint8_t *bytes;
+    size_t length;
+    const uint8_t *data() const { return bytes; }
+    size_t size() const { return length; }
+    uint8_t operator[](size_t index) const { return bytes[index]; }
+};
+inline std::vector<NalView> split_nal_views(const uint8_t *data, size_t size) {
+    std::vector<NalView> result;
     auto start_code = [&](size_t i) -> size_t {
         if (i + 3 <= size && data[i] == 0 && data[i + 1] == 0) {
             if (data[i + 2] == 1) return 3;
@@ -68,10 +75,15 @@ inline std::vector<std::vector<uint8_t>> split_nals(const uint8_t *data, size_t 
     for (size_t i = 0; i < size;) {
         auto length = start_code(i);
         if (!length) { ++i; continue; }
-        if (begin < i) result.emplace_back(data + begin, data + i);
+        if (begin < i) result.push_back({data + begin, i - begin});
         begin = i + length; i = begin;
     }
-    if (begin < size) result.emplace_back(data + begin, data + size);
+    if (begin < size) result.push_back({data + begin, size - begin});
+    return result;
+}
+inline std::vector<std::vector<uint8_t>> split_nals(const uint8_t *data, size_t size) {
+    std::vector<std::vector<uint8_t>> result;
+    for (auto nal : split_nal_views(data, size)) result.emplace_back(nal.data(), nal.data() + nal.size());
     return result;
 }
 } // namespace airplay

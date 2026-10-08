@@ -6,7 +6,7 @@ import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' show PointerDeviceKind, PictureRecorder, ImageByteFormat;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -45,6 +45,7 @@ void main() {
       capabilities: {
         'platform': platform,
         'isTelevision': tv,
+        'nativeVideoSurface': platform == 'android' || platform == 'macos',
         'supportsExecutablePath': platform == 'macos',
         'supportsLaunchAtLogin': platform == 'windows',
       },
@@ -1562,11 +1563,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('playerControls')), findsNothing);
   });
-  for (final tv in [false, true]) {
-    testWidgets('Android native video preserves controls (TV=$tv)', (
+  for (final (platform, tv) in [
+    ('android', false),
+    ('android', true),
+    ('macos', false),
+  ]) {
+    testWidgets('$platform native video preserves controls (TV=$tv)', (
       tester,
     ) async {
-      final backend = await launch(tester, platform: 'android', tv: tv);
+      final backend = await launch(tester, platform: platform, tv: tv);
       backend.state('streaming');
       backend.controller.add({
         'type': 'video',
@@ -1579,13 +1584,55 @@ void main() {
       expect(find.byType(Texture), findsNothing);
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
       expect(scaffold.backgroundColor, Colors.transparent);
-      await tester.tap(find.byKey(const Key('playerPage')));
+      if (platform == 'macos') {
+        final backing = tester
+            .widget<CustomPaint>(
+              find
+                  .ancestor(
+                    of: find.byKey(const Key('nativeVideoSurface')),
+                    matching: find.byType(CustomPaint),
+                  )
+                  .first,
+            )
+            .painter!;
+        await tester.runAsync(() async {
+          final recorder = PictureRecorder();
+          backing.paint(Canvas(recorder), const Size(16, 16));
+          final picture = recorder.endRecording();
+          final image = await picture.toImage(16, 16);
+          final pixels = (await image.toByteData(
+            format: ImageByteFormat.rawRgba,
+          ))!;
+          expect(
+            pixels.buffer.asUint8List(
+              pixels.offsetInBytes,
+              pixels.lengthInBytes,
+            ),
+            everyElement(0),
+            reason: 'Resize backing paint must leave native video completely transparent',
+          );
+          image.dispose();
+          picture.dispose();
+        });
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: const Offset(300, 300));
+        await mouse.moveTo(const Offset(301, 300));
+        addTearDown(mouse.removePointer);
+      } else {
+        await tester.tap(find.byKey(const Key('playerPage')));
+      }
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('disconnect')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('disconnect')));
+      final disconnect = find.byKey(const Key('disconnect'));
+      if (platform == 'android') {
+        expect(disconnect, findsOneWidget);
+        await tester.tap(disconnect);
+      } else {
+        expect(find.byKey(const Key('playerControls')), findsOneWidget);
+        await backend.stop();
+      }
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('nativeVideoSurface')), findsNothing);
-      expect(backend.stops, 1);
+      if (platform == 'android') expect(backend.stops, 1);
     });
   }
 

@@ -121,6 +121,7 @@ void main() {
       final backend = FakeReceiver(
         capabilities: {
           'platform': Platform.operatingSystem,
+          'nativeVideoSurface': Platform.isMacOS,
           'supportsExecutablePath': Platform.isMacOS,
         },
       );
@@ -196,7 +197,10 @@ void main() {
     tester,
   ) async {
     final backend = FakeReceiver(
-      capabilities: {'platform': Platform.operatingSystem},
+      capabilities: {
+        'platform': Platform.operatingSystem,
+        'nativeVideoSurface': Platform.isMacOS,
+      },
     );
     final model = ReceiverModel(backend);
     const controller = WindowController();
@@ -385,7 +389,10 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     final backend = FakeReceiver(
       autoStart: false,
-      capabilities: {'platform': Platform.operatingSystem},
+      capabilities: {
+        'platform': Platform.operatingSystem,
+        'nativeVideoSurface': Platform.isMacOS,
+      },
     );
     final model = ReceiverModel(backend);
     await model.initialize();
@@ -568,5 +575,91 @@ void main() {
       expect(presentation.canHide, isFalse);
     }
     expect(errors, isEmpty);
+  });
+
+  testWidgets('initial iPad expansion keeps the platform event loop responsive', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: false);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final backend = FakeReceiver(
+      capabilities: {
+        'platform': Platform.operatingSystem,
+        'nativeVideoSurface': Platform.isMacOS,
+      },
+    );
+    final model = ReceiverModel(backend);
+    const controller = WindowController();
+    Timer? sampler;
+    addTearDown(() async {
+      sampler?.cancel();
+      await tester.pumpWidget(const SizedBox());
+      await backend.controller.close();
+    });
+    await tester.pumpWidget(ReceiverApp(model: model, window: controller));
+    await _waitForWindow(
+      tester,
+      (_) => model.loaded && model.status == 'waiting',
+      reason: 'resize cadence startup',
+    );
+    await controller.withWindow((value) {
+      value.show();
+      value.aspectRatio = 0;
+      value.contentSize = const native.Size(width: 440, height: 560);
+    });
+    final clock = Stopwatch()..start();
+    final samples = <int>[0];
+    final sizes = <native.Rectangle>[];
+    int? expandedAt;
+    await tester.runAsync(() async {
+      sampler = Timer.periodic(const Duration(milliseconds: 8), (_) {
+        samples.add(clock.elapsedMicroseconds);
+        unawaited(
+          controller.withWindow((value) {
+            sizes.add(value.bounds);
+            final size = value.contentSize;
+            if (size.width > 500 &&
+                (size.width / size.height - 4 / 3).abs() < .01) {
+              expandedAt ??= clock.elapsedMilliseconds;
+            }
+          }),
+        );
+      });
+      frame(backend, 2048, 1536);
+      await Future<void>.delayed(const Duration(seconds: 2));
+      sampler!.cancel();
+      samples.add(clock.elapsedMicroseconds);
+    });
+    final gaps = [
+      for (var i = 1; i < samples.length; i++)
+        (samples[i] - samples[i - 1]) / 1000,
+    ];
+    final maximumGap = gaps.reduce((a, b) => a > b ? a : b);
+    debugPrint(
+      'Window expansion: max event-loop gap=${maximumGap.toStringAsFixed(1)}ms, '
+      'distinct frames=${sizes.toSet().length}, target=${expandedAt}ms',
+    );
+    await _waitForWindow(
+      tester,
+      (value) => value.hasRatio(4 / 3),
+      reason: 'iPad expansion target',
+    );
+    // Detect the one-second synchronous Flutter/AppKit resize stalls. This is
+    // an event-loop regression check, not a monitor refresh-rate benchmark.
+    expect(
+      maximumGap,
+      lessThan(200),
+      reason: 'Expansion must not block video delivery on the platform thread',
+    );
+    if (Platform.isMacOS) {
+      expect(sizes.toSet().length, greaterThan(3));
+      expect(expandedAt, isNotNull);
+      expect(
+        expandedAt!,
+        lessThan(800),
+        reason: 'Empty Flutter frames must not cause native resize timeouts',
+      );
+    }
   });
 }

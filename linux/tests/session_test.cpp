@@ -16,7 +16,7 @@ void check_video_resume(void *surface, const char *decoder) {
         if (!strcmp(type, "audio")) static_cast<Progress *>(context)->audio.fetch_add(1);
         if (!strcmp(type, "audio_stopped")) static_cast<Progress *>(context)->audio_stops.fetch_add(1);
     };
-    cb.frame = [](void *context, void *frame) {
+    cb.frame = [](void *context, void *frame, int64_t) {
         auto *image = static_cast<AirplayLinuxVideoFrame *>(frame);
         auto *pixel = image->data;
         if (pixel && pixel[2] > 200 && pixel[1] < 30 && pixel[0] < 30)

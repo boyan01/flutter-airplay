@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:nativeapi/nativeapi.dart' as native;
 import 'package:flutter_airplay/platform/window_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,6 +24,37 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
   });
+
+  test(
+    'native resize preserves desktop coordinates and returns cancellation',
+    () async {
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return call.method == 'resizeWindow' ? false : null;
+          });
+      expect(
+        await controller.resizeBounds(
+          const native.Rectangle(x: -900, y: -200, width: 800, height: 600),
+          const Duration(milliseconds: 200),
+        ),
+        isFalse,
+      );
+      await controller.cancelResize();
+      expect(calls.map((call) => call.method), [
+        'resizeWindow',
+        'cancelWindowResize',
+      ]);
+      expect(calls.first.arguments, {
+        'x': -900.0,
+        'y': -200.0,
+        'width': 800.0,
+        'height': 600.0,
+        'duration': .2,
+      });
+    },
+  );
 
   test(
     'missing host window is reported and its lookup can be retried',

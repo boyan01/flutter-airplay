@@ -13,13 +13,15 @@ typedef struct AirplayPlayer AirplayPlayer;
 // frame is a borrowed CVPixelBuffer on Apple platforms; Android renders to Surface.
 // Windows uses a borrowed WindowsVideoFrame (windows_video.h). Linux defines its
 // own borrowed frame descriptor. Hosts must copy or retain before returning.
+// deadline_ns is the presentation deadline on the platform monotonic clock,
+// shared with audio (CLOCK_MONOTONIC on Apple/POSIX).
 // Media events: playing carries decoded video dimensions; paused hides video
 // until a fresh playing event; audio marks queued PCM; audio_stopped clears it.
 // reset clears both media states; waiting ends the sender session.
 typedef struct {
     void *context;
     void (*event)(void *, const char *type, const char *detail, int width, int height);
-    void (*frame)(void *, void *frame);
+    void (*frame)(void *, void *frame, int64_t deadline_ns);
     void (*log)(void *, int level, const char *message);
 } AirplayCallbacks;
 

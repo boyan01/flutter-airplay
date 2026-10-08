@@ -63,7 +63,7 @@ class ReceiverModel extends ChangeNotifier {
   };
   int textureId = -1, videoWidth = 0, videoHeight = 0;
   bool audioPlaying = false, videoPaused = false;
-  bool get usesNativeVideo => platform == 'android';
+  bool usesNativeVideo = false;
   bool get hasVideo =>
       (usesNativeVideo || textureId >= 0) && videoWidth > 0 && videoHeight > 0;
   bool get showAudioPage =>
@@ -123,6 +123,7 @@ class ReceiverModel extends ChangeNotifier {
     if (capabilities.platform.isNotEmpty) _platform = capabilities.platform;
     isTelevision = capabilities.isTelevision;
     _supportsExecutablePath = capabilities.supportsExecutablePath;
+    usesNativeVideo = capabilities.nativeVideoSurface;
     supportsLaunchAtLogin = capabilities.supportsLaunchAtLogin;
     if (status != data.status.name || message != data.message) {
       i('[Receiver state] ${data.status.name}: ${data.message}');

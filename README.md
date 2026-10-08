@@ -44,7 +44,7 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 
 | Platform | Tier | Video Decoder | Audio Decoder | Remarks |
 | :--- | :---: | :--- | :--- | :--- |
-| **macOS** | ✅ Supported | VideoToolbox (H.264 / HEVC) | AudioConverter / CoreAudio (AAC-LC, ALAC) | macOS 12+ (Apple Silicon). Bundled native libraries; menu bar tray & launch at login support. |
+| **macOS** | ✅ Supported | VideoToolbox (H.264 / HEVC), native timed video display | AudioConverter / CoreAudio (AAC-LC, ALAC) | macOS 12+ (Apple Silicon). Bundled native libraries; menu bar tray & launch at login support. |
 | **Android Phone** | ✅ Supported | MediaCodec (H.264 / HEVC) | MediaCodec (AAC, AAC-ELD), Built-in ALAC | Android 8.0+ (API 26+), `arm64-v8a`. Foreground service for background standby; SurfaceView rendering. |
 | **Android TV** | ✅ Supported | MediaCodec (H.264 / HEVC) | MediaCodec (AAC, AAC-ELD), Built-in ALAC | `arm64-v8a`. Full TV remote / D-pad focus handling, enforced dark theme, screen kept awake. |
 

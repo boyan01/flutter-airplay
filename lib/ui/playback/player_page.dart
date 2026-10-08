@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' as ui show Gradient;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -470,7 +471,14 @@ class _PlayerPageState extends State<PlayerPage> {
                     aspectRatio:
                         widget.model.videoWidth / widget.model.videoHeight,
                     child: widget.model.usesNativeVideo
-                        ? const SizedBox.expand(key: Key('nativeVideoSurface'))
+                        ? CustomPaint(
+                            painter: widget.model.platform == 'macos'
+                                ? const _NativeVideoBackingPainter()
+                                : null,
+                            child: const SizedBox.expand(
+                              key: Key('nativeVideoSurface'),
+                            ),
+                          )
                         : Texture(textureId: widget.model.textureId),
                   ),
                 ),
@@ -491,4 +499,27 @@ class _PlayerPageState extends State<PlayerPage> {
       ),
     ),
   );
+}
+
+// An empty Flutter scene makes the macOS embedder wait for resize completion
+// until it times out (flutter/flutter#190075). A transparent shader retains a
+// backing surface without tinting or covering the native video underneath.
+class _NativeVideoBackingPainter extends CustomPainter {
+  const _NativeVideoBackingPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset.zero,
+          Offset(size.width, 0),
+          const [Colors.transparent, Colors.transparent],
+        ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_NativeVideoBackingPainter oldDelegate) => false;
 }

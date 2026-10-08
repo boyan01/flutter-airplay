@@ -9,6 +9,7 @@
 #include "../fixtures/video_fixtures.h"
 #include "../fixtures/reorder_fixtures.h"
 #include <CoreVideo/CoreVideo.h>
+#include "apple_pixels.h"
 #include <stdexcept>
 #include <thread>
 #include <filesystem>
@@ -67,11 +68,9 @@ int main() {
             [&](void *frame, int w, int h, int64_t, uint64_t generation) {
                 check(frame && generation == 7, "video generation and decoded buffer");
                 auto image = static_cast<CVPixelBufferRef>(frame);
-                check(CVPixelBufferGetPixelFormatType(image) == kCVPixelFormatType_32BGRA, "Flutter-compatible BGRA");
-                CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
-                auto *pixels = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
-                check(pixels && pixels[2] > 200 && pixels[1] < 30 && pixels[0] < 30, "decoded pixels are red");
-                CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+                check(CVPixelBufferGetPixelFormatType(image) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, "Native NV12 output");
+                const auto pixels = apple_rgb(image);
+                check(pixels[0] > 200 && pixels[1] < 30 && pixels[2] < 30, "decoded pixels are red");
                 ++frames; video_width = w; video_height = h;
             }, [](const char *) {}
         });
@@ -104,7 +103,7 @@ int main() {
                 [&](void *, int, int, int64_t pts, uint64_t) {
                     if (pts < first_due + 16 * period || pts >= first_due + 76 * period) return;
                     ++presented;
-                    early += pts > monotonic_ns() + 2000000;
+                    early += pts > monotonic_ns() + 50000000;
                     backwards += previous && pts <= previous;
                     previous = pts;
                 }, [](const char *) {}
@@ -121,6 +120,18 @@ int main() {
             }
             std::printf("Mac B-frame output: presented=%d/60 early=%d backwards=%d\n", presented, early, backwards);
             check(presented >= 58 && !early && !backwards, "Mac presents B-frames by timestamp without early or backwards output");
+        }
+        {
+            auto bounded = make_video_output(nullptr, nullptr, nullptr, {{}, [](const char *) {}});
+            for (int i = 0; i < 16; ++i) {
+                check(bounded->can_decode(), "async decoder has capacity before watermark");
+                check(bounded->decode({{std::begin(landscape), std::end(landscape)},
+                    monotonic_ns() + kSecond, 12}), "submit bounded asynchronous frame");
+            }
+            check(!bounded->can_decode(), "in-flight and completed frames share a sixteen-frame bound");
+            bounded->reset();
+            check(bounded->can_decode() && bounded->stats().pending == 0,
+                  "reset joins asynchronous callbacks and releases every pending image");
         }
         const auto directory = std::filesystem::temp_directory_path() / ("airplay-player-test-" + std::to_string(getpid()));
         std::filesystem::create_directories(directory);

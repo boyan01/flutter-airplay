@@ -5,6 +5,9 @@
 #include "../fixtures/resume_fixtures.h"
 #include "../fixtures/audio_fixtures.h"
 #include "audio_decoder_tests.h"
+#ifdef __APPLE__
+#include "apple_pixels.h"
+#endif
 #include "../fixtures/video_fixtures.h"
 #include "../fixtures/hevc_fixtures.h"
 #include <stdexcept>
@@ -29,13 +32,11 @@ void check_video_resume(void *surface, const char *decoder) {
         if (!strcmp(type, "audio_stopped")) static_cast<Progress *>(context)->audio_stops.fetch_add(1);
     };
 #ifdef __APPLE__
-    cb.frame = [](void *context, void *frame) {
+    cb.frame = [](void *context, void *frame, int64_t) {
         auto image = static_cast<CVPixelBufferRef>(frame);
-        CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
-        auto *pixel = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
-        if (pixel && pixel[0] > 200 && pixel[1] < 30 && pixel[2] < 30)
+        const auto pixel = apple_rgb(image);
+        if (pixel[2] > 200 && pixel[1] < 30 && pixel[0] < 30)
             static_cast<Progress *>(context)->blue.store(true);
-        CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
     };
 #endif
     auto p = std::make_unique<AirplayPlayer>(cb, surface, decoder, "");
@@ -174,13 +175,10 @@ void check_mac_video_interruption() {
             && strstr(message, "flags=") && strstr(message, "image=")) ++state->output_errors;
         std::puts(message);
     };
-    cb.frame = [](void *context, void *frame) {
+    cb.frame = [](void *context, void *frame, int64_t) {
         auto *state = static_cast<Progress *>(context);
         auto image = static_cast<CVPixelBufferRef>(frame);
-        CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
-        const auto *pixel = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
-        if (pixel) state->luma = pixel[0];
-        CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
+        state->luma = apple_rgb(image)[2];
         ++state->frames;
     };
     auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
@@ -276,16 +274,12 @@ void check_mac_hevc() {
         std::atomic<int> frames{0}, width{0}, height{0}, red{0}, green{0}, blue{0};
     } progress;
     AirplayCallbacks cb{}; cb.context = &progress;
-    cb.frame = [](void *context, void *frame) {
+    cb.frame = [](void *context, void *frame, int64_t) {
         auto *p = static_cast<Progress *>(context);
         auto image = static_cast<CVPixelBufferRef>(frame);
-        CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
-        auto *pixel = static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(image));
-        if (pixel && CVPixelBufferGetPixelFormatType(image) == kCVPixelFormatType_32BGRA) {
-            p->blue = pixel[0]; p->green = pixel[1]; p->red = pixel[2];
-        }
+        const auto pixel = apple_rgb(image);
+        p->red = pixel[0]; p->green = pixel[1]; p->blue = pixel[2];
         p->width = int(CVPixelBufferGetWidth(image)); p->height = int(CVPixelBufferGetHeight(image));
-        CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
         ++p->frames;
     };
     auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
@@ -309,7 +303,7 @@ void check_mac_hevc() {
         if (progress.frames != before + 1 || progress.width != width || progress.height != height)
             throw std::runtime_error("Mac HEVC receive path has no correctly sized decoded image");
         const auto actual = color == 0 ? progress.red.load() : color == 1 ? progress.green.load() : progress.blue.load();
-        if (actual < 200) throw std::runtime_error("Mac HEVC decoded color or BGRA conversion is incorrect");
+        if (actual < 200) throw std::runtime_error("Mac HEVC decoded color or pixel conversion is incorrect");
     };
     feed(hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 0);
     feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
@@ -321,7 +315,7 @@ void check_mac_hevc() {
     if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H264) != 0)
         throw std::runtime_error("Mac receiver cannot return to H.264");
     feed(landscape, sizeof(landscape), 640, 360, 0);
-    std::puts("PASS: Mac HEVC receive callback, BGRA pixels, rotation, 4K, Main10, reset and H.264 reconnect");
+    std::puts("PASS: Mac HEVC receive callback, decoded pixels, rotation, 4K, Main10, reset and H.264 reconnect");
 }
 void check_audio_unsynchronized_burst() {
     auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, nullptr, nullptr, nullptr);
@@ -376,13 +370,13 @@ void check_mac_decode_ahead() {
     const auto pts = realtime_ns() + 100000000;
     const auto first_due = p->timeline.deadline(pts);
     for (int i = 0; i < 9; ++i) feed(pts + i * kSecond / 60);
-    until = first_due - 30000000;
+    until = first_due - 60000000;
     while (monotonic_ns() < until) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     {
         std::lock_guard<std::mutex> guard(p->lock);
         if (!p->packets.empty()) throw std::runtime_error("Mac presentation wait blocks burst decoding");
     }
-    if (frames != baseline) throw std::runtime_error("Mac presents a future frame early");
+    if (frames != baseline) throw std::runtime_error("Mac releases a frame before native display lead");
     until = first_due + 9 * kSecond / 60 + 50000000;
     while (frames < baseline + 9 && monotonic_ns() < until) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     if (frames != baseline + 9) throw std::runtime_error("Mac burst loses scheduled frames");
@@ -406,11 +400,13 @@ void check_mac_arrival_jitter() {
     }
     struct Progress { std::mutex lock; std::vector<int64_t> times; } progress;
     AirplayCallbacks cb{}; cb.context = &progress;
-    cb.event = [](void *context, const char *type, const char *, int, int) {
-        if (strcmp(type, "playing")) return;
+    cb.frame = [](void *context, void *, int64_t deadline) {
         auto *progress = static_cast<Progress *>(context);
         std::lock_guard<std::mutex> guard(progress->lock);
-        progress->times.push_back(monotonic_ns());
+        // Native output can arrive early in a burst. Its earliest possible
+        // presentation is the deadline, or arrival if it missed that deadline.
+        // This verifies timely delivery, not actual WindowServer presentation.
+        progress->times.push_back(std::max(monotonic_ns(), deadline));
     };
     auto p = std::make_unique<AirplayPlayer>(cb, nullptr, nullptr, nullptr);
     const auto receive = receiver_callbacks(p.get());
@@ -438,7 +434,7 @@ void check_mac_arrival_jitter() {
     int64_t max_gap = 0;
     for (size_t i = 10; i < progress.times.size(); ++i)
         max_gap = std::max(max_gap, progress.times[i] - progress.times[i - 1]);
-    std::printf("Mac arrival jitter: presented=%zu/%d maxGapMs=%.2f\n", progress.times.size(), count, max_gap / 1e6);
+    std::printf("Mac arrival jitter: delivered=%zu/%d scheduledGapMs=%.2f\n", progress.times.size(), count, max_gap / 1e6);
     if (progress.times.size() != count || max_gap > 30000000)
         throw std::runtime_error("Mac arrival jitter produces a presentation stall");
 }

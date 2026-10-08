@@ -25,7 +25,10 @@ void main() {
     final pointer = NativeHoverPointer();
     final cursor = pointer.position;
     final backend = FakeReceiver(
-      capabilities: {'platform': Platform.operatingSystem},
+      capabilities: {
+        'platform': Platform.operatingSystem,
+        'nativeVideoSurface': Platform.isMacOS,
+      },
     );
     final model = ReceiverModel(backend);
     late native.Window player;

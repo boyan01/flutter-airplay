@@ -122,7 +122,7 @@ struct ReceiverBridge::Impl {
         hooks.texture_id = [](void *context) { return static_cast<Impl *>(context)->submitted_texture_id.load(); };
         hooks.end_video = [](void *context, bool) { static_cast<Impl *>(context)->clear_video(); };
         hooks.clear_video = [](void *context) { static_cast<Impl *>(context)->clear_video(); };
-        hooks.frame = [](void *context, void *frame) {
+        hooks.frame = [](void *context, void *frame, int64_t) {
             if (!frame) return;
             auto *self = static_cast<Impl *>(context);
             const auto &image = *static_cast<airplay::WindowsVideoFrame *>(frame);

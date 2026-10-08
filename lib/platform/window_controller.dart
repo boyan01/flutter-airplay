@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:ffi' as ffi;
+import 'dart:io';
 import 'dart:ui' show isRunningOnPlatformThread, runOnPlatformThread;
 
 import 'package:flutter/services.dart';
@@ -55,6 +56,23 @@ class WindowController {
   static const _channel = MethodChannel('tech.soit.flutterairplay/window');
   static Future<int>? _applicationWindowHandle;
   static native.Window? _applicationWindow;
+
+  // The host channel owns the runner window, not injected window adapters.
+  bool get usesNativeResize =>
+      Platform.isMacOS && withWindow == _withNativeWindow;
+
+  Future<bool> resizeBounds(native.Rectangle bounds, Duration duration) async =>
+      await _channel.invokeMethod<bool>('resizeWindow', {
+        'x': bounds.x,
+        'y': bounds.y,
+        'width': bounds.width,
+        'height': bounds.height,
+        'duration': duration.inMicroseconds / 1000000,
+      }) ==
+      true;
+
+  Future<void> cancelResize() =>
+      _channel.invokeMethod<void>('cancelWindowResize');
 
   static Future<int> _getApplicationWindowHandle() async {
     final handle = await _channel.invokeMethod<int>('getNativeWindowHandle');

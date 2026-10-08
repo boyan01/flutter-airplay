@@ -34,3 +34,49 @@ texture.dispose(); texture.dispose()
 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 require(registry.removals == 1 && texture.copyPixelBuffer() == nil, "Engine disposal clears buffer and unregisters once")
 do { try texture.begin(); require(false, "Disposed texture accepted restart") } catch {}
+
+extension VideoSurface {
+    var testPending: [CMSampleBuffer] { pending }
+    func testDrain() { drain() }
+}
+func deadlineAfter(_ nanoseconds: Int64) -> Int64 {
+    var now = timespec(); clock_gettime(CLOCK_MONOTONIC, &now)
+    return Int64(now.tv_sec) * 1_000_000_000 + Int64(now.tv_nsec) + nanoseconds
+}
+let surface = VideoSurface(frame: NSRect(x: 0, y: 0, width: 640, height: 360))
+require(surface.textureIdentifier == -1 && surface.displayLayer.controlTimebase != nil,
+        "Native display uses a host timebase without a Flutter texture")
+try surface.begin()
+surface.receive(buffer!, deadline: deadlineAfter(120_000_000))
+require(surface.testPending.count == 1 && CMSampleBufferGetImageBuffer(surface.testPending[0]) === buffer!,
+        "Native sample retains the decoded image without copying pixels")
+let timeLeft = CMTimeGetSeconds(CMTimeSubtract(CMSampleBufferGetPresentationTimeStamp(surface.testPending[0]),
+    CMClockGetTime(CMClockGetHostTimeClock())))
+require(timeLeft > 0.10 && timeLeft <= 0.12, "Presentation deadline maps to host clock without immediate display")
+for _ in 0..<30 { surface.receive(buffer!, deadline: deadlineAfter(120_000_000)) }
+require(surface.testPending.count == 16, "Busy main thread retains at most sixteen samples")
+surface.end()
+require(surface.testPending.isEmpty, "Stop releases all pending display samples")
+surface.receive(buffer!, deadline: deadlineAfter(120_000_000))
+require(surface.testPending.isEmpty, "Stopped surface rejects output")
+try surface.begin()
+surface.receive(buffer!, deadline: deadlineAfter(120_000_000))
+RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+require(surface.testPending.isEmpty && surface.displayLayer.status != .failed,
+        "Restart enqueues a new sample after clearing obsolete output")
+surface.receive(buffer!, deadline: deadlineAfter(-300_000_000))
+surface.testDrain()
+require(surface.testPending.isEmpty && surface.diagnostics()!.contains("dropped=1"),
+        "Main thread stalls discard expired decoded samples")
+surface.clear(); surface.testDrain()
+var yuv: CVPixelBuffer?
+require(CVPixelBufferCreate(nil, 128, 72, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+    attributes, &yuv) == kCVReturnSuccess, "Synthetic NV12 display buffer")
+CVBufferSetAttachment(yuv!, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+surface.receive(yuv!, deadline: deadlineAfter(120_000_000))
+let format = CMSampleBufferGetFormatDescription(surface.testPending[0])!
+let matrix = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_YCbCrMatrix) as? String
+require(matrix == kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String,
+        "Native sample preserves the decoder's BT.709 color metadata")
+surface.dispose(); surface.testDrain()
+do { try surface.begin(); require(false, "Disposed surface accepted restart") } catch {}

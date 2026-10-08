@@ -59,7 +59,7 @@ typedef struct {
                                    int audio_mode, char *error, size_t capacity);
     void (*end_video)(void *, bool restarting);
     void (*clear_video)(void *);
-    void (*frame)(void *, void *);
+    void (*frame)(void *, void *, int64_t deadline_ns);
     int64_t (*texture_id)(void *);
     // Return 1 after registration, 0 when awaiting asynchronous registration,
     // or -1 on failure. Async hosts call discovery with the supplied generation.
@@ -112,6 +112,9 @@ void airplay_receiver_discovery(uint64_t handle, uint64_t generation,
 bool airplay_receiver_set_surface(uint64_t handle, void *surface);
 void airplay_receiver_update(uint64_t handle, const char *metadata);
 void airplay_receiver_log(uint64_t handle, const char *message);
+// Reports an asynchronous native output failure. The current session is checked
+// again on the receiver worker so an obsolete failure cannot stop a new player.
+void airplay_receiver_output_error(uint64_t handle, const char *message);
 
 #ifdef __cplusplus
 }

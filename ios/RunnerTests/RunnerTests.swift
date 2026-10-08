@@ -256,7 +256,7 @@ private final class TestVideoOutput: ReceiverVideoOutput {
         beginCount += 1
         if let error = beginError { throw error }
     }
-    func receive(_ frame: CVPixelBuffer) {}
+    func receive(_ frame: CVPixelBuffer, deadline: Int64) {}
     func clear() {}
     func end() {}
 }

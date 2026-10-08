@@ -331,6 +331,12 @@ public:
         auto event = json_object(); set(event.get(), "type", "settingsRequest");
         plist_dict_set_item(event.get(), "settings", settings_json(settings).release()); deliver(event.get());
     }
+    void output_error(std::string message) {
+        const auto epoch = generation_.load();
+        enqueue([this, epoch, message = std::move(message)] {
+            if (player_ && epoch == generation_) fail(message);
+        });
+    }
     void update(std::string json) {
         enqueue([this, json = std::move(json)] { try {
             auto value = parse_json(json.c_str());
@@ -500,9 +506,9 @@ private:
         const auto epoch = ++generation_;
         callback_ = std::make_unique<Callback>(Callback{this, epoch});
         AirplayCallbacks callbacks{}; callbacks.context = callback_.get();
-        callbacks.frame = [](void *context, void *frame) {
+        callbacks.frame = [](void *context, void *frame, int64_t deadline) {
             auto *current = static_cast<Callback *>(context); auto *self = current->owner;
-            if (current->generation == self->generation_ && self->host.frame) self->host.frame(self->host.context, frame);
+            if (current->generation == self->generation_ && self->host.frame) self->host.frame(self->host.context, frame, deadline);
         };
         callbacks.event = [](void *context, const char *type, const char *detail, int w, int h) {
             auto *current = static_cast<Callback *>(context); auto *self = current->owner; const auto epoch = current->generation;
@@ -711,6 +717,9 @@ extern "C" bool airplay_receiver_set_surface(uint64_t handle, void *surface) {
 extern "C" void airplay_receiver_update(uint64_t handle, const char *json) { if (auto value = receiver(handle); value && json) value->update(json); }
 extern "C" void airplay_receiver_log(uint64_t handle, const char *message) {
     if (auto value = receiver(handle); value && message) { std::string bytes(message); value->enqueue([value, bytes] { value->log(bytes); }); }
+}
+extern "C" void airplay_receiver_output_error(uint64_t handle, const char *message) {
+    if (auto value = receiver(handle); value && message) value->output_error(message);
 }
 
 namespace airplay {

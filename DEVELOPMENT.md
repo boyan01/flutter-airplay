@@ -71,7 +71,11 @@ macOS 在 `applicationDidFinishLaunching` 同步捕获登录 Apple Event，再�
 Repository 先持久化期望设置，再提交 native；native 拒绝时恢复旧的持久化值。
 Repository 在接收器空闲时请求应用待生效设置，C++ 在同一 worker 上判断会话并执行。
 默认设备名清洗和通用画质档位由 C++ 提供；平台只提交系统名称及硬件能力。
-macOS 与 iOS 共用 `native/apple/` 中的宿主和 Flutter 纹理代码。
+macOS 与 iOS 共用 `native/apple/` 中的宿主。iPad 使用 Flutter 外部纹理；macOS 使用
+`AVSampleBufferDisplayLayer`，Flutter 透明视频区域覆盖在原生视频层上，控制栏和弹窗仍由 Flutter 绘制。
+视频回调携带 `CLOCK_MONOTONIC` 播放截止时间；macOS 转换到 CoreMedia host clock，
+提前最多 50 ms 入队并由系统按时间显示，音视频继续共用 120 ms 缓冲时间线。
+Apple 解码使用有界异步提交，在途与待提交画面合计最多 16 帧；macOS 输出 NV12，iPad 保留 BGRA。
 
 修改 C ABI 后，从仓库根目录重新生成并提交绑定：
 
@@ -345,7 +349,7 @@ Kotlin 状态适配层属于 Android native 检查，使用已配置的 `GRADLE_
 | --- | --- | --- |
 | macOS 共享播放器 | `./scripts/test_native.sh macos player` | 已有最新 `build/macos-native/`；C++ 时钟、PCM 队列、音视频解码、会话和 loopback |
 | macOS 接收宿主 | `./scripts/test_native.sh macos host` | 已构建原生播放器；Swift 宿主、接收回调与生命周期 |
-| macOS 纹理适配 | `./scripts/test_native.sh macos texture` | 已构建原生播放器；帧与 Flutter 纹理适配 fixture |
+| Apple 视频适配 | `./scripts/test_native.sh macos texture` | 已构建原生播放器；Flutter 纹理及 macOS 原生显示的时间戳、像素引用、队列上限与清理 fixture |
 | RTP / 协议边界 | `./scripts/test_native.sh macos rtp` | 已构建 macOS 原生输出；参数解析和畸形输入 |
 | 独立 ALAC decoder | `./scripts/test_native.sh alac` | Clang/Clang++；bit-exact PCM、坏包与恢复；可加 `ALAC_SANITIZE=ON` |
 | FFmpeg 视频适配 | `./scripts/test_native.sh ffmpeg` | FFmpeg 6+ 开发库、pkg-config、ffmpeg/ffprobe、Python 3；H.264/HEVC、重排与恢复；可加 `FFMPEG_SANITIZE=ON` |
@@ -502,7 +506,8 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 成功输出后停止输入，以及发送端主动暂停时不报警。失败输入尚未产生输出时，即使后续
 输入停止也保留告警。Apple 后端额外记录 VideoToolbox 回调错误码、
 flags、空图像和丢帧计数；每个统计周期最多输出一条详细回调失败日志，避免坏帧刷屏。
-macOS 与 iPad 共用 VideoToolbox、AudioUnit 和 Apple 纹理统计。
+macOS 与 iPad 共用 VideoToolbox 和 AudioUnit 统计。iPad 使用 Apple 纹理统计；macOS 的
+`Apple native display stats` 区分收到、入队、丢弃及待提交的帧数。入队计数不等于实际屏幕呈现。
 Windows 的 GPU/像素纹理与 Linux GL/像素纹理共用 `TextureStats`。
 公共接收器约每 5 秒采集宿主纹理统计，停止前采集剩余数据；收到过帧后即使画面冻结，
 仍记录零计数区间及 `last_receive_age_ms`、`last_acquire_age_ms`，未取过新帧时后者为 -1。

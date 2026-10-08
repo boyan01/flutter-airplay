@@ -23,6 +23,7 @@ class DesktopWindowSizing {
   bool _connected = false, _disposed = false, _suspended = false;
   bool _reduceMotion = false, _applying = false, _actualSize = false;
   bool _dirty = false;
+  bool _nativeResizing = false;
   bool _enabled;
   int _width = 0, _height = 0, _revision = 0, _scheduled = 0;
   int _correctedRevision = -1;
@@ -73,6 +74,7 @@ class DesktopWindowSizing {
   void suspend() {
     _suspended = true;
     _revision++;
+    _cancelResize();
   }
 
   Future<void> resume() {
@@ -115,6 +117,7 @@ class DesktopWindowSizing {
   Future<void> _schedule() {
     _dirty = true;
     final revision = ++_revision;
+    _cancelResize();
     _scheduled++;
     final operation = _pending
         .then((_) async {
@@ -317,41 +320,51 @@ class DesktopWindowSizing {
       // Let native constraint updates leave the platform event queue before
       // issuing a resize, including the reduced-motion single-write path.
       await Future<void>.delayed(const Duration(milliseconds: 16));
+      if (_disposed || revision != _revision || _suspended) return;
       i(
         '[Window geometry] video=${width}x$height connected=$connected '
         'from=$from target=$target restore=$restore',
       );
-      // One frame rectangle per tick, not separate content-size/position writes.
-      // nativeapi's animate flag is macOS-only; use this bounded common path.
+      // AppKit must resize outside the Dart FFI stack so Flutter can render
+      // during native layout. Other hosts retain their bounded common path.
       final duration = _reduceMotion
           ? Duration.zero
           : const Duration(milliseconds: 200);
-      final clock = Stopwatch()..start();
-      while (true) {
-        if (_disposed || revision != _revision || _suspended) return;
-        final progress = duration == Duration.zero
-            ? 1.0
-            : (clock.elapsedMicroseconds / duration.inMicroseconds).clamp(
-                0.0,
-                1.0,
-              );
-        final eased = 1 - math.pow(1 - progress, 3).toDouble();
-        deferred = false;
-        await window.withWindow((value) {
-          if (_disposed ||
-              revision != _revision ||
-              _suspended ||
-              _expanded(value) ||
-              !value.isVisible) {
-            deferred = true;
-            return;
-          }
-          value.bounds = _interpolate(from!, target!, eased);
-          _lastApplied = value.bounds;
-        });
-        if (deferred || revision != _revision || _disposed) return;
-        if (progress == 1) break;
-        await Future<void>.delayed(const Duration(milliseconds: 16));
+      if (window.usesNativeResize) {
+        if (!await _resizeNative(target!, duration) ||
+            _disposed ||
+            revision != _revision ||
+            _suspended) {
+          return;
+        }
+      } else {
+        final clock = Stopwatch()..start();
+        while (true) {
+          if (_disposed || revision != _revision || _suspended) return;
+          final progress = duration == Duration.zero
+              ? 1.0
+              : (clock.elapsedMicroseconds / duration.inMicroseconds).clamp(
+                  0.0,
+                  1.0,
+                );
+          final eased = 1 - math.pow(1 - progress, 3).toDouble();
+          deferred = false;
+          await window.withWindow((value) {
+            if (_disposed ||
+                revision != _revision ||
+                _suspended ||
+                _expanded(value) ||
+                !value.isVisible) {
+              deferred = true;
+              return;
+            }
+            value.bounds = _interpolate(from!, target!, eased);
+            _lastApplied = value.bounds;
+          });
+          if (deferred || revision != _revision || _disposed) return;
+          if (progress == 1) break;
+          await Future<void>.delayed(const Duration(milliseconds: 16));
+        }
       }
       // Both verification phases share one budget and at most one final snap.
       final settling = Stopwatch()..start();
@@ -442,9 +455,14 @@ class DesktopWindowSizing {
             }
             if (clock.elapsed >= const Duration(seconds: 1)) return;
             _correctedRevision = revision;
-            value.bounds = target;
+            if (!window.usesNativeResize) value.bounds = target;
           });
           if (deferred || _disposed || revision != _revision) return false;
+          if (window.usesNativeResize &&
+              _correctedRevision == revision &&
+              !await _resizeNative(target, Duration.zero)) {
+            return false;
+          }
           stableMismatch = null;
           previousMismatch = null;
         }
@@ -501,5 +519,25 @@ class DesktopWindowSizing {
   void dispose() {
     _disposed = true;
     _revision++;
+    _cancelResize();
+  }
+
+  Future<bool> _resizeNative(native.Rectangle target, Duration duration) async {
+    _nativeResizing = true;
+    try {
+      return await window.resizeBounds(target, duration);
+    } finally {
+      _nativeResizing = false;
+    }
+  }
+
+  void _cancelResize() {
+    if (_nativeResizing) {
+      unawaited(
+        window.cancelResize().catchError((Object error) {
+          w('Window animation cancellation failed: $error');
+        }),
+      );
+    }
   }
 }

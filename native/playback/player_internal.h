@@ -94,7 +94,7 @@ struct AirplayPlayer {
                         else video_stats.pts_gap.add(due - last_video_due);
                     }
                     last_video_submit = submitted; last_video_due = due;
-                    callbacks.frame(callbacks.context, frame);
+                    callbacks.frame(callbacks.context, frame, due);
                     video_stats.host_call.add(monotonic_ns() - submitted);
                 }
                 event("playing", "Decoded video ready", w, h);

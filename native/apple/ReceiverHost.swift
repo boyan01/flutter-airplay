@@ -16,7 +16,7 @@ struct ReceiverFailure: LocalizedError {
 protocol ReceiverVideoOutput: AnyObject {
     var textureIdentifier: Int64 { get }
     func begin() throws
-    func receive(_ frame: CVPixelBuffer)
+    func receive(_ frame: CVPixelBuffer, deadline: Int64)
     func clear()
     func end()
     func diagnostics() -> String?
@@ -38,6 +38,9 @@ final class ReceiverHost {
     private let defaults: UserDefaults
     private let support: URL
     private var handle: UInt64 = 0
+    func reportOutputError(_ message: String) {
+        airplay_receiver_output_error(handle, message)
+    }
     private var closed = false
     private var bootstrapError: String?
     var foreground = true { didSet { if handle != 0 { updateMetadata() } } }
@@ -77,7 +80,7 @@ final class ReceiverHost {
         let mode = CGDisplayIsActive(displayID) != 0 ? CGDisplayCopyDisplayMode(displayID) : nil
         let selected = mode ?? CGDisplayCopyDisplayMode(CGMainDisplayID())
         size = (selected?.pixelWidth ?? CGDisplayPixelsWide(CGMainDisplayID()), selected?.pixelHeight ?? CGDisplayPixelsHigh(CGMainDisplayID()))
-        let capabilities: [String: Any] = ["platform": "macos", "supportsExecutablePath": false,
+        let capabilities: [String: Any] = ["platform": "macos", "nativeVideoSurface": true, "supportsExecutablePath": false,
             "supportsLaunchAtLogin": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 13]
 #else
         let capabilities: [String: Any] = ["platform": "ios", "supportsExecutablePath": false, "supportsLaunchAtLogin": false, "foregroundOnly": true]
@@ -137,10 +140,10 @@ final class ReceiverHost {
         }
         hooks.clear_video = { context in Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue().videoOutput?.clear() }
         hooks.texture_id = { context in Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue().videoOutput?.textureIdentifier ?? -1 }
-        hooks.frame = { context, frame in
+        hooks.frame = { context, frame, deadline in
             guard let frame = frame else { return }
             // The output retains the borrowed buffer before this callback returns.
-            Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue().videoOutput?.receive(Unmanaged<CVPixelBuffer>.fromOpaque(frame).takeUnretainedValue())
+            Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue().videoOutput?.receive(Unmanaged<CVPixelBuffer>.fromOpaque(frame).takeUnretainedValue(), deadline: deadline)
         }
         hooks.diagnostics = { context, output, capacity in
             let host = Unmanaged<ReceiverHost>.fromOpaque(context!).takeUnretainedValue()

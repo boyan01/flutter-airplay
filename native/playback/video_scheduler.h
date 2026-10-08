@@ -18,7 +18,8 @@ public:
         std::lock_guard<std::mutex> guard(lock_);
         return {total_submitted_, total_dropped_, frames_.size()};
     }
-    // Flutter gets acquisition lead; a native timed surface uses zero lead.
+    // Lead controls early handoff. Timed hosts retain the original deadline;
+    // texture hosts use a short lead for the engine to acquire the frame.
     explicit VideoScheduler(int64_t lead_ns = 2000000, size_t decode_ahead = 3)
         : lead_ns_(lead_ns), decode_ahead_(decode_ahead) {}
     ~VideoScheduler() { clear(); }
