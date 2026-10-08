@@ -24,11 +24,12 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   func text(_ key: String) -> String { strings[key] ?? key }
   func preference(_ key: String, default fallback: Bool) -> Bool { snapshot[key] as? Bool ?? fallback }
 
+  // FlutterAppDelegate does not implement the optional did-finish or will-terminate
+  // callbacks. Calling super aborts our lifecycle work with an Objective-C exception.
   override func applicationDidFinishLaunching(_ notification: Notification) {
     // The launch Apple event is only current during this callback. Capture it
     // before Flutter or an asynchronous startup handshake can replace it.
     desktopLaunchSource = DesktopLaunchSource(appleEvent: NSAppleEventManager.shared().currentAppleEvent)
-    super.applicationDidFinishLaunching(notification)
     configureApplication()
   }
 
@@ -113,7 +114,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !keepRunningWithoutWindow }
   override func applicationWillTerminate(_ notification: Notification) {
     if hasDisplayAssertion { IOPMAssertionRelease(displayAssertion) }
-    receiver.dispose(); super.applicationWillTerminate(notification)
+    receiver.dispose()
   }
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 }
