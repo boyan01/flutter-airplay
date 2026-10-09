@@ -41,7 +41,18 @@ extension VideoSurface {
     var testDropped: Int { dropped }
     var testMetricsEpoch: UInt64 { metricsEpoch }
     var testSystemMetrics: String? { systemMetrics }
-    func testDrain() { drain() }
+    func testDrain(at presentationTime: CMTime? = nil) { drain(at: presentationTime) }
+    func testSetPresentationTimes(_ times: [CMTime]) {
+        require(times.count == pending.count, "Recovery timeline covers every pending sample")
+        pending = zip(pending, times).map { sample, pts in
+            var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: pts, decodeTimeStamp: .invalid)
+            var copy: CMSampleBuffer?
+            let status = CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault,
+                sampleBuffer: sample, sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleBufferOut: &copy)
+            require(status == noErr && copy != nil, "Recovery sample accepts a fixed presentation time")
+            return copy!
+        }
+    }
 }
 func deadlineAfter(_ nanoseconds: Int64) -> Int64 {
     var now = timespec(); clock_gettime(CLOCK_MONOTONIC, &now)
@@ -73,11 +84,20 @@ surface.testDrain()
 require(surface.testPending.isEmpty && surface.diagnostics()!.contains("dropped=1"),
         "Main thread stalls discard expired decoded samples")
 try surface.begin(); surface.testDrain()
-let recoveryDeadline = deadlineAfter(-100_000_000)
-for i in 0..<7 { surface.receive(buffer!, deadline: recoveryDeadline + Int64(i) * 16_000_000) }
-surface.receive(buffer!, deadline: deadlineAfter(500_000_000))
-surface.testDrain()
-require(surface.testDropped == 6 && surface.testEnqueued == 2,
+// Freeze both sample PTS and drain time so runner stalls cannot expire the future
+// sample or age the latest missed sample beyond the 150 ms discard threshold.
+let recoveryTime = CMClockGetTime(CMClockGetHostTimeClock())
+let recoveryTimes = (0..<7).map {
+    CMTimeAdd(recoveryTime, CMTime(value: -100 + Int64($0) * 16, timescale: 1_000))
+} + [CMTimeAdd(recoveryTime, CMTime(value: 500, timescale: 1_000))]
+for _ in recoveryTimes { surface.receive(buffer!, deadline: deadlineAfter(0)) }
+surface.testSetPresentationTimes(recoveryTimes)
+require(surface.testPending.dropLast().allSatisfy {
+    CMTimeCompare(CMSampleBufferGetPresentationTimeStamp($0), recoveryTime) < 0
+} && CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(surface.testPending.last!), recoveryTime) > 0,
+        "Recovery timeline contains seven missed samples and one future sample")
+surface.testDrain(at: recoveryTime)
+require(surface.testDropped == 6 && surface.testEnqueued == 2 && surface.testPending.isEmpty,
         "Main thread recovery enqueues only the latest missed sample and preserves the future sample")
 if #available(macOS 14.4, *) {
     let epoch = surface.testMetricsEpoch

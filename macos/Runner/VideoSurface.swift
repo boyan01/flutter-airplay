@@ -132,7 +132,7 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
         if #available(macOS 14.0, *) { return displayLayer.sampleBufferRenderer.error?.localizedDescription }
         return displayLayer.error?.localizedDescription
     }
-    private func drain() {
+    private func drain(at presentationTime: CMTime? = nil) {
         lock.lock(); defer { lock.unlock() }
         scheduled = false
         if needsFlush { displayLayer.flushAndRemoveImage(); needsFlush = false }
@@ -141,7 +141,7 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
             reportFailureLocked(renderError ?? "Native video display failed")
             return
         }
-        let now = CMClockGetTime(CMClockGetHostTimeClock())
+        let now = presentationTime ?? CMClockGetTime(CMClockGetHostTimeClock())
         while !pending.isEmpty {
             // The main thread can stall after scheduler handoff. Coalesce only
             // missed samples here as well; preserve all future presentation times.
