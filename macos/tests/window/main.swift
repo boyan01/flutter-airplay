@@ -208,7 +208,9 @@ func runUntil(_ done: () -> Bool) {
   }
   require(done(), "native window animation must finish within its deadline")
 }
-let resizeTarget = NSRect(x: 180, y: 180, width: 800, height: 600)
+let testScreen = resizeWindow.screen!.visibleFrame
+let resizeTarget = NSRect(x: testScreen.minX + 20, y: testScreen.minY + 20,
+  width: min(800, testScreen.width - 40), height: min(600, testScreen.height - 40))
 var resizeResults: [Bool] = []
 let started = Date()
 resizeWindow.resizeWindow(to: resizeTarget, duration: 0.2) { resizeResults.append($0) }
@@ -225,7 +227,8 @@ runUntil {
 }
 print("Native resize: elapsed=\(Date().timeIntervalSince(started)) frames=\(resizeFrames.count)")
 require(sawIntermediateFrame, "animation must produce an intermediate window frame")
-require(resizeResults == [true] && resizeWindow.frame.equalTo(resizeTarget), "animation must reach its target exactly once")
+require(resizeResults == [true] && resizeWindow.frame.equalTo(resizeTarget),
+  "animation must reach its target exactly once: results=\(resizeResults) actual=\(resizeWindow.frame) target=\(resizeTarget) screen=\(testScreen)")
 
 // Cover completion independently of display cadence and the final animation tick.
 resizeWindow.setFrame(NSRect(x: 200, y: 200, width: 440, height: 560), display: true)
@@ -239,7 +242,8 @@ require(delayedTickResults == [true] && resizeWindow.frame.equalTo(resizeTarget)
   "completion after a delayed tick must reach its target exactly once")
 print("PASS: delayed animation tick commits the exact target before completion")
 
-let nextTarget = NSRect(x: 250, y: 200, width: 600, height: 700)
+let nextTarget = NSRect(x: testScreen.minX + 40, y: testScreen.minY + 40,
+  width: min(600, testScreen.width - 80), height: min(700, testScreen.height - 80))
 resizeWindow.resizeWindow(to: nextTarget, duration: 0.2) { resizeResults.append($0) }
 RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 let interruptedFrame = resizeWindow.frame
