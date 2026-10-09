@@ -14,6 +14,49 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_changelog_selects_exact_version_and_normalizes_continuations(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release, 'ROOT', Path(directory)):
+            (Path(directory) / 'CHANGELOG.md').write_text(
+                '# Changelog\n\n## 1.2.4\n### 中文\n- 下个版本。\n### English\n- Next release.\n'
+                '\n## 1.2.3\n### English\n- Improve mirroring\n  and recovery.\n### 中文\n- 改进投屏与恢复。\n'
+                '\n## 1.2.2\n### 中文\n- 旧版。\n### English\n- Old release.\n')
+            self.assertEqual(release.changelog_entry('1.2.3'),
+                             '### 中文\n- 改进投屏与恢复。\n\n### English\n- Improve mirroring and recovery.')
+
+    def test_changelog_rejects_missing_duplicate_or_empty_language_sections(self):
+        invalid = ('## 1.2.4\n',
+                   '## 1.2.3\n### 中文\n- 修复。\n',
+                   '## 1.2.3\n### 中文\n- 修复。\n### English\n',
+                   '## 1.2.3\n### 中文\n- \n### English\n- Fix.\n',
+                   '## 1.2.3\n### 中文\nFix.\n### English\n- Fix.\n',
+                   '## 1.2.3\n### 中文\n- 修复。\n### 中文\n- 重复。\n### English\n- Fix.\n',
+                   '## 1.2.3\n### 中文\n- 修复。\n### English\n- Fix.\n## 1.2.3\n')
+        with tempfile.TemporaryDirectory() as directory, patch.object(release, 'ROOT', Path(directory)):
+            path = Path(directory) / 'CHANGELOG.md'
+            self.assertEqual(release.changelog_entry('1.2.3', required=False), '')
+            with self.assertRaises(ValueError):
+                release.changelog_entry('1.2.3')
+            for text in invalid:
+                path.write_text(text)
+                with self.subTest(text=text), self.assertRaises(ValueError):
+                    release.changelog_entry('1.2.3')
+            path.write_text('## 1.2.4\n')
+            self.assertEqual(release.changelog_entry('1.2.3', required=False), '')
+
+    def test_tag_without_changelog_stops_before_signing_or_history(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release, 'ROOT', Path(directory)), \
+                patch.object(release, 'version', return_value='1.2.3'), \
+                patch.object(release, 'signing_config') as signing, \
+                patch.object(release, 'previous_version_check') as history, \
+                patch.dict(os.environ, {'RELEASE_EVENT': 'push', 'RELEASE_REF_TYPE': 'tag', 'RELEASE_TAG': 'v1.2.3'}):
+            with self.assertRaisesRegex(ValueError, 'CHANGELOG'):
+                release.metadata()
+            signing.assert_not_called()
+            history.assert_not_called()
+            with self.assertRaisesRegex(ValueError, 'CHANGELOG'), patch.object(release, 'gh') as command:
+                release.publish()
+            command.assert_not_called()
+
     def test_tags_are_strict_and_match(self):
         release.validate_tag('v1.2.3', '1.2.3')
         for tag in ('1.2.3', 'v1.2.4', 'v01.2.3', 'v1.2.3-rc.1', 'v1.2.3+4', 'v1.2.3\n', 'v1.2.3;echo hacked'):
@@ -25,6 +68,7 @@ class ReleaseTests(unittest.TestCase):
             root = Path(directory)
             (root / '.flutter-version').write_text('3.47.2\n')
             (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
+            (root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
             output = root / 'output'
             with patch.object(release, 'ROOT', root), patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'signing_config'), patch.object(release, 'previous_version_check'):
                 for event, ref_type, tag, succeeds in (
@@ -100,6 +144,7 @@ class ReleaseTests(unittest.TestCase):
     def publish_fixture(self, root):
         self.fill(root, False)
         (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
+        (root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
         return patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.3', 'RELEASE_SHA': 'a' * 40,
                                       'ANDROID_SIGNED': 'false', 'GITHUB_STEP_SUMMARY': str(root / 'summary'),
                                       'SPARKLE_PUBLIC_KEY': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='})
@@ -189,7 +234,10 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
+                bodies = []
                 def gh(*args):
+                    if '--notes-file' in args:
+                        bodies.append(Path(args[args.index('--notes-file') + 1]).read_text())
                     if args[0] == 'api':
                         if '/git/' in args[1]:
                             return json.dumps({'object':{'type':'commit','sha':'a'*40}})
@@ -199,6 +247,8 @@ class ReleaseTests(unittest.TestCase):
                     return ''
                 with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh', side_effect=gh) as command:
                     release.publish()
+                    self.assertTrue(bodies[0].startswith('### 中文\n- 改进投屏。\n\n### English\n- Improve mirroring.'))
+                    self.assertIn('### Downloads and installation', bodies[0])
                     self.assertEqual(command.call_args.args, ('release','edit','v1.2.3','--draft=false','--latest','--tag','v1.2.3','--verify-tag'))
                 self.assertIn('Android APK omitted', (root/'summary').read_text())
 

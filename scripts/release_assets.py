@@ -5,6 +5,7 @@ import argparse
 import base64
 import binascii
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,57 @@ def build_number(root=None):
 def validate_tag(tag, expected):
     if not re.fullmatch('v' + VERSION_RE, tag) or tag != 'v' + expected:
         raise ValueError('Release tag must be vMAJOR.MINOR.PATCH and match pubspec.yaml exactly.')
+
+
+def changelog_entry(current, required=True):
+    path = ROOT / 'CHANGELOG.md'
+    if not path.exists():
+        if not required:
+            return ''
+        raise ValueError('CHANGELOG.md is required for a release.')
+    sections = re.split(r'^##[ \t]+([^\n]+)\n', path.read_text(encoding='utf-8') + '\n', flags=re.MULTILINE)
+    entries = [sections[index + 1] for index in range(1, len(sections), 2)
+               if sections[index].strip() == current]
+    if not entries:
+        if not required:
+            return ''
+        raise ValueError(f'CHANGELOG.md must contain ## {current}.')
+    if len(entries) != 1:
+        raise ValueError(f'CHANGELOG.md contains duplicate entries for {current}.')
+    languages = re.split(r'^###[ \t]+([^\n]+)\n', entries[0], flags=re.MULTILINE)
+    if languages[0].strip():
+        raise ValueError('Changelog entries must begin with ### 中文 or ### English.')
+    notes = {}
+    for index in range(1, len(languages), 2):
+        language = languages[index].strip()
+        if language not in ('中文', 'English') or language in notes:
+            raise ValueError('Changelog must contain exactly one 中文 and one English section.')
+        bullets = []
+        for line in languages[index + 1].splitlines():
+            if not line.strip():
+                continue
+            if line.startswith('- ') and line[2:].strip():
+                bullets.append(line[2:].strip())
+            elif line.startswith(('  ', '\t')) and line.strip() and bullets:
+                bullets[-1] += ' ' + line.strip()
+            else:
+                raise ValueError('Changelog language sections must contain nonempty - bullets with optional indented continuation lines.')
+        if not bullets:
+            raise ValueError(f'Changelog {language} section must contain at least one bullet.')
+        notes[language] = bullets
+    if set(notes) != {'中文', 'English'}:
+        raise ValueError('Changelog requires both 中文 and English sections.')
+    return '\n\n'.join('### ' + language + '\n' + '\n'.join('- ' + text for text in notes[language])
+                       for language in ('中文', 'English'))
+
+
+def update_description(current, required=False):
+    notes = changelog_entry(current, required=required)
+    if not notes:
+        return f'Flutter AirPlay {current}. See the GitHub release for changes.'
+    # Escape changelog text before embedding it as HTML in the RSS description.
+    return '\n'.join('<p>' + html.escape('• ' + line[2:] if line.startswith('- ') else line[4:], quote=False) + '</p>'
+                     for line in notes.splitlines() if line)
 
 
 def decode_key(value, name, length):
@@ -177,6 +229,7 @@ def metadata():
     if os.environ.get('RELEASE_EVENT') not in ('workflow_dispatch', 'pull_request') or os.environ.get('RELEASE_REF_TYPE') == 'tag':
         validate_tag(os.environ.get('RELEASE_TAG', ''), current)
     if required:
+        changelog_entry(current)
         signing_config(required=True)
         previous_version_check(current, build_number())
     sdk = (ROOT / '.flutter-version').read_text().strip()
@@ -230,7 +283,7 @@ def verify_signature(archive, signature, public):
                             '-rawin', '-in', str(archive), '-sigfile', str(sig)])
 
 
-def validate_appcast(feed, dmg, current, build, public):
+def validate_appcast(feed, dmg, current, build, public, required_notes=False):
     item, enclosure, short, actual_build = read_appcast(feed.read_bytes())
     release_url = f'https://github.com/{REPOSITORY}/releases/tag/v{current}'
     expected = {'url': f'https://github.com/{REPOSITORY}/releases/download/v{current}/{dmg.name}',
@@ -240,6 +293,8 @@ def validate_appcast(feed, dmg, current, build, public):
             item.findtext(f'{{{SPARKLE_NS}}}releaseNotesLink') != release_url or
             any(enclosure.get(key) != value for key, value in expected.items())):
         raise ValueError('Appcast metadata does not match this macOS release archive/version.')
+    if required_notes and item.findtext('description') != update_description(current, required=True):
+        raise ValueError('Appcast release notes do not match CHANGELOG.md.')
     verify_signature(dmg, enclosure.get(f'{{{SPARKLE_NS}}}edSignature', ''), public)
 
 
@@ -253,6 +308,7 @@ def validate_bundle_updates(app, public):
 
 def appcast(app, dmg):
     current, build = parse_version((ROOT / 'pubspec.yaml').read_text())
+    description = update_description(current, required=os.environ.get('AIRPLAY_REQUIRE_UPDATES') == 'true')
     public = signing_config(required=True)
     validate_bundle_updates(app, public)
     if dmg.name != f'Flutter-AirPlay-{current}-macos-arm64.dmg' or not dmg.is_file() or dmg.is_symlink() or not dmg.stat().st_size:
@@ -273,7 +329,7 @@ def appcast(app, dmg):
     ET.SubElement(channel, 'link').text = FEED_URL
     item = ET.SubElement(channel, 'item')
     ET.SubElement(item, 'title').text = f'Flutter AirPlay {current}'
-    ET.SubElement(item, 'description').text = f'Flutter AirPlay {current}. See the GitHub release for changes.'
+    ET.SubElement(item, 'description').text = description
     for name, text in (('version', str(build)), ('shortVersionString', current), ('minimumSystemVersion', '12.0'),
                        ('releaseNotesLink', f'https://github.com/{REPOSITORY}/releases/tag/v{current}')):
         ET.SubElement(item, f'{{{SPARKLE_NS}}}{name}').text = text
@@ -329,6 +385,7 @@ def publish():
     current = version()
     tag = os.environ['RELEASE_TAG']
     validate_tag(tag, current)
+    changes = changelog_entry(current)
     verify_remote_tag(tag, os.environ['RELEASE_SHA'])
     signed_text = os.environ.get('ANDROID_SIGNED')
     if signed_text not in ('true', 'false'):
@@ -338,7 +395,7 @@ def publish():
     signed = signed_text == 'true'
     directory = ROOT / 'build/release-assets'
     files = collect(directory, current, signed)
-    validate_appcast(directory / 'appcast.xml', directory / f'Flutter-AirPlay-{current}-macos-arm64.dmg', current, build_number(), public)
+    validate_appcast(directory / 'appcast.xml', directory / f'Flutter-AirPlay-{current}-macos-arm64.dmg', current, build_number(), public, required_notes=True)
     # Listing avoids treating an authorization/network failure as a missing release.
     releases = releases_list()
     existing = next((r for r in releases if r['tag_name'] == tag), None)
@@ -356,6 +413,7 @@ def publish():
     notes += ('Android arm64: signed release APK included.\n' if signed else
               'Android APK omitted: release signing secrets have not been configured.\n')
     notes += '\nChecksums: SHA256SUMS. Source and license notices are included in the application packages.\n'
+    notes = changes + '\n\n### Downloads and installation\n\n' + notes
     with tempfile.TemporaryDirectory(prefix='airplay-release-notes-') as temporary:
         notes_file = Path(temporary) / 'notes.txt'
         notes_file.write_text(notes)

@@ -696,6 +696,16 @@ Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及�
 - `appcast.xml`（Sparkle macOS 更新 feed，DMG 含 Ed25519 签名）
 - 所有应用产物和 appcast 的 `SHA256SUMS`
 
+发版时同时更新 `pubspec.yaml` 和 `CHANGELOG.md`。AI 发版规则见 `AGENTS.md`；
+changelog 根据前一个已公开稳定版以来的实际变化整理，每版使用 `## MAJOR.MINOR.PATCH`，
+包含 `### 中文` 和 `### English`，各自至少一条 `- ` 列表；长条目可用缩进续行。
+最新版本置顶，使用简洁文本，不使用嵌套列表、原始 HTML 或额外小标题。
+正式 tag 的 prepare 阶段要求对应版本存在、唯一且两种语言都有内容，否则构建前失败。
+GitHub Release 正文使用该版本的中英文条目，再附安装与平台说明；appcast 内嵌同一份
+中英文文本，应用内面板直接展示两种语言，无需另行请求 GitHub 页面。
+发布端还校验 appcast 内容与对应 changelog 一致。普通本地打包或手动构建没有当前版本条目时，
+仍可使用占位说明；已有条目格式错误则失败。本地占位 feed 不能用于正式发布。
+
 先在 `pubspec.yaml` 更新 `version: MAJOR.MINOR.PATCH+BUILD` 并提交，再在这个提交上创建
 对应 tag（例如 `version: 0.1.2+3` 对应 `v0.1.2`）。tag 与 pubspec 不一致、预发布后缀、
 非法版本号会在构建前失败。`BUILD` 是 macOS `CFBundleVersion`、Android versionCode 和 Windows 文件版本的第四段，

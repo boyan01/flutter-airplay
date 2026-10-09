@@ -28,6 +28,7 @@ class SparkleTests(unittest.TestCase):
         self.app = self.root / 'Flutter AirPlay.app'
         (self.app / 'Contents').mkdir(parents=True)
         (self.root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
+        (self.root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
         self.dmg = self.root / 'Flutter-AirPlay-1.2.3-macos-arm64.dmg'
         self.dmg.write_bytes(b'archive fixture')
         self.info = {'SUPublicEDKey': PUBLIC, 'SUFeedURL': release.FEED_URL,
@@ -60,6 +61,34 @@ class SparkleTests(unittest.TestCase):
         with patch.object(release, 'verify_signature') as verify:
             release.validate_appcast(feed, self.dmg, '1.2.3', 4, PUBLIC)
             verify.assert_called_once_with(self.dmg, SIGNATURE, PUBLIC)
+
+    def test_appcast_embeds_bilingual_notes_with_safe_text_and_line_breaks(self):
+        (self.root / 'CHANGELOG.md').write_text(
+            '## 1.2.3\n### 中文\n- 修复 <script> 与 A&B。\n### English\n- Fix <script> and A&B. Keep "sender\'s" name.\n')
+        feed = self.make_feed()
+        item, _, _, _ = release.read_appcast(feed.read_bytes())
+        description = item.findtext('description')
+        self.assertIn('<p>中文</p>', description)
+        self.assertIn('<p>• 修复 &lt;script&gt; 与 A&amp;B。</p>', description)
+        self.assertIn('<p>English</p>', description)
+        self.assertIn('"sender\'s"', description)
+        self.assertNotIn('<script>', description)
+        with patch.object(release, 'verify_signature'):
+            release.validate_appcast(feed, self.dmg, '1.2.3', 4, PUBLIC, required_notes=True)
+        tree = ET.parse(feed)
+        tree.find('./channel/item/description').text = 'Wrong release notes'
+        tree.write(feed)
+        with patch.object(release, 'verify_signature'), self.assertRaisesRegex(ValueError, 'CHANGELOG'):
+            release.validate_appcast(feed, self.dmg, '1.2.3', 4, PUBLIC, required_notes=True)
+
+    def test_local_appcast_allows_missing_notes_but_release_requires_them(self):
+        (self.root / 'CHANGELOG.md').unlink()
+        item, _, _, _ = release.read_appcast(self.make_feed().read_bytes())
+        self.assertIn('See the GitHub release', item.findtext('description'))
+        with patch.dict(os.environ, {'AIRPLAY_REQUIRE_UPDATES': 'true'}), \
+                patch.object(release, 'signing_config') as signing, self.assertRaisesRegex(ValueError, 'CHANGELOG'):
+            release.appcast(self.app, self.dmg)
+        signing.assert_not_called()
 
     def test_metadata_tampering_is_rejected(self):
         for case in ('short', 'build', 'minimum', 'notes', 'url', 'length', 'duplicate', 'invalid-xml'):

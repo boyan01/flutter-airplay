@@ -94,11 +94,47 @@ Validate at useful checkpoints; reuse passing results while relevant inputs are
 unchanged. Report actual coverage and unavailable targets. Delegate checks to CI
 only when configured jobs cover the submitted revision.
 
+## Release preparation
+
+When asked to prepare or publish a new version, generate its changelog as part of
+updating `pubspec.yaml`; the user does not need to supply release notes manually.
+Use [DEVELOPMENT.md](DEVELOPMENT.md) for release commands and prerequisites.
+
+- Use `CHANGELOG.md` as the source of user-facing version history. Create it on
+  the first release preparation if absent. Keep newest versions first, using
+  `## MAJOR.MINOR.PATCH`, followed by `### 中文` and `### English` bullet lists.
+  Preserve existing entries; do not invent historical notes to fill the file.
+- Establish the previous published stable release and its tag commit, then
+  inspect the commits and actual changes through the intended release commit.
+  Include earlier unpublished work, not just the current conversation. If the
+  baseline cannot be verified, report the gap rather than guessing.
+- Write concise, equivalent Chinese and English notes about features, useful
+  improvements and important fixes. Usually 3–6 bullets are enough; scale to the
+  release. Name affected platforms and any required user action or changed
+  limitation. Omit routine refactors, CI changes and raw commit lists unless
+  they affect users. Do not claim support or verification beyond the evidence.
+- Update `version: MAJOR.MINOR.PATCH+BUILD` and its changelog entry together.
+  Both the semantic version and build number must exceed every published stable
+  release. The tag must be `vMAJOR.MINOR.PATCH` and reference the commit containing
+  both changes. Do not change the version for ordinary development or local
+  packaging unless requested.
+- The publishing script reads the version entry for GitHub Release notes and
+  the in-app update feed. Keep generated installation/platform notices separate
+  from the changelog. Use simple text bullets with optional indented continuation
+  lines; avoid nested lists, raw HTML and additional subheadings. Both languages
+  are embedded in the feed and shown together in the current update panel.
+  Formal releases require a matching, unique entry with both languages.
+- Before publishing, verify the version, changelog, tag and relevant checks.
+  Report actual coverage and any unavailable checks. Preparing notes or a
+  version does not by itself authorize pushing a tag or publishing a Release;
+  follow the user's existing authorization for those actions.
+
 ## Documentation
 
 - `README.md`: product features, usage and runtime/platform limitations.
 - `DEVELOPMENT.md`: environment, run/build/test/package commands and test scope.
 - `AGENTS.md`: project-specific code boundaries and development conventions.
+- `CHANGELOG.md`: bilingual user-facing version history, maintained during release preparation.
 - License notices and `vendor/*/UPSTREAM.md`: third-party licensing and provenance.
 - `assets/app_icon/README.md`: asset provenance and platform export details.
 
