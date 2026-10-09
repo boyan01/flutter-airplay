@@ -59,38 +59,92 @@ Future<_WindowGeometry> _waitForWindow(
   Duration stableFor = const Duration(milliseconds: 600),
 }) async {
   const controller = WindowController();
-  final deadline = DateTime.now().add(const Duration(seconds: 15));
-  DateTime? stableSince;
-  _WindowGeometry? previous;
-  late _WindowGeometry current;
-  while (DateTime.now().isBefore(deadline)) {
+  const timeout = Duration(seconds: 15);
+  final clock = Stopwatch()..start();
+  Duration? stableSince;
+  _WindowGeometry? previous, current;
+  String step = 'start', lastSnapshot = 'not sampled';
+  var samples = 0;
+  var nextLog = const Duration(seconds: 2);
+  logDesktopPhase('WAIT $reason; stableFor=${stableFor.inMilliseconds}ms');
+  while (clock.elapsed < timeout) {
+    final remaining = timeout - clock.elapsed;
     // Give native event loops and platform transitions real elapsed time.
-    // pumpAndSettle alone cannot establish that an OS resize has finished.
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      late Future<bool> above;
-      await controller.withWindow((value) {
-        current = _WindowGeometry(value);
-        above = readWindowAlwaysOnTop(value);
-      });
-      current.alwaysOnTop = await above;
-    });
+    // Bound the awaited sample too: an outer polling deadline cannot interrupt it.
+    current = await runDesktopPhase<_WindowGeometry>(
+      tester,
+      'sample: $reason',
+      () async {
+        step = 'native event-loop delay';
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        step = 'WindowController.withWindow / native geometry';
+        late _WindowGeometry geometry;
+        late Future<bool> above;
+        await controller.withWindow((value) {
+          geometry = _WindowGeometry(value);
+          lastSnapshot = '$geometry';
+          step = 'readWindowAlwaysOnTop / xprop';
+          above = readWindowAlwaysOnTop(value);
+        });
+        geometry.alwaysOnTop = await above;
+        step = 'sample complete';
+        return geometry;
+      },
+      timeout: remaining < const Duration(seconds: 5)
+          ? remaining
+          : const Duration(seconds: 5),
+      log: false,
+      details: () => 'step=$step; last OS window=$lastSnapshot',
+    );
+    samples++;
     expect(tester.takeException(), isNull, reason: reason);
     if (matches(current)) {
       if (previous == null ||
           !current.sameFrame(previous, tolerance: 1) ||
           current.fullscreen != previous.fullscreen) {
-        stableSince = DateTime.now();
+        stableSince = clock.elapsed;
       }
-      stableSince ??= DateTime.now();
-      if (DateTime.now().difference(stableSince) >= stableFor) return current;
+      stableSince ??= clock.elapsed;
+      if (clock.elapsed - stableSince >= stableFor) {
+        logDesktopPhase(
+          'SETTLED $reason after ${clock.elapsedMilliseconds}ms, '
+          'samples=$samples; $current',
+        );
+        return current;
+      }
     } else {
       stableSince = null;
     }
+    if (clock.elapsed >= nextLog) {
+      logDesktopPhase(
+        'WAITING $reason after ${clock.elapsedMilliseconds}ms, '
+        'samples=$samples, matching=${stableSince != null}; $current',
+      );
+      nextLog = clock.elapsed + const Duration(seconds: 2);
+    }
     previous = current;
   }
-  fail('$reason did not settle. Last OS window: $current');
+  fail('$reason did not settle after 15s. Last OS window: $current');
 }
+
+Future<void> _settleWidgets(WidgetTester tester) =>
+    runDesktopPhase(tester, 'Flutter frames settle', () async {
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 5),
+      );
+    });
+
+Future<void> _executeWindow(
+  WidgetTester tester,
+  WindowController controller,
+  WindowCommand command,
+) => runDesktopPhase(
+  tester,
+  'window command: ${command.name}',
+  () => controller.execute(command),
+);
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -126,7 +180,7 @@ void main() {
         },
       );
       await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
-      await tester.pumpAndSettle();
+      await _settleWidgets(tester);
       final bar = find.byKey(
         Key(
           Platform.isMacOS
@@ -153,13 +207,20 @@ void main() {
       await tester.pump(const Duration(milliseconds: 80));
       expect(tester.element(bar), same(titleElement));
       expect(tester.getTopLeft(bar), origin);
-      await tester.pumpAndSettle();
+      await _settleWidgets(tester);
       await tester.tap(find.byKey(const Key('closeSettings')));
-      await tester.pumpAndSettle();
+      await _settleWidgets(tester);
 
       late native.Window window;
       await const WindowController().withWindow((value) => window = value);
-      addTearDown(backend.controller.close);
+      addTearDown(
+        () => cleanUpDesktop(tester, [
+          (
+            phase: 'buttons: close receiver stream',
+            action: backend.controller.close,
+          ),
+        ]),
+      );
 
       Future<void> waitForFullscreen(bool target) async {
         await _waitForWindow(
@@ -204,14 +265,28 @@ void main() {
     );
     final model = ReceiverModel(backend);
     const controller = WindowController();
-    addTearDown(() async {
-      // Restore visibility/fullscreen even if an assertion fails. ReceiverScreen
-      // owns the model, its presentation and the native wrapper's disposal.
-      await controller.execute(WindowCommand.exitFullscreen);
-      await controller.withWindow((value) => value.show());
-      await tester.pumpWidget(const SizedBox());
-      await backend.controller.close();
-    });
+    addTearDown(
+      () => cleanUpDesktop(tester, [
+        // Restore visibility/fullscreen even if an assertion fails. ReceiverScreen
+        // owns the model, its presentation and the native wrapper's disposal.
+        (
+          phase: 'geometry: exit fullscreen',
+          action: () => controller.execute(WindowCommand.exitFullscreen),
+        ),
+        (
+          phase: 'geometry: show window',
+          action: () => controller.withWindow((value) => value.show()),
+        ),
+        (
+          phase: 'geometry: unmount ReceiverApp',
+          action: () => tester.pumpWidget(const SizedBox()),
+        ),
+        (
+          phase: 'geometry: close receiver stream',
+          action: backend.controller.close,
+        ),
+      ]),
+    );
     await tester.pumpWidget(ReceiverApp(model: model, window: controller));
     await _waitForWindow(
       tester,
@@ -340,7 +415,7 @@ void main() {
 
     frame(backend, 1536, 2048);
     await expectVideo(1536, 2048, 'video before fullscreen disconnect');
-    await controller.execute(WindowCommand.enterFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
     final fullscreen = await _waitForWindow(
       tester,
       (value) => value.fullscreen,
@@ -353,12 +428,12 @@ void main() {
       (value) => value.fullscreen && value.sameFrame(fullscreen),
       reason: 'disconnect defers idle-frame restoration while fullscreen',
     );
-    await controller.execute(WindowCommand.exitFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
     await expectBaseline('fullscreen exit applies the deferred idle frame');
 
     frame(backend, 2048, 1536);
     await expectVideo(2048, 1536, 'video before fullscreen rotation');
-    await controller.execute(WindowCommand.enterFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
     final rotatingFullscreen = await _waitForWindow(
       tester,
       (value) => value.fullscreen,
@@ -373,7 +448,7 @@ void main() {
       (value) => value.fullscreen && value.sameFrame(rotatingFullscreen),
       reason: 'rotations do not change the fullscreen frame',
     );
-    await controller.execute(WindowCommand.exitFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
     await expectVideo(
       1536,
       2048,
@@ -403,16 +478,28 @@ void main() {
         onAction: (_, _) async {},
         onError: (error) => fail('$error'),
       );
-      addTearDown(() async {
-        presentation.dispose();
-        await controller.releaseNativeWindow();
-        model.dispose();
-        await backend.controller.close();
-      });
+      addTearDown(
+        () => cleanUpDesktop(tester, [
+          (phase: 'tray: dispose presentation', action: presentation.dispose),
+          (
+            phase: 'tray: release native window',
+            action: controller.releaseNativeWindow,
+          ),
+          (phase: 'tray: dispose model', action: () async => model.dispose()),
+          (
+            phase: 'tray: close receiver stream',
+            action: backend.controller.close,
+          ),
+        ]),
+      );
       final strings = AppLocalizationsEn();
       Future<void> update() async {
-        await tester.runAsync(() => presentation.update(strings));
-        await tester.pumpAndSettle();
+        await runDesktopPhase(
+          tester,
+          'tray update: status=${model.status}, video=${model.videoWidth}x${model.videoHeight}',
+          () => presentation.update(strings),
+        );
+        await _settleWidgets(tester);
       }
 
       Map<String, bool> readMenu() {
@@ -523,17 +610,32 @@ void main() {
       },
     );
     controller.listen(presentation.onAction);
-    addTearDown(() {
-      controller.listen(null);
-      presentation.dispose();
-      unawaited(controller.releaseNativeWindow());
-      model.dispose();
-    });
-    addTearDown(backend.controller.close);
+    addTearDown(
+      () => cleanUpDesktop(tester, [
+        (
+          phase: 'policy: stop window events',
+          action: () async => controller.listen(null),
+        ),
+        (phase: 'policy: dispose presentation', action: presentation.dispose),
+        (
+          phase: 'policy: release native window',
+          action: controller.releaseNativeWindow,
+        ),
+        (phase: 'policy: dispose model', action: () async => model.dispose()),
+        (
+          phase: 'policy: close receiver stream',
+          action: backend.controller.close,
+        ),
+      ]),
+    );
     final strings = AppLocalizationsEn();
     Future<void> update() async {
-      await tester.runAsync(() => presentation.update(strings));
-      await tester.pumpAndSettle();
+      await runDesktopPhase(
+        tester,
+        'window policy update: status=${model.status}, video=${model.videoWidth}x${model.videoHeight}',
+        () => presentation.update(strings),
+      );
+      await _settleWidgets(tester);
       expect(errors, isEmpty);
     }
 
@@ -584,7 +686,11 @@ void main() {
     }
     frame(backend, 640, 360);
     await update();
-    await tester.runAsync(() => presentation.resize(actualSize: true));
+    await runDesktopPhase(
+      tester,
+      'resize to actual video pixels',
+      () => presentation.resize(actualSize: true),
+    );
     await _waitForWindow(
       tester,
       (value) =>
@@ -594,21 +700,21 @@ void main() {
               3,
       reason: 'actual video pixel size',
     );
-    await controller.execute(WindowCommand.enterFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
     await _waitForWindow(
       tester,
       (value) => value.fullscreen,
       reason: 'fullscreen with always-on-top preference',
       stableFor: const Duration(seconds: 1),
     );
-    await controller.execute(WindowCommand.exitFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
     await _waitForWindow(
       tester,
       (value) => !value.fullscreen && value.alwaysOnTop,
       reason: 'fullscreen exit restores always-on-top',
       stableFor: const Duration(seconds: 1),
     );
-    await controller.execute(WindowCommand.enterFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
     await _waitForWindow(
       tester,
       (value) => value.fullscreen,
@@ -617,7 +723,7 @@ void main() {
     );
     backend.state('waiting');
     await update();
-    await controller.execute(WindowCommand.exitFullscreen);
+    await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
     await _waitForWindow(
       tester,
       (value) =>
@@ -630,7 +736,7 @@ void main() {
     );
     if (presentation.canHide) {
       debugPrint('Checking close-to-tray after fullscreen restoration');
-      await controller.execute(WindowCommand.closeWindow);
+      await _executeWindow(tester, controller, WindowCommand.closeWindow);
       // Hidden desktop windows stop delivering Flutter frames. Wait for the OS
       // state without pumping, then reveal the window before further frame checks.
       await tester.runAsync(() async {
@@ -648,7 +754,7 @@ void main() {
         isTrue,
       ); // showOnConnect shares the same native window.
       final starts = backend.starts, stops = backend.stops;
-      await controller.execute(WindowCommand.closeWindow);
+      await _executeWindow(tester, controller, WindowCommand.closeWindow);
       await tester.runAsync(() async {
         final deadline = DateTime.now().add(const Duration(seconds: 5));
         while (nativeWindow.isVisible && DateTime.now().isBefore(deadline)) {
@@ -679,7 +785,7 @@ void main() {
       ); // Automatic hiding must not disconnect audio.
       expect(backend.stops, stops);
       await presentation.show();
-      await tester.pumpAndSettle();
+      await _settleWidgets(tester);
       expect(nativeWindow.isVisible, isTrue);
       await presentation.hide();
       expect(model.audioPlaying, isTrue);
@@ -719,11 +825,19 @@ void main() {
     final model = ReceiverModel(backend);
     const controller = WindowController();
     Timer? sampler;
-    addTearDown(() async {
-      sampler?.cancel();
-      await tester.pumpWidget(const SizedBox());
-      await backend.controller.close();
-    });
+    addTearDown(
+      () => cleanUpDesktop(tester, [
+        (phase: 'cadence: stop sampler', action: () async => sampler?.cancel()),
+        (
+          phase: 'cadence: unmount ReceiverApp',
+          action: () => tester.pumpWidget(const SizedBox()),
+        ),
+        (
+          phase: 'cadence: close receiver stream',
+          action: backend.controller.close,
+        ),
+      ]),
+    );
     await tester.pumpWidget(ReceiverApp(model: model, window: controller));
     await _waitForWindow(
       tester,
