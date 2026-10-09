@@ -326,10 +326,14 @@ void check_mac_hevc() {
         const auto started = monotonic_ns();
         std::fprintf(stderr, "Mac HEVC fixture: name=%s expected=%dx%d bytes=%zu hardware_supported=%d\n",
             fixture, width, height, count, int(p->video->supports_hevc()));
+        const auto pts = realtime_ns();
+        // Anchor before adding lead: reset makes the first timestamp define the timeline origin.
+        p->timeline.deadline(pts);
         video_decode_struct data{};
-        data.data = const_cast<uint8_t *>(bytes); data.data_len = int(count); data.ntp_time_local = realtime_ns();
+        // Pixel fixtures allow slow cloud codec initialization within the two-second input window.
+        data.data = const_cast<uint8_t *>(bytes); data.data_len = int(count); data.ntp_time_local = pts + 1500000000;
+        const auto until = p->timeline.deadline(data.ntp_time_local) + kSecond;
         receive.video_process(receive.cls, nullptr, &data);
-        const auto until = monotonic_ns() + kSecond;
         while (progress.frames == before && monotonic_ns() < until)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         const auto actual = color == 0 ? progress.red.load() : color == 1 ? progress.green.load() : progress.blue.load();
