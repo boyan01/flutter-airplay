@@ -290,9 +290,18 @@ void check_mac_video_interruption() {
 
 void check_mac_hevc() {
     struct Progress {
-        std::atomic<int> frames{0}, width{0}, height{0}, red{0}, green{0}, blue{0};
+        std::atomic<int> frames{0}, width{0}, height{0}, red{0}, green{0}, blue{0}, errors{0};
     } progress;
     AirplayCallbacks cb{}; cb.context = &progress;
+    cb.log = [](void *, int level, const char *message) {
+        std::fprintf(stderr, "Mac HEVC backend: level=%d %s\n", level, message);
+    };
+    cb.event = [](void *context, const char *type, const char *detail, int, int) {
+        if (!strcmp(type, "error")) {
+            ++static_cast<Progress *>(context)->errors;
+            std::fprintf(stderr, "Mac HEVC player error: %s\n", detail);
+        }
+    };
     cb.frame = [](void *context, void *frame, int64_t) {
         auto *p = static_cast<Progress *>(context);
         auto image = static_cast<CVPixelBufferRef>(frame);
@@ -311,29 +320,53 @@ void check_mac_hevc() {
     }
     if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H265) != 0)
         throw std::runtime_error("Mac receiver rejects HEVC despite hardware support");
-    auto feed = [&](const uint8_t *bytes, size_t count, int width, int height, int color) {
+    auto feed = [&](const char *fixture, const uint8_t *bytes, size_t count, int width, int height, int color) {
         const auto before = progress.frames.load();
+        const auto stats_before = p->video->stats();
+        const auto started = monotonic_ns();
+        std::fprintf(stderr, "Mac HEVC fixture: name=%s expected=%dx%d bytes=%zu hardware_supported=%d\n",
+            fixture, width, height, count, int(p->video->supports_hevc()));
         video_decode_struct data{};
         data.data = const_cast<uint8_t *>(bytes); data.data_len = int(count); data.ntp_time_local = realtime_ns();
         receive.video_process(receive.cls, nullptr, &data);
         const auto until = monotonic_ns() + kSecond;
         while (progress.frames == before && monotonic_ns() < until)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        if (progress.frames != before + 1 || progress.width != width || progress.height != height)
-            throw std::runtime_error("Mac HEVC receive path has no correctly sized decoded image");
         const auto actual = color == 0 ? progress.red.load() : color == 1 ? progress.green.load() : progress.blue.load();
-        if (actual < 200) throw std::runtime_error("Mac HEVC decoded color or pixel conversion is incorrect");
+        const bool sized = progress.frames == before + 1 && progress.width == width && progress.height == height;
+        std::fprintf(stderr, "Mac HEVC fixture result: name=%s elapsed_ms=%.1f frames=%d expected_frames=1 size=%dx%d rgb=%d,%d,%d errors=%d\n",
+            fixture, (monotonic_ns() - started) / 1e6, progress.frames.load() - before,
+            progress.width.load(), progress.height.load(), progress.red.load(), progress.green.load(),
+            progress.blue.load(), progress.errors.load());
+        if (!sized || actual < 200) {
+            // Query the scheduler before taking the player lock, matching the worker's lock order.
+            const auto stats = p->video->stats();
+            std::lock_guard<std::mutex> guard(p->lock);
+            const auto now = monotonic_ns();
+            std::fprintf(stderr, "Mac HEVC fixture failure: name=%s queued=%zu reset_pending=%d decoder=%s scheduler_submitted=%llu scheduler_dropped=%llu scheduler_pending=%zu player_ready=%llu player_late_drop=%llu decode_age_ms=%.1f output_age_ms=%.1f deadline_late_ms=%.1f\n",
+                fixture, p->packets.size(), int(p->video_reset), p->video->decoder_name(),
+                static_cast<unsigned long long>(stats.submitted - stats_before.submitted),
+                static_cast<unsigned long long>(stats.dropped - stats_before.dropped), stats.pending,
+                static_cast<unsigned long long>(p->video_stats.ready),
+                static_cast<unsigned long long>(p->video_stats.late_drop),
+                p->last_video_decode ? (now - p->last_video_decode) / 1e6 : -1.0,
+                p->last_video_output ? (now - p->last_video_output) / 1e6 : -1.0,
+                (now - p->timeline.deadline(data.ntp_time_local)) / 1e6);
+            throw std::runtime_error(std::string(!sized
+                ? "Mac HEVC receive path has no correctly sized decoded image: "
+                : "Mac HEVC decoded color or pixel conversion is incorrect: ") + fixture);
+        }
     };
-    feed(hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 0);
-    feed(hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
-    feed(hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 2);
+    feed("HEVC landscape", hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 0);
+    feed("HEVC portrait", hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
+    feed("HEVC 4K", hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 2);
     p->reset();
-    feed(hevc_fixtures::main10, sizeof(hevc_fixtures::main10), 640, 360, 1);
+    feed("HEVC Main10 after reset", hevc_fixtures::main10, sizeof(hevc_fixtures::main10), 640, 360, 1);
     if (receive.video_set_codec(receive.cls, VIDEO_CODEC_UNKNOWN) != -1)
         throw std::runtime_error("Mac receiver accepts an unknown codec");
     if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H264) != 0)
         throw std::runtime_error("Mac receiver cannot return to H.264");
-    feed(landscape, sizeof(landscape), 640, 360, 0);
+    feed("H.264 reconnect", landscape, sizeof(landscape), 640, 360, 0);
     std::puts("PASS: Mac HEVC receive callback, decoded pixels, rotation, 4K, Main10, reset and H.264 reconnect");
 }
 void check_audio_unsynchronized_burst() {

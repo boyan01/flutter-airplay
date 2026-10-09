@@ -152,14 +152,22 @@ private:
     }
 
     bool open() {
+        OSStatus format_status;
         if (hevc_) {
             const uint8_t *parameters[] = {vps_.data(), sps_.data(), pps_.data()};
             const size_t lengths[] = {vps_.size(), sps_.size(), pps_.size()};
-            if (CMVideoFormatDescriptionCreateFromHEVCParameterSets(nullptr, 3, parameters, lengths, 4, nullptr, &format_)) return false;
+            format_status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(nullptr, 3, parameters, lengths, 4, nullptr, &format_);
         } else {
             const uint8_t *parameters[] = {sps_.data(), pps_.data()};
             const size_t lengths[] = {sps_.size(), pps_.size()};
-            if (CMVideoFormatDescriptionCreateFromH264ParameterSets(nullptr, 2, parameters, lengths, 4, &format_)) return false;
+            format_status = CMVideoFormatDescriptionCreateFromH264ParameterSets(nullptr, 2, parameters, lengths, 4, &format_);
+        }
+        if (format_status) {
+            char text[192];
+            std::snprintf(text, sizeof(text), "VideoToolbox format creation failed: codec=%s status=%d vps_bytes=%zu sps_bytes=%zu pps_bytes=%zu",
+                hevc_ ? "HEVC" : "H.264", int(format_status), vps_.size(), sps_.size(), pps_.size());
+            if (callbacks_.log) callbacks_.log(text);
+            return false;
         }
         auto attributes = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 #if TARGET_OS_OSX
@@ -184,7 +192,15 @@ private:
         auto status = VTDecompressionSessionCreate(nullptr, format_, specification, attributes, &callback, &session_);
         if (specification) CFRelease(specification);
         CFRelease(attributes); CFRelease(number); CFRelease(properties);
-        if (status) { close_session(); return false; }
+        if (status) {
+            const auto dimensions = CMVideoFormatDescriptionGetDimensions(format_);
+            char text[192];
+            std::snprintf(text, sizeof(text), "VideoToolbox session creation failed: codec=%s status=%d size=%dx%d hardware_supported=%d",
+                hevc_ ? "HEVC" : "H.264", int(status), int(dimensions.width), int(dimensions.height),
+                int(VTIsHardwareDecodeSupported(hevc_ ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264)));
+            if (callbacks_.log) callbacks_.log(text);
+            close_session(); return false;
+        }
         VTSessionSetProperty(session_, kVTDecompressionPropertyKey_RealTime, kCFBooleanTrue);
         CFTypeRef hardware = nullptr;
         OSStatus queried = kVTPropertyNotSupportedErr;
