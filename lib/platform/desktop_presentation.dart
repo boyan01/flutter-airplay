@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:nativeapi/nativeapi.dart' as native;
 
@@ -30,13 +31,15 @@ class DesktopPresentation {
   native.Menu? _menu;
   final _items = <native.MenuItem>[];
   final _itemListeners = <int>[];
+  final _visibleItems = <int>[];
   final _images = <native.Image>[];
-  int? _trayListener, _windowListener, _windowId;
+  int? _trayListener, _menuListener, _windowListener, _windowId;
   Timer? _autoHide;
   Future<void> _pending = Future.value();
   bool _ready = false, _disposed = false, _playing = false;
   bool _openedForSession = false, _expanded = false, _transitioning = false;
   bool _fullscreen = false, _trayVisible = false;
+  bool _menuOpen = false;
   String _signature = '';
   late final _sizing = DesktopWindowSizing(
     window,
@@ -44,6 +47,9 @@ class DesktopPresentation {
     integerGeometry: model.platform == 'linux',
   );
   AppLocalizations? _strings;
+
+  @visibleForTesting
+  native.Menu? get menuForTesting => _menu;
 
   Future<void> update(AppLocalizations strings, {bool reduceMotion = false}) {
     _strings = strings;
@@ -58,7 +64,7 @@ class DesktopPresentation {
     );
     final signature = jsonEncode([
       strings.localeName,
-      model.name,
+      model.receivingName,
       model.status,
       model.message,
       model.clientName,
@@ -66,6 +72,8 @@ class DesktopPresentation {
       model.videoWidth,
       model.videoHeight,
       model.audioPlaying,
+      model.videoPaused,
+      model.busy,
       model.desktopOptions,
     ]);
     if (signature == _signature) {
@@ -245,7 +253,7 @@ class DesktopPresentation {
       _autoHide = Timer(const Duration(seconds: 3), () {
         if (!_disposed && !model.hasVideo && _openedForSession && canHide) {
           unawaited(
-            hide(disconnect: false).catchError((Object error) {
+            hide().catchError((Object error) {
               if (!_disposed && error is PlatformException) onError(error);
             }),
           );
@@ -276,15 +284,12 @@ class DesktopPresentation {
     if (!_transitioning) await _sizing.resume();
   }
 
-  Future<void> hide({bool disconnect = true}) async {
+  Future<void> hide() async {
     if (!canHide || _disposed) return;
     _autoHide?.cancel();
     _openedForSession = false;
     await window.withWindow((value) => value.hide());
     await window.setDockVisible(false);
-    if (!_disposed && disconnect && model.status == 'streaming') {
-      await model.disconnect();
-    }
   }
 
   Future<void> resize({bool actualSize = false}) async {
@@ -333,11 +338,11 @@ class DesktopPresentation {
           message: 'Unable to create tray menu',
         );
       }
-      void add(String label, WindowAction? action, {bool checked = false}) {
-        final item = native.MenuItem.createWithLabelAndType(
-          label,
-          checked ? native.MenuItemType.checkbox : native.MenuItemType.normal,
-        );
+      void add(
+        WindowAction? action, {
+        native.MenuItemType type = native.MenuItemType.normal,
+      }) {
+        final item = native.MenuItem.createWithLabelAndType('', type);
         if (item == null) {
           throw PlatformException(
             code: 'tray_menu_failed',
@@ -356,78 +361,121 @@ class DesktopPresentation {
                   }
                 }),
         );
-        _menu!.addItem(item);
       }
 
-      add('', null);
-      add('', null);
-      add('', null);
-      _menu!.addSeparator();
-      add('', WindowAction.openApp);
-      add('', WindowAction.toggleReceiver, checked: true);
-      add('', WindowAction.disconnectSession);
-      _menu!.addSeparator();
-      add('', WindowAction.toggleFullscreen);
-      add('', WindowAction.actualSize);
-      add('', WindowAction.fitScreen);
-      add('', WindowAction.toggleOnTop, checked: true);
-      _menu!.addSeparator();
-      add('', WindowAction.openSettings);
-      add('', WindowAction.openLogs);
-      _menu!.addSeparator();
+      add(null);
+      add(null);
+      add(null, type: native.MenuItemType.separator);
+      add(WindowAction.openApp);
+      add(WindowAction.disconnectSession);
+      add(WindowAction.toggleReceiver);
+      add(null, type: native.MenuItemType.separator);
+      add(WindowAction.toggleFullscreen);
+      add(WindowAction.toggleOnTop, type: native.MenuItemType.checkbox);
+      add(null, type: native.MenuItemType.separator);
+      add(WindowAction.openSettings);
+      add(WindowAction.openLogs);
+      add(null, type: native.MenuItemType.separator);
       // Exit stays on the host so receiver teardown completes before termination.
-      add('', WindowAction.quitApp);
-      tray.setContextMenu(_menu);
+      add(WindowAction.quitApp);
+      _menuListener = _menu!.addListener((event) {
+        if (event is native.MenuOpenedEvent) _menuOpen = true;
+        if (event is native.MenuClosedEvent) {
+          _menuOpen = false;
+          Timer.run(() {
+            if (!_disposed) _updateMenu();
+          });
+        }
+      });
     }
     final transitioning = {
       'checking',
       'starting',
       'stopping',
     }.contains(model.status);
-    final status = model.status == 'error'
-        ? model.message
-        : model.hasVideo
-        ? strings.playing
-        : model.audioPlaying
-        ? strings.audioPlaying
-        : transitioning
-        ? strings.starting
-        : model.active
-        ? strings.discoverable
-        : strings.off;
+    final client = model.clientName;
+    final status = switch (model.status) {
+      'error' => strings.receiverFailed,
+      'checking' => strings.loading,
+      'starting' => strings.starting,
+      'stopping' => strings.stopping,
+      'streaming' =>
+        model.videoPaused
+            ? strings.videoPaused
+            : model.hasVideo
+            ? strings.mirroring
+            : model.audioPlaying
+            ? strings.audioPlaying
+            : strings.connectionInProgress,
+      'waiting' => strings.waitingForConnection,
+      _ => strings.off,
+    };
+    final statusLabel = model.status == 'streaming' && client != null
+        ? '$status · $client'
+        : status;
     final labels = [
-      model.name,
-      status,
-      model.hasVideo ? '${model.videoWidth} × ${model.videoHeight}' : '',
-      model.hasVideo ? strings.showPlayer : strings.openApp,
-      strings.receive,
-      strings.disconnect,
+      model.receivingName,
+      statusLabel,
+      '',
+      strings.showWindow,
+      strings.disconnectConnection,
+      model.active ? strings.stopReceiver : strings.startReceiver,
+      '',
       _fullscreen ? strings.exitFullscreen : strings.enterFullscreen,
-      strings.actualSize,
-      strings.fitScreen,
       strings.alwaysOnTop,
-      strings.settings,
-      strings.logs,
+      '',
+      '${strings.settings}…',
+      '${strings.viewLogs}…',
+      '',
       strings.quitApp,
     ];
     for (var i = 0; i < _items.length; i++) {
       _items[i].label = labels[i];
       _items[i].isEnabled = switch (i) {
-        0 || 1 || 2 => false,
-        4 => !transitioning,
-        5 => model.status == 'streaming',
-        7 || 8 => model.hasVideo && !_expanded,
-        9 => model.hasVideo,
+        0 || 1 => false,
+        4 => model.status == 'streaming' && model.canStop,
+        5 => !transitioning && (model.canStart || model.canStop),
+        7 => model.hasVideo,
+        8 => model.hasVideo && model.editable,
         _ => true,
       };
     }
-    _items[4].state = model.active
+    _items[8].state = model.desktopOptions['alwaysOnTop']!
         ? native.MenuItemState.checked
         : native.MenuItemState.unchecked;
-    _items[9].state = model.desktopOptions['alwaysOnTop']!
-        ? native.MenuItemState.checked
-        : native.MenuItemState.unchecked;
-    tray.setTooltip('${model.name} · $status');
+    // Native menus have no shared visibility property. Keep item identities and
+    // positions stable during tracking, then reconcile membership after closing.
+    if (!_menuOpen) {
+      final visible = [
+        0,
+        1,
+        2,
+        3,
+        if (model.status == 'streaming') 4,
+        5,
+        if (model.hasVideo) ...[6, 7, 8],
+        9,
+        10,
+        11,
+        12,
+        13,
+      ];
+      for (var i = _visibleItems.length - 1; i >= 0; i--) {
+        if (!visible.contains(_visibleItems[i])) {
+          _menu!.removeItem(_items[_visibleItems.removeAt(i)]);
+        }
+      }
+      for (var i = 0; i < visible.length; i++) {
+        if (i >= _visibleItems.length || _visibleItems[i] != visible[i]) {
+          _menu!.insertItem(i, _items[visible[i]]);
+          _visibleItems.insert(i, visible[i]);
+        }
+      }
+      // Linux's exported D-Bus menu only announces changes when reattached.
+      // Publish the populated menu, and defer refreshes while it is tracking.
+      tray.setContextMenu(_menu);
+    }
+    tray.setTooltip('${model.receivingName} · $statusLabel');
     final index = model.status == 'error'
         ? 4
         : transitioning ||
@@ -467,6 +515,7 @@ class DesktopPresentation {
     for (var i = 0; i < _items.length; i++) {
       if (_itemListeners[i] != 0) _items[i].removeListener(_itemListeners[i]);
     }
+    if (_menuListener != null) _menu?.removeListener(_menuListener!);
     _menu?.clear();
     _menu?.dispose();
     for (final item in _items) {
@@ -478,8 +527,11 @@ class DesktopPresentation {
     _tray = null;
     _menu = null;
     _trayListener = null;
+    _menuListener = null;
+    _menuOpen = false;
     _trayVisible = false;
     _items.clear();
+    _visibleItems.clear();
     _itemListeners.clear();
     _images.clear();
   }

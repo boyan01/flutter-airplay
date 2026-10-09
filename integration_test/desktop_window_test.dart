@@ -383,6 +383,110 @@ void main() {
     await expectBaseline('final disconnect restores the saved idle frame');
   });
 
+  testWidgets(
+    'desktop tray follows receiver state and keeps sizing in the player',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      final backend = FakeReceiver(
+        autoStart: false,
+        capabilities: {
+          'platform': Platform.operatingSystem,
+          'nativeVideoSurface': Platform.isMacOS,
+        },
+      );
+      final model = ReceiverModel(backend);
+      await model.initialize();
+      const controller = WindowController();
+      final presentation = DesktopPresentation(
+        window: controller,
+        model: model,
+        onAction: (_, _) async {},
+        onError: (error) => fail('$error'),
+      );
+      addTearDown(() async {
+        presentation.dispose();
+        await controller.releaseNativeWindow();
+        model.dispose();
+        await backend.controller.close();
+      });
+      final strings = AppLocalizationsEn();
+      Future<void> update() async {
+        await tester.runAsync(() => presentation.update(strings));
+        await tester.pumpAndSettle();
+      }
+
+      Map<String, bool> readMenu() {
+        final menu = presentation.menuForTesting!;
+        final items = menu.allItems;
+        try {
+          return {
+            for (final item in items)
+              if (item.type != native.MenuItemType.separator)
+                item.label!: item.isEnabled,
+          };
+        } finally {
+          for (final item in items) {
+            item.dispose();
+          }
+        }
+      }
+
+      await update();
+      if (!native.TrayManager.instance.isSupported()) return;
+      expect(readMenu().keys, [
+        model.name,
+        'Receiver off',
+        'Show window',
+        'Start receiving',
+        'Settings…',
+        'View logs…',
+        'Quit Flutter AirPlay',
+      ]);
+      await model.start('Living room', '');
+      model.name = 'Next session';
+      await update();
+      expect(readMenu().keys.take(4), [
+        'Living room',
+        'Waiting for connection',
+        'Show window',
+        'Stop receiving',
+      ]);
+      backend.state('streaming');
+      backend.controller.add({'type': 'client', 'name': 'Test iPad'});
+      await update();
+      expect(readMenu(), containsPair('Connecting… · Test iPad', false));
+      expect(readMenu(), containsPair('Disconnect current connection', true));
+      model.busy = true;
+      await update();
+      expect(readMenu(), containsPair('Disconnect current connection', false));
+      expect(readMenu(), containsPair('Stop receiving', false));
+      model.busy = false;
+      frame(backend, 640, 360);
+      await update();
+      expect(readMenu(), containsPair('Mirroring · Test iPad', false));
+      expect(readMenu(), containsPair('Enter Full Screen', true));
+      expect(readMenu(), containsPair('Keep player on top', true));
+      expect(readMenu(), isNot(contains('Actual Size')));
+      expect(readMenu(), isNot(contains('Fit to Screen')));
+      media(backend);
+      await update();
+      expect(readMenu(), containsPair('Audio playing · Test iPad', false));
+      expect(readMenu(), isNot(contains('Enter Full Screen')));
+      expect(readMenu(), isNot(contains('Keep player on top')));
+      backend.state('stopping');
+      await update();
+      expect(readMenu(), containsPair('Stopping…', false));
+      expect(readMenu(), containsPair('Stop receiving', false));
+      expect(readMenu(), isNot(contains('Disconnect current connection')));
+      backend.state('error');
+      model.message = 'A long native diagnostic that belongs in logs';
+      await update();
+      expect(readMenu(), containsPair('Receiver failed', false));
+      expect(readMenu(), containsPair('Start receiving', true));
+      expect(readMenu(), isNot(contains(model.message)));
+    },
+  );
+
   testWidgets('shared desktop geometry, tray and session window policy', (
     tester,
   ) async {
@@ -543,6 +647,26 @@ void main() {
         nativeWindow.isVisible,
         isTrue,
       ); // showOnConnect shares the same native window.
+      final starts = backend.starts, stops = backend.stops;
+      await controller.execute(WindowCommand.closeWindow);
+      await tester.runAsync(() async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (nativeWindow.isVisible && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      });
+      expect(nativeWindow.isVisible, isFalse);
+      expect(model.hasVideo, isTrue);
+      expect(model.status, 'streaming');
+      expect(backend.starts, starts);
+      expect(backend.stops, stops);
+      await presentation.show();
+      await presentation.hide();
+      // Start another visible session to exercise automatic hiding separately.
+      backend.state('waiting');
+      await update();
+      frame(backend, 1920, 1080);
+      await update();
       media(backend);
       await update();
       await tester.runAsync(
@@ -553,10 +677,13 @@ void main() {
         model.audioPlaying,
         isTrue,
       ); // Automatic hiding must not disconnect audio.
+      expect(backend.stops, stops);
       await presentation.show();
       await tester.pumpAndSettle();
       expect(nativeWindow.isVisible, isTrue);
-      await presentation.hide(disconnect: false);
+      await presentation.hide();
+      expect(model.audioPlaying, isTrue);
+      expect(backend.stops, stops);
       await presentation.show();
       frame(backend, 1920, 1080);
       await update();

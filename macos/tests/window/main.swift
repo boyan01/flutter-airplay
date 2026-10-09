@@ -44,7 +44,7 @@ window.installTestObservers()
 window.makeKeyAndOrderFront(nil)
 window.hideOnClose = true
 window.close()
-require(window.isVisible && !delegate.receiver.disposed, "close-to-tray must defer hiding and disconnect to Dart")
+require(window.isVisible && !delegate.receiver.disposed, "close-to-tray must defer hiding to Dart without disposing the receiver")
 require(window.actions.contains("closeRequested"), "close must reach the shared policy")
 print("PASS: close interception preserves the receiver")
 NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)

@@ -10,6 +10,33 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get showWindow => '显示窗口';
+
+  @override
+  String get startReceiver => '启动接收';
+
+  @override
+  String get stopReceiver => '停止接收';
+
+  @override
+  String get disconnectConnection => '断开当前连接';
+
+  @override
+  String get receiverFailed => '接收失败';
+
+  @override
+  String get waitingForConnection => '等待连接';
+
+  @override
+  String get connectionInProgress => '正在连接…';
+
+  @override
+  String get mirroring => '正在投屏';
+
+  @override
+  String get playbackWindow => '播放窗口';
+
+  @override
   String get settings => '设置';
 
   @override

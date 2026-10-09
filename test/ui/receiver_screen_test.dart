@@ -64,6 +64,33 @@ void main() {
   }
 
   for (final platform in ['macos', 'windows', 'linux']) {
+    testWidgets(
+      '$platform player size menu stays usable in a narrow window with large text',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(360, 650));
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final backend = await launch(
+          tester,
+          platform: platform,
+          size: const Size(360, 650),
+        );
+        frame(backend);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.tap(find.byKey(const Key('playerWindowMenu')));
+        await tester.pumpAndSettle();
+        expect(find.text('实际大小'), findsOneWidget);
+        expect(find.text('适合屏幕'), findsOneWidget);
+        await tester.pump(const Duration(seconds: 4));
+        expect(find.byKey(const Key('disconnect')), findsOneWidget);
+        await tester.tap(find.text('实际大小'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(backend.stops, 0);
+      },
+    );
     testWidgets('$platform stationary controls and title hover pause hiding', (
       tester,
     ) async {
@@ -1859,7 +1886,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byKey(const Key('macWindowBar')), findsNothing);
       expect(find.byIcon(Icons.push_pin), findsNothing);
-      expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.more_horiz), findsOneWidget);
       expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
       await tester.tap(find.byIcon(Icons.fullscreen));
       expect(calls, contains('fullscreen:true'));
@@ -2040,6 +2067,16 @@ void main() {
         expect(backend.starts, 2);
         frame(backend);
         await tester.pumpAndSettle();
+        backend.saveFailure = 'Cannot save window preference';
+        await nativeCall('toggleOnTop');
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text('Cannot save window preference'),
+          ),
+          findsOneWidget,
+        );
+        backend.saveFailure = null;
         await nativeCall('toggleOnTop');
         expect(backend.savedOptions, containsPair('alwaysOnTop', true));
         expect(backend.stops, 1);
@@ -2048,6 +2085,16 @@ void main() {
         expect(backend.starts, 3);
         expect(find.byKey(const Key('playerPage')), findsNothing);
         expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
+        backend.failure = 'Cannot start receiver';
+        await nativeCall('toggleReceiver');
+        await nativeCall('toggleReceiver');
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text('Cannot start receiver'),
+          ),
+          findsOneWidget,
+        );
       },
     );
   }

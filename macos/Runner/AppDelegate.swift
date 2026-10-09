@@ -64,7 +64,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
       NSMenuItem(title: text(key), action: NSSelectorFromString(selector), keyEquivalent: shortcut)
     }
     submenu(text("editMenu"), edit)
-    submenu(text("receiverMenu"), [item("receive", #selector(toggleReceiver), "r"), item("disconnect", #selector(disconnectSession), ".")])
+    submenu(text("receiverMenu"), [item("startReceiver", #selector(toggleReceiver), "r"), item("disconnectConnection", #selector(disconnectSession), ".")])
     let fullscreen = NSMenuItem(title: text("enterFullscreen"), action: #selector(toggleFullscreen), keyEquivalent: "f")
     fullscreen.keyEquivalentModifierMask = [.control, .command]
     submenu(text("viewMenu"), [fullscreen, item("actualSize", #selector(actualSize), "0"), item("fitScreen", #selector(fitScreen), "9"), .separator(),
@@ -76,8 +76,12 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   }
 
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-    if menuItem.action == #selector(toggleReceiver) { menuItem.state = active ? .on : .off; return !transitioning }
-    if [#selector(disconnectSession), #selector(actualSize), #selector(fitScreen), #selector(toggleOnTop)].contains(menuItem.action) {
+    if menuItem.action == #selector(toggleReceiver) {
+      menuItem.title = text(active ? "stopReceiver" : "startReceiver")
+      return !transitioning
+    }
+    if menuItem.action == #selector(disconnectSession) { return snapshot["status"] as? String == "streaming" && !transitioning }
+    if [#selector(actualSize), #selector(fitScreen), #selector(toggleOnTop)].contains(menuItem.action) {
       if menuItem.action == #selector(toggleOnTop) { menuItem.state = preference("alwaysOnTop", default: false) ? .on : .off }
       return playing
     }

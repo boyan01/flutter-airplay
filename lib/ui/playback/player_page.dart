@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../receiver/receiver_model.dart';
+import '../../platform/window_controller.dart';
 import '../widgets/receiver_strings.dart';
 import '../widgets/control_interaction_region.dart';
 import '../tv_focus.dart';
@@ -23,9 +24,11 @@ class PlayerPage extends StatefulWidget {
     required this.dialogOpen,
     this.onControlsVisibility,
     this.controlsInteraction,
+    this.onWindowAction,
   });
   final ReceiverModel model;
   final VoidCallback onFullscreen, onEscape;
+  final ValueChanged<WindowAction>? onWindowAction;
   final bool dialogOpen;
   final ValueListenable<bool>? controlsInteraction;
   final ValueChanged<bool>? onControlsVisibility;
@@ -38,8 +41,11 @@ class _PlayerPageState extends State<PlayerPage> {
   final _continueFocus = FocusNode(debugLabel: 'Continue watching');
   Timer? _timer, _backTimer;
   bool _visible = false, _confirmBack = false, _interacting = false;
+  bool _windowMenuOpen = false;
   bool get _held =>
-      (widget.controlsInteraction?.value ?? false) || _interacting;
+      (widget.controlsInteraction?.value ?? false) ||
+      _interacting ||
+      _windowMenuOpen;
   bool get tv => widget.model.isTelevision;
   bool get mobile => widget.model.isMobile;
   Duration get _delay => Duration(
@@ -366,21 +372,50 @@ class _PlayerPageState extends State<PlayerPage> {
                                       : null,
                                 ),
                                 if (widget.model.supportsWindowPreferences)
-                                  action(
-                                    'playerAlwaysOnTop',
-                                    l10n(context).alwaysOnTop,
-                                    widget.model.desktopOptions['alwaysOnTop']!
-                                        ? Icons.push_pin
-                                        : Icons.push_pin_outlined,
-                                    () => widget.model.save(
-                                      widget.model.name,
-                                      widget.model.path,
-                                      desktopOptions: {
-                                        ...widget.model.desktopOptions,
-                                        'alwaysOnTop': !widget
-                                            .model
-                                            .desktopOptions['alwaysOnTop']!,
+                                  SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: PopupMenuButton<WindowAction>(
+                                      key: const Key('playerWindowMenu'),
+                                      enabled: widget.onWindowAction != null,
+                                      tooltip: l10n(context).playbackWindow,
+                                      icon: const Icon(
+                                        Icons.more_horiz,
+                                        color: Colors.white,
+                                      ),
+                                      onOpened: () {
+                                        _windowMenuOpen = true;
+                                        _timer?.cancel();
                                       },
+                                      onCanceled: () {
+                                        _windowMenuOpen = false;
+                                        _scheduleHide();
+                                      },
+                                      onSelected: (action) {
+                                        _windowMenuOpen = false;
+                                        _scheduleHide();
+                                        widget.onWindowAction?.call(action);
+                                      },
+                                      itemBuilder: (context) => [
+                                        PopupMenuItem(
+                                          value: WindowAction.actualSize,
+                                          child: Text(l10n(context).actualSize),
+                                        ),
+                                        PopupMenuItem(
+                                          value: WindowAction.fitScreen,
+                                          child: Text(l10n(context).fitScreen),
+                                        ),
+                                        CheckedPopupMenuItem(
+                                          value: WindowAction.toggleOnTop,
+                                          checked: widget
+                                              .model
+                                              .desktopOptions['alwaysOnTop']!,
+                                          enabled: widget.model.editable,
+                                          child: Text(
+                                            l10n(context).alwaysOnTop,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 SizedBox(

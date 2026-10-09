@@ -10,6 +10,33 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get showWindow => 'Show window';
+
+  @override
+  String get startReceiver => 'Start receiving';
+
+  @override
+  String get stopReceiver => 'Stop receiving';
+
+  @override
+  String get disconnectConnection => 'Disconnect current connection';
+
+  @override
+  String get receiverFailed => 'Receiver failed';
+
+  @override
+  String get waitingForConnection => 'Waiting for connection';
+
+  @override
+  String get connectionInProgress => 'Connecting…';
+
+  @override
+  String get mirroring => 'Mirroring';
+
+  @override
+  String get playbackWindow => 'Player window';
+
+  @override
   String get settings => 'Settings';
 
   @override

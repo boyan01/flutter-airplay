@@ -74,14 +74,13 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   Future<void> _windowAction(WindowAction action, bool expanded) async {
     try {
       if (!mounted) return;
+      var receiverCommand = false;
       if (action == WindowAction.quitApp) {
         await _window.execute(WindowCommand.quitApp);
       } else if (action == WindowAction.openApp) {
         await _desktop.show();
       } else if (action == WindowAction.closeRequested) {
-        await _desktop.hide(
-          disconnect: model.hasVideo || model.status == 'streaming',
-        );
+        await _desktop.hide();
       } else if (action == WindowAction.actualSize) {
         await _desktop.resize(actualSize: true);
       } else if (action == WindowAction.fitScreen) {
@@ -96,13 +95,19 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         await _logs();
       } else if (action == WindowAction.toggleReceiver) {
         if (model.canStop) {
+          receiverCommand = true;
           await model.stop();
         } else if (model.canStart) {
+          receiverCommand = true;
           await model.start(model.name, model.path);
         }
       } else if (action == WindowAction.disconnectSession) {
-        await model.disconnect();
-      } else if (action == WindowAction.toggleOnTop) {
+        if (model.status == 'streaming' && model.canStop) {
+          receiverCommand = true;
+          await model.disconnect();
+        }
+      } else if (action == WindowAction.toggleOnTop && model.editable) {
+        receiverCommand = true;
         await model.save(
           model.name,
           model.path,
@@ -112,8 +117,10 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
           },
         );
       } else if (action == WindowAction.toggleFullscreen) {
+        await _desktop.show();
         await _toggleFullscreen();
       } else if (action == WindowAction.enterFullscreen) {
+        await _desktop.show();
         await _toggleFullscreen(target: true);
       } else if (action == WindowAction.minimizeWindow) {
         await _window.execute(WindowCommand.minimizeWindow);
@@ -126,11 +133,30 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         );
         widget.onWindowExpanded?.call(expanded || current);
       }
+      if (receiverCommand && model.commandError != null && mounted) {
+        await _showActionError(
+          PlatformException(
+            code: 'receiver_error',
+            message: model.commandError,
+          ),
+        );
+      }
     } on MissingPluginException {
       // Widget tests do not have a desktop host.
     } on PlatformException catch (error) {
-      _windowError(error);
+      await _showActionError(error);
     }
+  }
+
+  Future<void> _showActionError(PlatformException error) async {
+    try {
+      await _desktop.show();
+    } on PlatformException {
+      // Keep the original operation failure if revealing the window also fails.
+    } on MissingPluginException {
+      // Widget tests do not have a desktop host.
+    }
+    _windowError(error);
   }
 
   @override
@@ -156,9 +182,13 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
 
   void _windowError(PlatformException error) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error.message ?? l10n(context).fullscreenFailed)),
-    );
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(error.message ?? l10n(context).fullscreenFailed),
+        ),
+      );
   }
 
   void _changed() {
@@ -246,13 +276,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     } on MissingPluginException {
       // A widget-test host has no native window.
     } on PlatformException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error.message ?? l10n(context).fullscreenFailed),
-          ),
-        );
-      }
+      await _showActionError(error);
     }
   }
 
@@ -282,6 +306,16 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
           const SingleActivator(LogicalKeyboardKey.period, control: true): () {
             if (!_dialogOpen && model.status == 'streaming') model.disconnect();
           },
+          const SingleActivator(LogicalKeyboardKey.digit0, control: true): () {
+            if (!_dialogOpen && model.hasVideo) {
+              _windowAction(WindowAction.actualSize, false);
+            }
+          },
+          const SingleActivator(LogicalKeyboardKey.digit9, control: true): () {
+            if (!_dialogOpen && model.hasVideo) {
+              _windowAction(WindowAction.fitScreen, false);
+            }
+          },
         },
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true):
             _toggleReceiver,
@@ -302,6 +336,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                 model: model,
                 onFullscreen: _toggleFullscreen,
                 onEscape: () => _toggleFullscreen(target: false),
+                onWindowAction: (action) => _windowAction(action, false),
                 dialogOpen: _dialogOpen,
                 controlsInteraction: widget.controlsInteraction,
                 onControlsVisibility: widget.onControlsVisibility,

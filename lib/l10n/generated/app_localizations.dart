@@ -98,6 +98,60 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @showWindow.
+  ///
+  /// In en, this message translates to:
+  /// **'Show window'**
+  String get showWindow;
+
+  /// No description provided for @startReceiver.
+  ///
+  /// In en, this message translates to:
+  /// **'Start receiving'**
+  String get startReceiver;
+
+  /// No description provided for @stopReceiver.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop receiving'**
+  String get stopReceiver;
+
+  /// No description provided for @disconnectConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect current connection'**
+  String get disconnectConnection;
+
+  /// No description provided for @receiverFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Receiver failed'**
+  String get receiverFailed;
+
+  /// No description provided for @waitingForConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for connection'**
+  String get waitingForConnection;
+
+  /// No description provided for @connectionInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get connectionInProgress;
+
+  /// No description provided for @mirroring.
+  ///
+  /// In en, this message translates to:
+  /// **'Mirroring'**
+  String get mirroring;
+
+  /// No description provided for @playbackWindow.
+  ///
+  /// In en, this message translates to:
+  /// **'Player window'**
+  String get playbackWindow;
+
   /// No description provided for @settings.
   ///
   /// In en, this message translates to:
