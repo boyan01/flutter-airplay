@@ -39,6 +39,11 @@ extension VideoSurface {
     var testPending: [CMSampleBuffer] { pending }
     var testEnqueued: Int { submitted }
     var testDropped: Int { dropped }
+    var testRenderReady: Bool { renderReady }
+    var testRenderFailed: Bool { renderStatus == .failed }
+    var testRecoveryState: String {
+        "dropped=\(dropped) enqueued=\(submitted) pending=\(pending.count) ready=\(renderReady) status=\(renderStatus.rawValue) error=\(renderError ?? "none")"
+    }
     var testMetricsEpoch: UInt64 { metricsEpoch }
     var testSystemMetrics: String? { systemMetrics }
     func testDrain(at presentationTime: CMTime? = nil) { drain(at: presentationTime) }
@@ -96,9 +101,26 @@ require(surface.testPending.dropLast().allSatisfy {
     CMTimeCompare(CMSampleBufferGetPresentationTimeStamp($0), recoveryTime) < 0
 } && CMTimeCompare(CMSampleBufferGetPresentationTimeStamp(surface.testPending.last!), recoveryTime) > 0,
         "Recovery timeline contains seven missed samples and one future sample")
+let recoverySurvivors = Array(surface.testPending.suffix(2))
 surface.testDrain(at: recoveryTime)
+require(surface.testDropped == 6 && surface.testEnqueued <= 2 &&
+        surface.testPending.count == 2 - surface.testEnqueued &&
+        zip(surface.testPending, recoverySurvivors.dropFirst(surface.testEnqueued)).allSatisfy { $0 === $1 },
+        "Recovery coalesces six missed samples and retains unsubmitted survivors (\(surface.testRecoveryState))")
+// Renderer backpressure can leave either survivor pending after the first drain.
+// Keep the main run loop blocked so scheduled real-time drains cannot race this
+// fixed-time fixture. Renderer readiness progresses on its own queue.
+let readinessDeadline = ProcessInfo.processInfo.systemUptime + 5
+while !surface.testPending.isEmpty && !surface.testRenderFailed &&
+      ProcessInfo.processInfo.systemUptime < readinessDeadline {
+    if surface.testRenderReady {
+        surface.testDrain(at: recoveryTime)
+    } else {
+        Thread.sleep(forTimeInterval: 0.005)
+    }
+}
 require(surface.testDropped == 6 && surface.testEnqueued == 2 && surface.testPending.isEmpty,
-        "Main thread recovery enqueues only the latest missed sample and preserves the future sample")
+        "Main thread recovery enqueues only the latest missed sample and preserves the future sample (\(surface.testRecoveryState))")
 if #available(macOS 14.4, *) {
     let epoch = surface.testMetricsEpoch
     let report = surface.diagnostics()!

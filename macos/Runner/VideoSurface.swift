@@ -132,6 +132,10 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
         if #available(macOS 14.0, *) { return displayLayer.sampleBufferRenderer.error?.localizedDescription }
         return displayLayer.error?.localizedDescription
     }
+    private var renderReady: Bool {
+        if #available(macOS 14.0, *) { return displayLayer.sampleBufferRenderer.isReadyForMoreMediaData }
+        return displayLayer.isReadyForMoreMediaData
+    }
     private func drain(at presentationTime: CMTime? = nil) {
         lock.lock(); defer { lock.unlock() }
         scheduled = false
@@ -152,10 +156,7 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
             if CMTimeGetSeconds(CMTimeSubtract(now, CMSampleBufferGetPresentationTimeStamp(pending[0]))) > 0.15 {
                 pending.removeFirst(); dropped += 1; continue
             }
-            let ready: Bool
-            if #available(macOS 14.0, *) { ready = displayLayer.sampleBufferRenderer.isReadyForMoreMediaData }
-            else { ready = displayLayer.isReadyForMoreMediaData }
-            guard ready else { break }
+            guard renderReady else { break }
             let sample = pending.removeFirst()
             if #available(macOS 14.0, *) { displayLayer.sampleBufferRenderer.enqueue(sample) }
             else { displayLayer.enqueue(sample) }
