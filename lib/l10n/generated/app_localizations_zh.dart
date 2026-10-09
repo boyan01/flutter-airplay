@@ -633,4 +633,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String updateLastChecked(String time) {
     return '上次检查：$time';
   }
+
+  @override
+  String get installUpdate => '安装更新';
+
+  @override
+  String get androidUpdateInstallHelp =>
+      'Android 将请求确认安装。如需授权，请在系统设置中允许此应用安装更新，返回后再次点击安装更新。安装会关闭应用。';
+
+  @override
+  String get androidUpdateInterruptMessage => '安装更新会关闭应用，将中断当前投屏。';
 }

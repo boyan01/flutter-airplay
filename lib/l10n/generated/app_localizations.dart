@@ -1297,6 +1297,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Last checked: {time}'**
   String updateLastChecked(String time);
+
+  /// No description provided for @installUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Install update'**
+  String get installUpdate;
+
+  /// No description provided for @androidUpdateInstallHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Android will ask you to confirm installation. If prompted, allow this app to install updates in system settings, then return and tap Install update again. Installation will close the app.'**
+  String get androidUpdateInstallHelp;
+
+  /// No description provided for @androidUpdateInterruptMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing this update will interrupt the current AirPlay connection and close Flutter AirPlay.'**
+  String get androidUpdateInterruptMessage;
 }
 
 class _AppLocalizationsDelegate

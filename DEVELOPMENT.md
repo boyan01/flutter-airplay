@@ -735,13 +735,30 @@ Linux 发布环境是 Ubuntu 24.04 x64，需要 `dpkg-dev`、`fakeroot`、`deskt
 包中包含图标、desktop 文件、完整 Flutter/native libraries、LICENSE 和第三方声明。
 `--skip-build` 仅打包已构建且版本一致的 Release bundle。
 
+### Android 应用内更新
+
+正式 Release 的 `appcast.xml` 在原有 macOS item 内增加 `airplay:android` 扩展字段，
+包含 APK 的实际 `versionCode`、地址、大小和 SHA-256。Android job 从已构建 APK 读取版本号；
+发布阶段将扩展写入同一 feed，不额外发布 Android 更新文件。未包含签名 APK 的版本没有该扩展。
+Dart 从 `package_info_plus` 读取当前版本，复用更新检查调度和面板，负责读取 XML、下载和文件校验；
+原生只提供安装入口，在安装前检查 APK 包名、
+版本和签名证书，并通过 FileProvider 调用系统安装器。更新 APK 必须使用相同正式签名密钥；
+当前验证要求签名证书完全一致，未实现签名密钥轮换。Debug 构建禁用更新。
+下载不主动弹窗，关闭面板继续下载；取消下载丢弃未完成文件。TV 面板固定底部操作，说明区支持遥控器上下滚动。安装需要用户操作，
+首次可能需在系统设置允许安装此来源的应用，返回后再次点击安装更新。安装会中断接收并关闭应用。
+
+运行 `flutter test test/platform/ test/ui/app_update_dialog_test.dart test/ui/app_update_settings_test.dart`
+及 `python3 -m unittest discover -s scripts/tests -p 'test_*release*.py'` 检查共享更新逻辑和 feed。
+真实验收需用同一正式密钥签名的两个递增版本，在手机和 TV 验证授权、取消、覆盖安装和设置保留。
+系统安装界面需验证遥控器操作；宿主编译和 fixture 测试不能替代真实安装验收。
+
 ### macOS Sparkle 更新签名配置
 
 macOS 通过固定的 Sparkle 2.10.0 SPM 依赖更新，feed 为
 `https://github.com/boyan01/flutter-airplay/releases/latest/download/appcast.xml`。
 appcast 的版本使用整数 `CFBundleVersion`，显示版本使用 `CFBundleShortVersionString`；
 最低系统为 12.0，下载地址指向具体 `vMAJOR.MINOR.PATCH` Release 的现有 arm64 DMG，
-release notes 链接到同一 Release。Windows、Linux、Android 和 iPad 没有此安装流程。
+release notes 链接到同一 Release。Windows、Linux 和 iPad 没有此安装流程。Android 共用 feed，使用独立的 APK 安装流程。
 检查状态、版本说明、下载进度和安装操作统一由 Flutter 更新面板呈现；原生使用自定义
 `SPUUserDriver`，不显示 Sparkle 标准窗口。关闭面板只关闭展示，取消下载需明确点击取消；
 下载和解压完成后等待“安装并重启”，投屏中的最后退出确认及正常资源清理仍保留。

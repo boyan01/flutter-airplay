@@ -4,6 +4,7 @@ import 'package:flutter_airplay/app/app_theme.dart';
 import 'package:flutter_airplay/l10n/generated/app_localizations.dart';
 import 'package:flutter_airplay/platform/app_updates.dart';
 import 'package:flutter_airplay/ui/updates/app_update_dialog.dart';
+import 'package:flutter_airplay/ui/tv_focus.dart';
 import 'package:flutter_airplay/ui/widgets/system_fonts.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -68,11 +69,19 @@ void main() {
     WidgetTester tester,
     _FakeUpdates updates, {
     bool connected = false,
+    bool television = false,
     Locale locale = const Locale('en'),
     ThemeData? theme,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) =>
+            TvFocusScope(enabled: television, child: child!),
+        shortcuts: {
+          ...WidgetsApp.defaultShortcuts,
+          const SingleActivator(LogicalKeyboardKey.select):
+              const ActivateIntent(),
+        },
         theme: theme,
         locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -87,6 +96,7 @@ void main() {
                   updates: updates,
                   currentVersion: '1.0.0',
                   connected: connected,
+                  television: television,
                 ),
               ),
               child: const Text('Open'),
@@ -113,6 +123,91 @@ void main() {
         matching: find.byType(Material),
       )
       .first;
+
+  testWidgets(
+    'TV remote scrolls notes with fixed actions and Back preserves download',
+    (tester) async {
+      tester.view.physicalSize = const Size(640, 360);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final updates = _FakeUpdates()
+        ..status = UpdateStatus.available
+        ..version = '0.1.6'
+        ..releaseNotes = List.generate(
+          40,
+          (index) => 'Release note $index',
+        ).join('\n');
+      await open(tester, updates, television: true);
+      final primaryFinder = find.byKey(const Key('appUpdatePrimaryAction'));
+      expect(tester.getRect(primaryFinder).bottom, lessThan(360));
+      expect(
+        FocusManager.instance.primaryFocus!.context!
+            .findAncestorWidgetOfExactType<IconButton>()
+            ?.key,
+        const Key('closeAppUpdate'),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      final contentFocus = Focus.of(
+        tester.element(find.byKey(const Key('appUpdateReleaseNotes'))),
+      );
+      expect(contentFocus.hasPrimaryFocus, isTrue);
+      final scrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const Key('appUpdateDialog')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(scrollable.position.pixels, greaterThan(0));
+      expect(tester.getRect(primaryFinder).bottom, lessThan(360));
+      scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(contentFocus.hasPrimaryFocus, isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(updates.installs, 1);
+      expect(find.byKey(const Key('cancelAppUpdate')), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AppUpdateDialog), findsNothing);
+      expect(updates.status, UpdateStatus.downloading);
+      expect(updates.cancels, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Android installation uses system confirmation text without restart promise',
+    (tester) async {
+      final updates = _FakeUpdates()
+        ..requiresSystemInstall = true
+        ..status = UpdateStatus.ready
+        ..version = '0.1.6';
+      addTearDown(updates.dispose);
+      await open(tester, updates, connected: true);
+      expect(find.text('Install update'), findsOneWidget);
+      expect(find.text('Install and restart'), findsNothing);
+      expect(
+        find.textContaining('Android will ask you to confirm installation.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Installing this update will interrupt the current AirPlay connection and close Flutter AirPlay.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('available update downloads and renders release notes as text', (
     tester,

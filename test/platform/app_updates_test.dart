@@ -382,10 +382,27 @@ void main() {
     updates.dispose();
   });
 
+  testWidgets('Android shares update scheduling and uses system installation', (
+    tester,
+  ) async {
+    final service = FakeUpdateService();
+    final updates = AppUpdates(
+      service: service,
+      preferences: MemoryPreferences(),
+    );
+    await updates.initialize('android');
+    expect(service.initializations, 1);
+    expect(updates.supported, isTrue);
+    expect(updates.requiresSystemInstall, isTrue);
+    await tester.pump(const Duration(seconds: 30));
+    expect(service.checks, 1);
+    updates.dispose();
+  });
+
   testWidgets('unsupported hosts never touch the native channel', (
     tester,
   ) async {
-    for (final platform in ['windows', 'linux', 'ios', 'android']) {
+    for (final platform in ['windows', 'linux', 'ios']) {
       final service = FakeUpdateService();
       final updates = AppUpdates(
         service: service,

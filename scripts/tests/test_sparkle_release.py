@@ -50,6 +50,32 @@ class SparkleTests(unittest.TestCase):
             release.appcast(self.app, self.dmg)
         return self.root / 'appcast.xml'
 
+    def test_android_extension_preserves_macos_metadata_and_shared_notes(self):
+        feed = self.make_feed()
+        before = release.read_appcast(feed.read_bytes())
+        apk = self.root / 'Flutter-AirPlay-1.2.3-android-arm64.apk'
+        apk.write_bytes(b'APK fixture')
+        release.add_android_appcast(feed, apk, '1.2.3', '4004')
+        item, enclosure, short, build = release.read_appcast(feed.read_bytes())
+        self.assertEqual((short, build), ('1.2.3', 4))
+        self.assertEqual(enclosure.attrib, before[1].attrib)
+        self.assertEqual(item.findtext('description'), before[0].findtext('description'))
+        android = item.find(f'{{{release.ANDROID_NS}}}android')
+        self.assertEqual(android.get('versionCode'), '4004')
+        self.assertEqual(android.get('length'), str(apk.stat().st_size))
+        self.assertEqual(android.get('sha256'), release.hashlib.sha256(apk.read_bytes()).hexdigest())
+        self.assertTrue(android.get('url').endswith(apk.name))
+        before_retry = feed.read_bytes()
+        release.add_android_appcast(feed, apk, '1.2.3', '4004')
+        self.assertEqual(feed.read_bytes(), before_retry)
+        with self.assertRaises(ValueError):
+            release.add_android_appcast(feed, apk, '1.2.3', '4005')
+
+    def test_android_extension_requires_actual_apk_build(self):
+        feed = self.make_feed()
+        with self.assertRaises(ValueError):
+            release.add_android_appcast(feed, self.root / 'missing.apk', '1.2.3', '')
+
     def test_appcast_metadata_uses_bundle_build_and_exact_release_url(self):
         feed = self.make_feed()
         item, enclosure, short, build = release.read_appcast(feed.read_bytes())

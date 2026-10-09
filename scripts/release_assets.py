@@ -342,6 +342,33 @@ def appcast(app, dmg):
     validate_appcast(feed, dmg, current, build, public)
 
 
+ANDROID_NS = 'https://github.com/boyan01/flutter-airplay/updates'
+ET.register_namespace('airplay', ANDROID_NS)
+
+
+def add_android_appcast(feed, apk, current, version_code):
+    if not re.fullmatch(r'[1-9][0-9]*', version_code or ''):
+        raise ValueError('Android release job must report the actual APK versionCode.')
+    item, _, short, _ = read_appcast(feed.read_bytes())
+    if short != current:
+        raise ValueError('Unexpected Android appcast version.')
+    tree = ET.parse(feed)
+    item = tree.find('./channel/item')
+    attributes = {
+        'version': current, 'versionCode': version_code,
+        'url': f'https://github.com/{REPOSITORY}/releases/download/v{current}/{apk.name}',
+        'length': str(apk.stat().st_size), 'sha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
+    }
+    existing = item.findall(f'{{{ANDROID_NS}}}android')
+    if existing:
+        if len(existing) != 1 or existing[0].attrib != attributes:
+            raise ValueError('Existing Android appcast metadata does not match this APK.')
+        return
+    ET.SubElement(item, f'{{{ANDROID_NS}}}android', attributes)
+    ET.indent(tree)
+    tree.write(feed, encoding='utf-8', xml_declaration=True)
+
+
 def asset_names(current, signed):
     prefix = f'Flutter-AirPlay-{current}'
     names = [f'{prefix}-linux-x64.deb', f'{prefix}-linux-x64-bundle.tar.gz',
@@ -394,6 +421,10 @@ def publish():
     decode_key(public, 'SPARKLE_PUBLIC_KEY', 32)
     signed = signed_text == 'true'
     directory = ROOT / 'build/release-assets'
+    if signed:
+        add_android_appcast(directory / 'appcast.xml',
+                            directory / f'Flutter-AirPlay-{current}-android-arm64.apk',
+                            current, os.environ.get('ANDROID_VERSION_CODE', ''))
     files = collect(directory, current, signed)
     validate_appcast(directory / 'appcast.xml', directory / f'Flutter-AirPlay-{current}-macos-arm64.dmg', current, build_number(), public, required_notes=True)
     # Listing avoids treating an authorization/network failure as a missing release.

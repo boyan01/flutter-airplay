@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'android_app_updates.dart';
+
 enum UpdateStatus {
   idle,
   checking,
@@ -70,7 +72,11 @@ class AppUpdates extends ChangeNotifier {
     this.startupDelay = const Duration(seconds: 30),
     this.checkInterval = const Duration(hours: 24),
     this.retryInterval = const Duration(hours: 1),
-  }) : _service = service ?? AppUpdateService(),
+  }) : _service =
+           service ??
+           (defaultTargetPlatform == TargetPlatform.android
+               ? AndroidAppUpdateService()
+               : AppUpdateService()),
        _preferences = preferences ?? AppUpdatePreferences(),
        _now = now ?? DateTime.now;
 
@@ -86,6 +92,7 @@ class AppUpdates extends ChangeNotifier {
   int _eventRevision = 0;
   int _nativeRevision = -1;
   bool initialized = false, supported = false, enabled = false;
+  bool requiresSystemInstall = false;
   bool automaticallyCheckForUpdates = true, savingPreference = false;
   UpdateStatus status = UpdateStatus.idle;
   String? version, error, unavailableReason, releaseNotes;
@@ -102,7 +109,8 @@ class AppUpdates extends ChangeNotifier {
 
   Future<void> initialize(String platform) async {
     if (initialized || _initializing || _disposed) return;
-    supported = platform == 'macos';
+    requiresSystemInstall = platform == 'android';
+    supported = platform == 'macos' || platform == 'android';
     if (!supported) {
       initialized = true;
       notifyListeners();

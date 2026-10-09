@@ -72,12 +72,15 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
         bridge?.nativeSurfaceDestroyed(this)
     }
 
+    private var updateInstaller: AppUpdateInstaller? = null
     private var presentation: MethodChannel? = null
     private var bridge: ReceiverBridge? = null
     override fun provideFlutterEngine(context: Context): FlutterEngine = ReceiverService.engine(context)
     override fun shouldDestroyEngineWithHost(): Boolean = false
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        updateInstaller = AppUpdateInstaller(this, MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger, "tech.soit.flutterairplay/androidUpdates"))
         bridge = ReceiverService.bridge(this)
         presentation = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tech.soit.flutterairplay/window").also { channel ->
             channel.setMethodCallHandler { call, result ->
@@ -130,6 +133,8 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
     override fun onDestroy() {
         bridge?.nativeSurfaceDestroyed(this)
         playbackSurface = null
+        updateInstaller?.dispose()
+        updateInstaller = null
         presentation?.setMethodCallHandler(null)
         presentation = null
         bridge?.detach(this)

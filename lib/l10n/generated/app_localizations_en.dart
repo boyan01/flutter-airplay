@@ -656,4 +656,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String updateLastChecked(String time) {
     return 'Last checked: $time';
   }
+
+  @override
+  String get installUpdate => 'Install update';
+
+  @override
+  String get androidUpdateInstallHelp =>
+      'Android will ask you to confirm installation. If prompted, allow this app to install updates in system settings, then return and tap Install update again. Installation will close the app.';
+
+  @override
+  String get androidUpdateInterruptMessage =>
+      'Installing this update will interrupt the current AirPlay connection and close Flutter AirPlay.';
 }

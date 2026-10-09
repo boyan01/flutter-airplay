@@ -426,6 +426,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
             updates: updates,
             currentVersion: model.buildVersion,
             connected: model.status == 'streaming',
+            television: model.isTelevision,
           ),
         ),
       );

@@ -276,5 +276,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "installUpdate": "Install update",
+  "androidUpdateInstallHelp": "Android will ask you to confirm installation. If prompted, allow this app to install updates in system settings, then return and tap Install update again. Installation will close the app.",
+  "androidUpdateInterruptMessage": "Installing this update will interrupt the current AirPlay connection and close Flutter AirPlay."
 }

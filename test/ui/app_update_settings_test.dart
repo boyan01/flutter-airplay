@@ -265,7 +265,7 @@ void main() {
   });
 
   for (final platform in ['macos', 'windows', 'linux', 'android', 'ios']) {
-    testWidgets('$platform settings expose updates only on macos', (
+    testWidgets('$platform settings expose supported update hosts', (
       tester,
     ) async {
       final backend = FakeReceiver(
@@ -286,9 +286,9 @@ void main() {
       await open(tester, updates, model: model);
       expect(
         find.byType(AppUpdateSettings),
-        platform == 'macos' ? findsOneWidget : findsNothing,
+        ['macos', 'android'].contains(platform) ? findsOneWidget : findsNothing,
       );
-      if (platform == 'macos') {
+      if (['macos', 'android'].contains(platform)) {
         await tester.ensureVisible(find.byType(AppUpdateSettings));
         await tester.pump();
         expect(automatic(tester).onChanged, isNotNull);

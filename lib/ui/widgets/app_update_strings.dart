@@ -8,7 +8,11 @@ String updateActionLabel(
   bool tray = false,
 }) {
   if (updates.checking) return strings.checkingForUpdates;
-  if (updates.status == UpdateStatus.ready) return strings.installAndRestart;
+  if (updates.status == UpdateStatus.ready) {
+    return (updates.requiresSystemInstall
+        ? strings.installUpdate
+        : strings.installAndRestart);
+  }
   if (updates.status == UpdateStatus.extracting) return strings.preparingUpdate;
   if (updates.status == UpdateStatus.installing) {
     return strings.installingUpdate;

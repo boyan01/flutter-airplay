@@ -269,5 +269,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "installUpdate": "安装更新",
+  "androidUpdateInstallHelp": "Android 将请求确认安装。如需授权，请在系统设置中允许此应用安装更新，返回后再次点击安装更新。安装会关闭应用。",
+  "androidUpdateInterruptMessage": "安装更新会关闭应用，将中断当前投屏。"
 }

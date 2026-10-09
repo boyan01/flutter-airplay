@@ -48,7 +48,10 @@ class AppUpdateSettings extends StatelessWidget {
           ? strings.checkForUpdates
           : switch (updates.status) {
               UpdateStatus.idle => strings.checkForUpdates,
-              UpdateStatus.ready => strings.installAndRestart,
+              UpdateStatus.ready =>
+                (updates.requiresSystemInstall
+                    ? strings.installUpdate
+                    : strings.installAndRestart),
               UpdateStatus.error =>
                 showUpdate ? strings.viewUpdate : strings.retryUpdateCheck,
               _ => status,

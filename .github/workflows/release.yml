@@ -169,6 +169,7 @@ jobs:
     environment: android-release
     outputs:
       signed: ${{ steps.signing.outputs.configured }}
+      version_code: ${{ steps.apk_metadata.outputs.version_code }}
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       with:
@@ -233,11 +234,15 @@ jobs:
         GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.configuration-cache=false
       run: flutter build apk --release --target-platform android-arm64
     - name: Name Android APK
+      id: apk_metadata
       if: steps.signing.outputs.configured == 'true'
       env:
         RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       run: |
         apk=build/app/outputs/flutter-apk/app-release.apk
+        version_code=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | sed -n "s/^package:.*versionCode='\([0-9]*\)'.*/\1/p")
+        [[ "$version_code" =~ ^[1-9][0-9]*$ ]] || exit 1
+        echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
         mkdir -p build/distribution/android
         cp "$apk" "build/distribution/android/Flutter-AirPlay-$RELEASE_VERSION-android-arm64.apk"
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -275,5 +280,6 @@ jobs:
         RELEASE_TAG: ${{ github.ref_name }}
         RELEASE_SHA: ${{ github.sha }}
         ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
+        ANDROID_VERSION_CODE: ${{ needs.android.outputs.version_code }}
         SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
       run: python3 -I scripts/release_assets.py publish
