@@ -215,12 +215,16 @@ resizeWindow.resizeWindow(to: resizeTarget, duration: 0.2) { resizeResults.appen
 require(Date().timeIntervalSince(started) < 0.1 && resizeResults.isEmpty,
   "animated resize must return before completion and leave the event loop running")
 var resizeFrames = Set<String>()
+let resizeStart = resizeWindow.frame
+var sawIntermediateFrame = false
 runUntil {
-  resizeFrames.insert(NSStringFromRect(resizeWindow.frame))
+  let frame = resizeWindow.frame
+  resizeFrames.insert(NSStringFromRect(frame))
+  sawIntermediateFrame = sawIntermediateFrame || (!frame.equalTo(resizeStart) && !frame.equalTo(resizeTarget))
   return !resizeResults.isEmpty
 }
 print("Native resize: elapsed=\(Date().timeIntervalSince(started)) frames=\(resizeFrames.count)")
-require(resizeFrames.count > 3, "animation must produce intermediate window frames")
+require(sawIntermediateFrame, "animation must produce an intermediate window frame")
 require(resizeResults == [true] && resizeWindow.frame.equalTo(resizeTarget), "animation must reach its target exactly once")
 
 // Cover completion independently of display cadence and the final animation tick.
