@@ -10,6 +10,8 @@ import 'package:nativeapi/nativeapi.dart' as native;
 import '../l10n/generated/app_localizations.dart';
 import '../receiver/receiver_model.dart';
 import 'window_controller.dart';
+import 'app_updates.dart';
+import '../ui/widgets/app_update_strings.dart';
 import 'desktop_window_sizing.dart';
 import 'desktop_tray_icon.dart';
 
@@ -21,11 +23,13 @@ class DesktopPresentation {
     required this.model,
     required this.onAction,
     required this.onError,
+    this.updates,
   });
 
   final void Function(PlatformException) onError;
   final WindowController window;
   final ReceiverModel model;
+  final AppUpdates? updates;
   final Future<void> Function(WindowAction, bool) onAction;
   native.TrayIcon? _tray;
   native.Menu? _menu;
@@ -75,6 +79,12 @@ class DesktopPresentation {
       model.videoPaused,
       model.busy,
       model.desktopOptions,
+      updates?.initialized,
+      updates?.enabled,
+      updates?.status.name,
+      updates?.version,
+      updates?.canCheck,
+      updates?.canShowUpdate,
     ]);
     if (signature == _signature) {
       return Future.wait([_pending, geometry]).then((_) {});
@@ -380,6 +390,7 @@ class DesktopPresentation {
       add(null, type: native.MenuItemType.separator);
       // Exit stays on the host so receiver teardown completes before termination.
       add(WindowAction.quitApp);
+      add(WindowAction.checkForUpdates);
       _menuListener = _menu!.addListener((event) {
         if (event is native.MenuOpenedEvent) _menuOpen = true;
         if (event is native.MenuClosedEvent) {
@@ -430,6 +441,9 @@ class DesktopPresentation {
       '${strings.viewLogs}…',
       '',
       strings.quitApp,
+      updates == null
+          ? strings.checkForUpdates
+          : updateActionLabel(strings, updates!, tray: true),
     ];
     for (var i = 0; i < _items.length; i++) {
       _items[i].label = labels[i];
@@ -439,6 +453,7 @@ class DesktopPresentation {
         5 => !transitioning && (model.canStart || model.canStop),
         7 => model.hasVideo,
         8 => model.hasVideo && model.editable,
+        14 => updates != null && updates!.initialized,
         _ => true,
       };
     }
@@ -458,6 +473,7 @@ class DesktopPresentation {
         if (model.hasVideo) ...[6, 7, 8],
         9,
         10,
+        if (model.platform == 'macos' && updates != null) 14,
         11,
         12,
         13,

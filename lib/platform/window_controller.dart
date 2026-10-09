@@ -39,6 +39,8 @@ enum WindowAction {
   windowTransitionStarted,
   nativeWindowStateChanged,
   quitApp,
+  checkForUpdates,
+  updateCheckDue,
 }
 
 /// System interaction stays here; navigation and focus stay in the shared UI.

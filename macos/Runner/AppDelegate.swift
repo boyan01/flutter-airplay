@@ -6,6 +6,7 @@ import IOKit.pwr_mgt
 @main
 class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   let receiver = ReceiverBridge()
+  let updates = UpdateBridge()
   var keepRunningWithoutWindow = false
   private var desktopLaunchSource: DesktopLaunchSource?
   private var snapshot: [String: Any] = [:]
@@ -57,7 +58,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
       let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
       let menu = NSMenu(title: title); children.forEach { menu.addItem($0) }; parent.submenu = menu; main.addItem(parent)
     }
-    submenu("Flutter AirPlay", [item("about", #selector(about), ""), item("settings", #selector(openSettings), ","), .separator(),
+    submenu("Flutter AirPlay", [item("about", #selector(about), ""), item("checkForUpdates", #selector(checkForUpdates), ""), item("settings", #selector(openSettings), ","), .separator(),
       item("hideApp", #selector(hideApp), "h"), item("hideOthers", #selector(hideOthers), "h", modifiers: [.option, .command]),
       item("showAll", #selector(showAll), ""), .separator(), item("quitApp", #selector(quitApp), "q")])
     let edit = [("undo", "undo:", "z"), ("redo", "redo:", "Z"), ("cut", "cut:", "x"), ("copy", "copy:", "c"), ("paste", "paste:", "v"), ("selectAll", "selectAll:", "a")].map { key, selector, shortcut -> NSMenuItem in
@@ -91,6 +92,7 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   @objc func openApp() {
     window?.showApp()
   }
+  @objc func checkForUpdates() { window?.openFlutterPanel("checkForUpdates") }
   @objc func openSettings() { window?.openFlutterPanel("openSettings") }
   @objc func openLogs() { window?.openFlutterPanel("openLogs") }
   @objc func toggleReceiver() { window?.openFlutterPanel("toggleReceiver") }
@@ -116,7 +118,12 @@ class AppDelegate: FlutterAppDelegate, NSMenuItemValidation {
   @objc func quitApp() { NSApp.terminate(nil) }
   override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { openApp(); return true }
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !keepRunningWithoutWindow }
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard updates.shouldTerminate(receiver: receiver, text: text) != .terminateCancel else { return .terminateCancel }
+    return super.applicationShouldTerminate(sender)
+  }
   override func applicationWillTerminate(_ notification: Notification) {
+    updates.dispose()
     if hasDisplayAssertion { IOPMAssertionRelease(displayAssertion) }
     receiver.dispose()
   }

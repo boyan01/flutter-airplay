@@ -16,12 +16,17 @@ class MacPackagingTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        self.root = Path(self.directory.name).resolve()
         self.app = self.root / 'Installed App/Flutter AirPlay.app'
         self.executable = self.app / 'Contents/MacOS/Flutter AirPlay'
         self.frameworks = self.app / 'Contents/Frameworks'
+        self.sparkle_paths = [self.frameworks / 'Sparkle.framework/Versions/B' / name for name in (
+            'Sparkle', 'Autoupdate', 'Updater.app/Contents/MacOS/Updater',
+            'XPCServices/Downloader.xpc/Contents/MacOS/Downloader',
+            'XPCServices/Installer.xpc/Contents/MacOS/Installer')]
         self.paths = [self.executable, *(self.frameworks / name for name in (
-            'libairplay_player.dylib', 'App.framework/App', 'FlutterMacOS.framework/FlutterMacOS'))]
+            'libairplay_player.dylib', 'App.framework/App', 'FlutterMacOS.framework/FlutterMacOS')),
+            *self.sparkle_paths]
         for path in self.paths:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'fixture')
@@ -29,6 +34,8 @@ class MacPackagingTests(unittest.TestCase):
                      'CFBundleShortVersionString': '1.2.3', 'CFBundleVersion': '4',
                      'NSLocalNetworkUsageDescription': 'Receive', 'NSBonjourServices': ['_airplay._tcp', '_raop._tcp']}
         self.write_info()
+        for path in self.sparkle_paths[2:]:
+            (path.parent.parent / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable': path.name}))
         self.assets = self.frameworks / 'App.framework/Resources/flutter_assets'
         for path in (self.root / 'assets/licenses/license.txt', self.assets / 'assets/licenses/license.txt',
                      self.assets / 'NOTICES.Z'):
@@ -49,6 +56,7 @@ class MacPackagingTests(unittest.TestCase):
         for patcher in (patch.object(audit, 'ROOT', self.root),
                         patch.object(audit, 'binaries', return_value=self.paths),
                         patch.object(audit, 'output', side_effect=self.output),
+                        patch.object(audit, 'signature_options', return_value=({}, False)),
                         patch.object(audit.subprocess, 'run'),
                         patch.object(audit.subprocess, 'check_output', return_value=plistlib.dumps(self.entitlements))):
             patcher.start()
@@ -61,13 +69,31 @@ class MacPackagingTests(unittest.TestCase):
         if args[0].endswith('lipo'):
             return self.arch
         if args[1] == '-l':
-            return 'cmd LC_RPATH\ncmdsize 48\npath @executable_path/../Frameworks (offset 12)\n'
+            framework_root = '@executable_path/../Frameworks'
+            if Path(args[2]) in self.sparkle_paths[2:]:
+                framework_root = str(self.frameworks)
+            return f'cmd LC_RPATH\ncmdsize 48\npath {framework_root} (offset 12)\n'
         if args[1] == '-D':
             return str(args[2]) + ':\n'
         return f'{args[2]}:\n\t{self.dependency} (compatibility version 1.0.0, current version 1.0.0)\n'
 
     def test_valid_bundle(self):
         audit.audit(self.app)
+
+    def test_rejects_missing_sparkle_framework_and_helpers(self):
+        for path in self.sparkle_paths:
+            with self.subTest(binary=path.name):
+                path.unlink()
+                with self.assertRaisesRegex(ValueError, 'Required application binary missing'):
+                    audit.audit(self.app)
+                path.write_bytes(b'fixture')
+
+    def test_rejects_non_macho_sparkle_framework_and_helpers(self):
+        for path in self.sparkle_paths:
+            with self.subTest(binary=path.name), patch.object(audit, 'binaries', return_value=[
+                    binary for binary in self.paths if binary != path]):
+                with self.assertRaisesRegex(ValueError, 'Required application binary missing'):
+                    audit.audit(self.app)
 
     def test_rejects_wrong_architecture(self):
         self.arch = 'x86_64'
@@ -147,6 +173,32 @@ class MacPackagingTests(unittest.TestCase):
         self.assertEqual(commands[0], ['/usr/bin/install_name_tool', '-delete_rpath', '/usr/local/lib/.', str(self.paths[0])])
         self.assertEqual(commands[1][:4], ['/usr/bin/codesign', '--force', '--sign', '-'])
         self.assertEqual(sum(command[0].endswith('install_name_tool') for command in commands), len(self.paths))
+
+    def test_nested_sparkle_helper_resolves_its_own_executable_path(self):
+        helper = self.frameworks / 'Sparkle.framework/Versions/B/Updater.app'
+        executable = helper / 'Contents/MacOS/Updater'
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_bytes(b'fixture')
+        (helper / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'Updater'}))
+        self.assertEqual(audit.loader_path('@executable_path', executable, self.app), executable.parent)
+        self.assertEqual(audit.loader_path('@executable_path/../Frameworks', executable, self.app), executable.parent / '../Frameworks')
+
+    def test_signing_preserves_nested_sandbox_entitlements_and_runtime(self):
+        nested = {'com.apple.security.app-sandbox':True}
+        signed = []
+        def run(command, **kwargs):
+            if '--force' in command:
+                entitlements = {}
+                if '--entitlements' in command:
+                    entitlements = plistlib.loads(Path(command[command.index('--entitlements') + 1]).read_bytes())
+                signed.append((command, entitlements))
+        with patch.object(audit, 'signature_options', return_value=(nested, True)), \
+                patch.object(audit, 'raw_rpaths', return_value=[]), patch.object(audit.subprocess, 'run', side_effect=run):
+            audit.sign(self.app)
+        self.assertTrue(all('--options' in command and 'runtime' in command for command, _ in signed))
+        self.assertEqual(signed[0][1], nested)
+        self.assertEqual(signed[-1][1], self.entitlements)
+        self.assertEqual(signed[-1][0][-1], str(self.app))
 
     def test_signs_inside_out_without_deep_signing(self):
         with patch.object(audit.subprocess, 'run') as run:

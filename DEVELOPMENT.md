@@ -441,6 +441,10 @@ macOS 标题栏双击遵循 Zoom、Minimize、None 偏好；新 Fill 偏好暂�
 链路，读取真实 OS 窗口，覆盖投屏前尺寸/位置恢复、iPad 后立即连接 iPhone、连续旋转、
 暂停/解码重置，以及全屏期间更新后退出。Dart 单元测试另覆盖手动缩放、减少动态效果、
 取消动画、DPI 与多屏边界。三端 CI 都运行桌面集成测试；Linux 使用隔离 Xvfb/Openbox/D-Bus。
+`integration_test/desktop_updates_test.dart` 在 macOS 运行真实窗口和托盘，以模拟更新结果验证
+默认开关、设置中的单一入口、窗口栏图标、托盘菜单和连接中的 Flutter 更新面板，覆盖下载、关闭后继续下载、取消及等待安装；同时调用真实宿主初始化验证配置状态。
+该用例不安装更新；可追加 `--dart-define=AIRPLAY_UPDATE_SCREENSHOTS=true` 导出应用自身渲染截图到
+`artifacts/updates-ui/`，不依赖系统屏幕录制权限。
 这些用例使用合成视频事件，不验证真实 AirPlay 设备或解码画面；macOS/Windows 的实际
 动画观感、混合 DPI 多屏和真机 iPad/iPhone 切换仍需对应桌面验收。
 Swift / GTK 原生窗口 fixture 检查启动显示策略、关闭与状态桥接；
@@ -646,8 +650,9 @@ Flutter 平台构建会自动准备最新原生产物。依赖、许可与对应
 
 macOS DMG 面向 Apple Silicon（arm64）、macOS 12+，不是 universal / Intel 包；
 无需 Homebrew 运行时。打开 DMG 后将 `Flutter AirPlay.app` 拖到 `Applications`。
-Ad-hoc 签名只封存代码完整性，不认证开发者身份；不需要 Apple 开发者账户、付费证书、
-签名密钥或额外 GitHub Secrets，也没有 Developer ID 签名或 Apple 公证。
+Ad-hoc 签名只封存代码完整性，不认证开发者身份；不需要 Apple 开发者账户或付费证书，
+也没有 Developer ID 签名或 Apple 公证。Sparkle 更新使用另行保管的 Ed25519 密钥，见下文；
+它验证更新包来源，不替代 Apple 的签名与公证。
 从网络下载后 macOS 仍可能阻止打开；不要关闭 Gatekeeper / SIP 或清除隔离属性来绕过检查。
 面向免提示的公开分发需另行配置 Developer ID 签名与公证。
 打包先从副本移除预编译框架残留的外部 rpath（如 `/usr/local/lib`），再逐层签名并检查 arm64、实际 rpath 依赖、许可证、Bonjour 声明和 Release entitlements；
@@ -688,17 +693,22 @@ Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及�
 - `Flutter-AirPlay-<version>-windows-x64-setup.exe`
 - `Flutter-AirPlay-<version>-macos-arm64.dmg`（ad-hoc 签名，无公证）
 - `Flutter-AirPlay-<version>-android-arm64.apk`（已配置正式签名时）
-- 所有应用产物的 `SHA256SUMS`
+- `appcast.xml`（Sparkle macOS 更新 feed，DMG 含 Ed25519 签名）
+- 所有应用产物和 appcast 的 `SHA256SUMS`
 
 先在 `pubspec.yaml` 更新 `version: MAJOR.MINOR.PATCH+BUILD` 并提交，再在这个提交上创建
 对应 tag（例如 `version: 0.1.2+3` 对应 `v0.1.2`）。tag 与 pubspec 不一致、预发布后缀、
-非法版本号会在构建前失败。`BUILD` 是 Android versionCode 和 Windows 文件版本的第四段，
-必须为 1..65535；更新时递增，不能仅改 tag 给旧二进制换版本。SDK 使用 `.flutter-version`。
+非法版本号会在构建前失败。`BUILD` 是 macOS `CFBundleVersion`、Android versionCode 和 Windows 文件版本的第四段，
+必须为 1..65535；每次公开更新的 BUILD 与 MAJOR.MINOR.PATCH 都必须严格大于所有既有稳定版。
+发布先读取前版 appcast，尚无 feed 的旧版则读取其 tag 的 `pubspec.yaml`；历史无法读取或
+解析会失败，不猜测版本。不能仅改 tag 给旧二进制换版本。SDK 使用 `.flutter-version`。
 GitHub Actions 的手动运行只构建和保留 artifacts，永远不创建或发布 Release。
 Release 工作流仅允许手动运行和推送版本 tag 触发，不在 PR 创建或更新时运行。
 
-Linux 和 Windows 都成功，且 Android 成功构建或明确因未配置签名跳过后，才开始创建 draft
-Release。上传并验证完整资产集合后才转为公开；任一步失败会保留 draft。
+Linux、Windows 和 macOS（包括签名 appcast）都成功，且 Android 成功构建或明确因未配置
+签名跳过后，才开始创建 draft Release。发布端再次验证 DMG 的 Ed25519 签名、appcast 版本和
+长度，上传并验证完整资产集合后才转为公开并标记 latest；任一步失败会保留 draft。
+所有 release 运行串行执行，上传后再检查历史版本，防止旧版本替换 latest feed。
 同一 tag 的失败运行可重试，只覆盖对应提交的 draft 中已知资产；已公开 Release 不覆盖，
 修改后发布新版本。工作流不会创建 tag；不要把 tag 的手动创建作为构建测试。
 第三方 Actions 固定到 commit SHA，构建 job 只有 contents:read，只有最终上传 job 获得
@@ -714,6 +724,60 @@ Linux 发布环境是 Ubuntu 24.04 x64，需要 `dpkg-dev`、`fakeroot`、`deskt
 `README.txt` 列出必须由系统提供的依赖，它不是静态链接的跨发行版 AppImage。
 包中包含图标、desktop 文件、完整 Flutter/native libraries、LICENSE 和第三方声明。
 `--skip-build` 仅打包已构建且版本一致的 Release bundle。
+
+### macOS Sparkle 更新签名配置
+
+macOS 通过固定的 Sparkle 2.10.0 SPM 依赖更新，feed 为
+`https://github.com/boyan01/flutter-airplay/releases/latest/download/appcast.xml`。
+appcast 的版本使用整数 `CFBundleVersion`，显示版本使用 `CFBundleShortVersionString`；
+最低系统为 12.0，下载地址指向具体 `vMAJOR.MINOR.PATCH` Release 的现有 arm64 DMG，
+release notes 链接到同一 Release。Windows、Linux、Android 和 iPad 没有此安装流程。
+检查状态、版本说明、下载进度和安装操作统一由 Flutter 更新面板呈现；原生使用自定义
+`SPUUserDriver`，不显示 Sparkle 标准窗口。关闭面板只关闭展示，取消下载需明确点击取消；
+下载和解压完成后等待“安装并重启”，投屏中的最后退出确认及正常资源清理仍保留。
+
+仓库管理员应配置以下两项，不能在每次 CI 中重新生成密钥：
+
+| 配置 | 内容 |
+| --- | --- |
+| GitHub Actions secret `SPARKLE_PRIVATE_KEY` | Sparkle 2.10.0 官方 `generate_keys -x` 导出的 Base64 文本；新版格式解码后是 32 字节私钥 seed |
+| Repository variable `SPARKLE_PUBLIC_KEY` | 同一密钥的 canonical Base64 公钥（32 字节）；也支持同名 secret 回退 |
+
+用 [Sparkle 2.10.0 官方分发](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.0) 中的
+`bin/generate_keys --account flutter-airplay` 创建一次长期密钥；用
+`bin/generate_keys --account flutter-airplay -p` 读取公钥，
+`bin/generate_keys --account flutter-airplay -x <outside-repository-private-key-file>` 导出私钥。
+保管原始私钥和离线备份，限制能修改 release workflow/tag 的人员。不要将私钥粘贴到日志、
+issue 或聊天，不要写入 checkout、缓存或 artifacts。脚本只接受新版 32 字节 seed 格式；
+旧格式密钥迁移需要另行规划，不能在已安装客户端仍信任旧公钥时直接换 key。
+
+本地已有钥匙串账户时，可运行 `AIRPLAY_SPARKLE_ACCOUNT=flutter-airplay ./scripts/package_macos.sh`。
+脚本通过官方 `generate_keys -p` 获取公钥，并由 `sign_update --account` 直接读取钥匙串签名；
+不导出私钥，也不将私钥传给构建进程。首次读取可能需要 macOS 钥匙串授权；账户必须已经存在。
+若同时设置 `SPARKLE_PUBLIC_KEY`，它必须与账户公钥匹配；此模式不能同时设置 `SPARKLE_PRIVATE_KEY`。
+CI 继续使用 Secrets，普通本地打包不设置账户或密钥时仍禁用更新。
+
+`macos/Runner/Configs/Updates.xcconfig` 的公钥默认留空。打包脚本在仓库外创建临时
+`XCODE_XCCONFIG_FILE`，只覆盖公开的 `AIRPLAY_UPDATE_PUBLIC_KEY`；私钥通过 stdin 传给官方
+`sign_update`，不作为命令行参数、日志或文件保存，也不传给 Flutter/Xcode 构建进程。
+签名工具从固定版本归档下载，并校验 SHA-256
+`c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c`，缓存到
+`~/Library/Caches/FlutterAirPlay/Sparkle/2.10.0/`，可用 `AIRPLAY_SPARKLE_CACHE` 指定独立缓存根目录。
+脚本验证私钥对应公钥、最终 app 内嵌公钥/feed/版本一致、官方工具验签，最后用 CryptoKit
+对公钥再次验签；Linux publish job 使用 OpenSSL 3 对同一公钥验签。
+
+推送 tag 时缺任一配置、密钥不匹配、历史版本/build 未递增或 appcast 校验失败，均使发布失败，
+不能产生缺少 feed 的 latest Release。手动 macOS 打包缺任一 key 时仍生成普通 DMG，公钥覆盖
+为空，更新入口明确不可用，不生成 appcast；两项都设置时生成签名 feed，但本地实验不检查远程
+历史递增。`AIRPLAY_REQUIRE_UPDATES=true ./scripts/package_macos.sh` 可启用与 tag 相同的必要配置
+和历史检查。使用历史检查需要 `gh`、可读 Release/tag 元数据的 `GH_TOKEN` 和正确的 `GH_REPO`。
+GitHub 手动运行永远只上传 artifacts，不发布。
+
+`./scripts/test_native.sh build` 包括 Python 发布回归：appcast XML/版本/长度/具体版本 URL、
+缺失或错误密钥、bundle 公钥/feed 不匹配、版本倒退、旧版元数据失败、严格资产集合与 draft
+上传失败。它使用 fixture/mock，不执行真实下载、Flutter 打包或更新安装。真实更新验收还需用
+两个递增版本的已签名应用，在目标 macOS 上验证检查、下载、安装、重新启动和投屏恢复；
+签名工具对本地 fixture 的验签成功不能代替该端到端验收。
 
 ### Android 正式签名配置
 

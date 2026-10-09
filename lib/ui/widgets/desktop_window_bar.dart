@@ -14,12 +14,14 @@ class DesktopWindowBar extends StatelessWidget {
     this.dark = false,
     this.maximized = false,
     this.window = const WindowController(),
+    this.trailing,
   });
   static const double height = 44;
   final String title;
   final bool dark, maximized;
   final String platform;
   final WindowController window;
+  final Widget? trailing;
 
   Widget _button(
     String key,
@@ -169,6 +171,14 @@ class DesktopWindowBar extends StatelessWidget {
                 ),
               ),
             ),
+            if (trailing != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: trailing,
+                ),
+              ),
           ],
         ),
       );

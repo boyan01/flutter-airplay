@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../app/app_logging.dart';
 import '../receiver/receiver_model.dart';
 import '../platform/window_controller.dart';
+import '../platform/app_updates.dart';
 import '../platform/launch_at_login.dart';
 import '../platform/desktop_presentation.dart';
 import 'widgets/receiver_strings.dart';
@@ -17,6 +18,7 @@ import 'playback/audio_page.dart';
 import 'playback/player_page.dart';
 import 'settings/settings_page.dart';
 import 'logs/logs_page.dart';
+import 'updates/app_update_dialog.dart';
 
 class ReceiverScreen extends StatefulWidget {
   const ReceiverScreen({
@@ -24,12 +26,16 @@ class ReceiverScreen extends StatefulWidget {
     required this.model,
     this.launchAtLogin = const LaunchAtLogin(),
     this.window = const WindowController(),
+    this.updates,
+    this.updateRequests,
     this.onControlsVisibility,
     this.controlsInteraction,
     this.onDialogVisibility,
     this.onWindowExpanded,
   });
   final ReceiverModel model;
+  final AppUpdates? updates;
+  final Listenable? updateRequests;
   final ValueListenable<bool>? controlsInteraction;
   final LaunchAtLogin launchAtLogin;
   final WindowController window;
@@ -44,7 +50,7 @@ class ReceiverScreen extends StatefulWidget {
 class _ReceiverScreenState extends State<ReceiverScreen> {
   WindowController get _window => widget.window;
   final _homeFocus = FocusNode(debugLabel: 'Home action');
-  bool _dialogOpen = false;
+  bool _dialogOpen = false, _updateDialogOpen = false;
   late final DesktopPresentation _desktop;
   bool _playing = false;
   String _orientationMode = '';
@@ -67,12 +73,17 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       model: model,
       onAction: _windowAction,
       onError: _windowError,
+      updates: widget.updates,
     );
+    widget.updates?.addListener(_updateDesktop);
+    widget.updateRequests?.addListener(_openUpdate);
     _lifecycle = AppLifecycleListener(
+      onResume: () => widget.updates?.checkIfDue(),
       onExitRequested: () async {
         // Native window-close notifications can outlive the Dart isolate.
         // Unregister FFI callbacks before allowing the host to terminate.
         _window.listen(null);
+        widget.updates?.dispose();
         await _desktop.dispose();
         await _window.releaseNativeWindow();
         return AppExitResponse.exit;
@@ -89,6 +100,13 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       var receiverCommand = false;
       if (action == WindowAction.quitApp) {
         await _window.execute(WindowCommand.quitApp);
+      } else if (action == WindowAction.updateCheckDue) {
+        widget.updates?.checkIfDue();
+      } else if (action == WindowAction.checkForUpdates) {
+        final updates = widget.updates;
+        if (updates == null) return;
+        await _desktop.show();
+        await _openUpdate();
       } else if (action == WindowAction.openApp) {
         await _desktop.show();
       } else if (action == WindowAction.closeRequested) {
@@ -204,6 +222,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   void _changed() {
+    if (model.loaded) unawaited(widget.updates?.initialize(model.platform));
     _updateDesktop();
     final playing = model.hasVideo;
     if (model.loaded && model.platform == 'android') {
@@ -265,11 +284,13 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   void _restoreFocus() {
-    if (mounted && !_dialogOpen && !model.hasVideo) _homeFocus.requestFocus();
+    if (mounted && !_dialogOpen && !_updateDialogOpen && !model.hasVideo) {
+      _homeFocus.requestFocus();
+    }
   }
 
   void _toggleReceiver() {
-    if (_dialogOpen) return;
+    if (_dialogOpen || _updateDialogOpen) return;
     if (model.canStop) {
       model.stop();
     } else if (model.canStart) {
@@ -298,6 +319,8 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     _frameDiagnostics.dispose();
     _window.listen(null);
     unawaited(_desktop.dispose().then((_) => _window.releaseNativeWindow()));
+    widget.updates?.removeListener(_updateDesktop);
+    widget.updateRequests?.removeListener(_openUpdate);
     model.removeListener(_changed);
     _homeFocus.dispose();
     model.dispose();
@@ -316,7 +339,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
               _settings,
           const SingleActivator(LogicalKeyboardKey.keyL, control: true): _logs,
           const SingleActivator(LogicalKeyboardKey.period, control: true): () {
-            if (!_dialogOpen && model.status == 'streaming') model.disconnect();
+            if (!_dialogOpen &&
+                !_updateDialogOpen &&
+                model.status == 'streaming') {
+              model.disconnect();
+            }
           },
           const SingleActivator(LogicalKeyboardKey.digit0, control: true): () {
             if (!_dialogOpen && model.hasVideo) {
@@ -334,7 +361,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         const SingleActivator(LogicalKeyboardKey.comma, meta: true): _settings,
         const SingleActivator(LogicalKeyboardKey.keyL, meta: true): _logs,
         const SingleActivator(LogicalKeyboardKey.period, meta: true): () {
-          if (!_dialogOpen && model.status == 'streaming') model.disconnect();
+          if (!_dialogOpen &&
+              !_updateDialogOpen &&
+              model.status == 'streaming') {
+            model.disconnect();
+          }
         },
       },
       child: Scaffold(
@@ -349,7 +380,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                 onFullscreen: _toggleFullscreen,
                 onEscape: () => _toggleFullscreen(target: false),
                 onWindowAction: (action) => _windowAction(action, false),
-                dialogOpen: _dialogOpen,
+                dialogOpen: _dialogOpen || _updateDialogOpen,
                 controlsInteraction: widget.controlsInteraction,
                 onControlsVisibility: widget.onControlsVisibility,
               )
@@ -378,8 +409,37 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     ),
   );
 
+  Future<void> _openUpdate() async {
+    final updates = widget.updates;
+    if (!mounted || updates == null || _updateDialogOpen) return;
+    setState(() => _updateDialogOpen = true);
+    widget.onDialogVisibility?.call(true);
+    if (!updates.hasUpdate && updates.canCheck) {
+      unawaited(updates.check());
+    }
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => ListenableBuilder(
+          listenable: model,
+          builder: (context, _) => AppUpdateDialog(
+            updates: updates,
+            currentVersion: model.buildVersion,
+            connected: model.status == 'streaming',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _updateDialogOpen = false);
+        widget.onDialogVisibility?.call(_dialogOpen);
+        _restoreFocus();
+      }
+    }
+  }
+
   Future<void> _settings({bool editName = false}) async {
-    if (_dialogOpen || !model.loaded) return;
+    if (_dialogOpen || _updateDialogOpen || !model.loaded) return;
     setState(() => _dialogOpen = true);
     widget.onDialogVisibility?.call(true);
     var openLogs = false;
@@ -388,6 +448,8 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       editName: editName,
       onLogs: () => openLogs = true,
       launchAtLogin: widget.launchAtLogin,
+      updates: widget.updates,
+      onOpenUpdate: _openUpdate,
     );
     if (model.supportsWindowPreferences) {
       await showGeneralDialog<void>(
@@ -423,7 +485,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   Future<void> _logs() async {
-    if (_dialogOpen) return;
+    if (_dialogOpen || _updateDialogOpen) return;
     setState(() => _dialogOpen = true);
     widget.onDialogVisibility?.call(true);
     await Navigator.of(context)

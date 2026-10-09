@@ -1093,6 +1093,210 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cancel startup request'**
   String get cancelLoginRequest;
+
+  /// No description provided for @appUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'App updates'**
+  String get appUpdates;
+
+  /// No description provided for @automaticallyCheckForUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically check for updates'**
+  String get automaticallyCheckForUpdates;
+
+  /// No description provided for @automaticallyCheckForUpdatesHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Check periodically. You choose when to install.'**
+  String get automaticallyCheckForUpdatesHelp;
+
+  /// No description provided for @checkForUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get checkForUpdates;
+
+  /// No description provided for @checkingForUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking for updates…'**
+  String get checkingForUpdates;
+
+  /// No description provided for @viewUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'View update'**
+  String get viewUpdate;
+
+  /// No description provided for @downloadUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Download update'**
+  String get downloadUpdate;
+
+  /// No description provided for @preparingUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing update…'**
+  String get preparingUpdate;
+
+  /// No description provided for @installingUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing update…'**
+  String get installingUpdate;
+
+  /// No description provided for @updateRestartHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Flutter AirPlay will restart to finish installing the update.'**
+  String get updateRestartHelp;
+
+  /// No description provided for @updateBackgroundDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'You can close this window. The download will continue in the background.'**
+  String get updateBackgroundDownload;
+
+  /// No description provided for @updateLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get updateLater;
+
+  /// No description provided for @cancelUpdateDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel download'**
+  String get cancelUpdateDownload;
+
+  /// No description provided for @updateCurrentVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Current version {version}'**
+  String updateCurrentVersion(String version);
+
+  /// No description provided for @updateReleaseNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'What’s new'**
+  String get updateReleaseNotes;
+
+  /// No description provided for @updateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to complete the update'**
+  String get updateFailed;
+
+  /// No description provided for @updateToVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Update to {version}…'**
+  String updateToVersion(String version);
+
+  /// No description provided for @viewUpdateProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'View download progress'**
+  String get viewUpdateProgress;
+
+  /// No description provided for @installAndRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Install and restart'**
+  String get installAndRestart;
+
+  /// No description provided for @updateInterruptTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Install update'**
+  String get updateInterruptTitle;
+
+  /// No description provided for @updateInterruptMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing this update will interrupt the current AirPlay connection and restart Flutter AirPlay.'**
+  String get updateInterruptMessage;
+
+  /// No description provided for @updateInstallAndDisconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect and Install'**
+  String get updateInstallAndDisconnect;
+
+  /// No description provided for @updateDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update…'**
+  String get updateDownloading;
+
+  /// No description provided for @updateDownloadingProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update… {percent}%'**
+  String updateDownloadingProgress(int percent);
+
+  /// No description provided for @updateAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version} is available'**
+  String updateAvailable(String version);
+
+  /// No description provided for @updateAvailableUnknownVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'An update is available'**
+  String get updateAvailableUnknownVersion;
+
+  /// No description provided for @updateReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Update ready to install'**
+  String get updateReady;
+
+  /// No description provided for @updatesUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'No new version available'**
+  String get updatesUpToDate;
+
+  /// No description provided for @updatesNotChecked.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates have not been checked yet'**
+  String get updatesNotChecked;
+
+  /// No description provided for @updateCheckFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to check for updates'**
+  String get updateCheckFailed;
+
+  /// No description provided for @retryUpdateCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry update check'**
+  String get retryUpdateCheck;
+
+  /// No description provided for @updatesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'App updates are unavailable. Check the update configuration.'**
+  String get updatesUnavailable;
+
+  /// No description provided for @updatesInitializing.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading update settings…'**
+  String get updatesInitializing;
+
+  /// No description provided for @updateLastChecked.
+  ///
+  /// In en, this message translates to:
+  /// **'Last checked: {time}'**
+  String updateLastChecked(String time);
 }
 
 class _AppLocalizationsDelegate

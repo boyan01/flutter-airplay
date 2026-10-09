@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 
 import '../receiver/receiver_model.dart';
 import '../platform/window_controller.dart';
+import '../platform/app_updates.dart';
+import '../ui/widgets/app_update_strings.dart';
+import '../ui/widgets/app_update_indicator.dart';
 import '../platform/launch_at_login.dart';
 import '../ui/receiver_screen.dart';
 import '../ui/widgets/desktop_window_bar.dart';
@@ -20,11 +23,13 @@ class ReceiverApp extends StatefulWidget {
     this.launchAtLogin = const LaunchAtLogin(),
     this.systemFonts = const SystemFonts(),
     this.window = const WindowController(),
+    this.updates,
   });
   final ReceiverModel model;
   final LaunchAtLogin launchAtLogin;
   final WindowController window;
   final SystemFonts systemFonts;
+  final AppUpdates? updates;
 
   @override
   State<ReceiverApp> createState() => _ReceiverAppState();
@@ -34,6 +39,8 @@ class _ReceiverAppState extends State<ReceiverApp> {
   bool _controlsVisible = false, _dialogOpen = false, _expanded = false;
   bool _hadVideo = false;
   final _titleInteraction = ValueNotifier(false);
+  final _updateRequests = ValueNotifier(0);
+  late final AppUpdates _updates = widget.updates ?? AppUpdates();
   ReceiverModel get model => widget.model;
   WindowController get window => widget.window;
   SystemFonts get systemFonts => widget.systemFonts;
@@ -56,6 +63,8 @@ class _ReceiverAppState extends State<ReceiverApp> {
   void dispose() {
     model.removeListener(_modeChanged);
     _titleInteraction.dispose();
+    _updateRequests.dispose();
+    _updates.dispose();
     super.dispose();
   }
 
@@ -124,6 +133,21 @@ class _ReceiverAppState extends State<ReceiverApp> {
                             : 'Flutter AirPlay',
                         dark: model.hasVideo,
                         maximized: _expanded,
+                        trailing: ListenableBuilder(
+                          listenable: _updates,
+                          builder: (context, _) => _updates.hasUpdate
+                              ? AppUpdateIndicator(
+                                  status: _updates.status,
+                                  progress: _updates.progress,
+                                  dark: model.hasVideo,
+                                  tooltip: updateStatusLabel(
+                                    AppLocalizations.of(context)!,
+                                    _updates,
+                                  ),
+                                  onPressed: () => _updateRequests.value++,
+                                )
+                              : const SizedBox.shrink(),
+                        ),
                       ),
                     ),
                   ),
@@ -164,6 +188,8 @@ class _ReceiverAppState extends State<ReceiverApp> {
       themeMode: model.isTelevision ? ThemeMode.dark : ThemeMode.system,
       home: ReceiverScreen(
         model: model,
+        updates: _updates,
+        updateRequests: _updateRequests,
         controlsInteraction: _titleInteraction,
         launchAtLogin: widget.launchAtLogin,
         window: window,

@@ -7,6 +7,7 @@ import plistlib
 import subprocess
 import sys
 import re
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -21,9 +22,41 @@ def binaries(app):
             and 'Mach-O' in output('/usr/bin/file', '-b', path)]
 
 
+def signature_options(path):
+    # Preserve helpers' sandbox exceptions and hardened runtime when re-signing.
+    details = subprocess.run(['/usr/bin/codesign', '--display', '--verbose=4', str(path)],
+                             text=True, capture_output=True)
+    if details.returncode:
+        return {}, False
+    entitlements = subprocess.run(['/usr/bin/codesign', '--display', '--entitlements', ':-', str(path)],
+                                  capture_output=True, check=True).stdout
+    return (plistlib.loads(entitlements) if entitlements else {},
+            bool(re.search(r'flags=.*\bruntime\b', details.stderr)))
+
+
 def sign(app):
+    # Snapshot signatures before nested executables invalidate enclosing seals.
+    paths = binaries(app)
+    bundles = [path for path in app.rglob('*') if path.is_dir() and not path.is_symlink()
+               and path.suffix in ('.framework', '.app', '.xpc', '.appex', '.bundle')]
+    options = {path: signature_options(path) for path in [*paths, *bundles, app]}
+
+    def sign_path(path, root=False):
+        entitlements, runtime = options[path]
+        command = ['/usr/bin/codesign', '--force', '--sign', '-']
+        if runtime:
+            command += ['--options', 'runtime']
+        with tempfile.TemporaryDirectory(prefix='airplay-sign-') as temporary:
+            if root:
+                command += ['--entitlements', str(ROOT / 'macos/Runner/Release.entitlements')]
+            elif entitlements:
+                entitlement_file = pathlib.Path(temporary) / 'entitlements.plist'
+                entitlement_file.write_bytes(plistlib.dumps(entitlements))
+                command += ['--entitlements', str(entitlement_file)]
+            subprocess.run([*command, str(path)], check=True)
+
     # No --deep signing: sign each leaf, then enclosing bundles, then the app.
-    for path in binaries(app):
+    for path in paths:
         # Flutter's prebuilt engine may retain its build-host /usr/local/lib
         # runpath. Remove external search roots in the staging copy only;
         # the subsequent dependency audit still rejects unbundled libraries.
@@ -31,18 +64,36 @@ def sign(app):
             resolved = loader_path(value, path, app)
             if resolved is None or not (resolved.resolve().is_relative_to(app.resolve()) or system_path(resolved)):
                 subprocess.run(['/usr/bin/install_name_tool', '-delete_rpath', value, str(path)], check=True)
-        subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(path)], check=True)
-    bundles = [path for path in app.rglob('*') if path.is_dir() and not path.is_symlink()
-               and path.suffix in ('.framework', '.app', '.xpc', '.appex', '.bundle')]
+        sign_path(path)
     for path in sorted(bundles, key=lambda path: len(path.parts), reverse=True):
-        subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(path)], check=True)
-    subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--entitlements',
-                    str(ROOT / 'macos/Runner/Release.entitlements'), str(app)], check=True)
+        sign_path(path)
+    sign_path(app, root=True)
+    app_info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+    main_executable = app / 'Contents/MacOS' / app_info['CFBundleExecutable']
+    for path in [*paths, *bundles]:
+        if path == main_executable:
+            continue
+        if signature_options(path) != options[path]:
+            raise ValueError(f'Nested signature entitlements or runtime changed: {path.relative_to(app)}')
+
+
+def executable_directory(binary, app):
+    # Sparkle's Updater.app and XPC executables resolve their own executable path.
+    for parent in binary.parents:
+        if parent == app or parent.suffix in ('.app', '.xpc', '.appex'):
+            info_path = parent / 'Contents/Info.plist'
+            if info_path.is_file():
+                info = plistlib.loads(info_path.read_bytes())
+                if info.get('CFBundleExecutable'):
+                    return parent / 'Contents/MacOS'
+        if parent == app:
+            break
+    return app / 'Contents/MacOS'
 
 
 def loader_path(value, binary, app):
     for prefix, base in (('@loader_path/', binary.parent),
-                         ('@executable_path/', app / 'Contents/MacOS')):
+                         ('@executable_path/', executable_directory(binary, app))):
         if value == prefix.rstrip('/'):
             return base
         if value.startswith(prefix):
@@ -100,14 +151,22 @@ def audit(app):
         raise ValueError('Flutter package notices missing')
     paths = binaries(app)
     required = [executable, *(app / 'Contents/Frameworks' / name for name in
-                             ('libairplay_player.dylib', 'App.framework/App', 'FlutterMacOS.framework/FlutterMacOS'))]
-    if any(not bundled(path, app) or path.resolve() not in paths for path in required):
-        raise ValueError('Shared player, Flutter frameworks or application binaries missing')
-    executable_rpaths = rpaths(executable, app)
+                             ('libairplay_player.dylib', 'App.framework/App', 'FlutterMacOS.framework/FlutterMacOS',
+                              'Sparkle.framework/Versions/B/Sparkle',
+                              'Sparkle.framework/Versions/B/Autoupdate',
+                              'Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater',
+                              'Sparkle.framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader',
+                              'Sparkle.framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer'))]
+    for path in required:
+        if not bundled(path, app) or path.resolve() not in paths:
+            raise ValueError(f'Required application binary missing: {path.relative_to(app)}')
     for path in paths:
         if 'arm64' not in output('/usr/bin/lipo', '-archs', path).split():
             raise ValueError(f'No arm64 slice: {path.relative_to(app)}')
-        search = rpaths(path, app) + executable_rpaths
+        host_directory = executable_directory(path, app)
+        host_info = plistlib.loads((host_directory.parent / 'Info.plist').read_bytes())
+        host_executable = host_directory / host_info['CFBundleExecutable']
+        search = rpaths(path, app) + rpaths(host_executable, app)
         identity = output('/usr/bin/otool', '-D', path).splitlines()[1:]
         for line in output('/usr/bin/otool', '-L', path).splitlines():
             if ' (compatibility version ' not in line:

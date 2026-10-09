@@ -24,8 +24,9 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / '.flutter-version').write_text('3.47.2\n')
+            (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
             output = root / 'output'
-            with patch.object(release, 'ROOT', root), patch.object(release, 'version', return_value='1.2.3'):
+            with patch.object(release, 'ROOT', root), patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'signing_config'), patch.object(release, 'previous_version_check'):
                 for event, ref_type, tag, succeeds in (
                     ('pull_request', 'branch', '2/merge', True),
                     ('workflow_dispatch', 'branch', 'feat/release', True),
@@ -74,13 +75,13 @@ class ReleaseTests(unittest.TestCase):
                 root = Path(directory)
                 assets = self.fill(root, signed)
                 result = release.collect(assets, '1.2.3', signed)
-                self.assertEqual(len(result), 6 if signed else 5)
+                self.assertEqual(len(result), 7 if signed else 6)
                 self.assertEqual(len(result[-1].read_text().splitlines()), len(result) - 1)
                 with self.assertRaises(ValueError):
                     release.collect(assets, '1.2.3', signed)  # Reject stale/extra inputs.
 
     def test_rejects_missing_empty_or_extra_assets(self):
-        for case in ('missing', 'empty', 'extra'):
+        for case in ('missing', 'empty', 'extra', 'symlink'):
             with tempfile.TemporaryDirectory() as directory:
                 assets = self.fill(Path(directory), False)
                 item = next(assets.iterdir())
@@ -88,6 +89,9 @@ class ReleaseTests(unittest.TestCase):
                     item.unlink()
                 elif case == 'empty':
                     item.write_bytes(b'')
+                elif case == 'symlink':
+                    item.unlink()
+                    item.symlink_to(next(assets.iterdir()))
                 else:
                     (assets / 'unsigned.apk').write_bytes(b'no')
                 with self.assertRaises(ValueError):
@@ -97,12 +101,13 @@ class ReleaseTests(unittest.TestCase):
         self.fill(root, False)
         (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
         return patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.3', 'RELEASE_SHA': 'a' * 40,
-                                      'ANDROID_SIGNED': 'false', 'GITHUB_STEP_SUMMARY': str(root / 'summary')})
+                                      'ANDROID_SIGNED': 'false', 'GITHUB_STEP_SUMMARY': str(root / 'summary'),
+                                      'SPARKLE_PUBLIC_KEY': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='})
 
     def test_failed_upload_never_publishes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.publish_fixture(root), patch.object(release, 'ROOT', root):
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
                 with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh') as gh:
                     gh.side_effect = [json.dumps({'object': {'type':'commit', 'sha':'a'*40}}), '[[]]', '', OSError('upload failed')]
                     with self.assertRaises(OSError):
@@ -112,7 +117,7 @@ class ReleaseTests(unittest.TestCase):
     def test_refuses_already_published_release(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.publish_fixture(root), patch.object(release, 'ROOT', root):
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
                 with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh', side_effect=[json.dumps({'object':{'type':'commit','sha':'a'*40}}), json.dumps([[{'tag_name':'v1.2.3','draft':False}]])]) as gh:
                     with self.assertRaises(ValueError):
                         release.publish()
@@ -122,7 +127,7 @@ class ReleaseTests(unittest.TestCase):
         for case in ('resume', 'wrong-commit', 'unknown-asset', 'bad-upload', 'moved-after-upload'):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                with self.publish_fixture(root), patch.object(release, 'ROOT', root):
+                with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
                     checks = []
                     def gh(*args):
                         if args[0] == 'api':
@@ -142,12 +147,31 @@ class ReleaseTests(unittest.TestCase):
                     with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh', side_effect=gh) as command:
                         if case == 'resume':
                             release.publish()
-                            self.assertEqual(command.call_args.args, ('release','edit','v1.2.3','--draft=false','--tag','v1.2.3','--verify-tag'))
+                            self.assertEqual(command.call_args.args, ('release','edit','v1.2.3','--draft=false','--latest','--tag','v1.2.3','--verify-tag'))
                         else:
                             with self.assertRaises(ValueError):
                                 release.publish()
                             self.assertFalse(any('--draft=false' in call.args for call in command.call_args_list))
                         self.assertFalse(any(call.args[:2] == ('release','create') for call in command.call_args_list))
+
+    def test_newer_release_during_upload_keeps_draft(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), \
+                    patch.object(release, 'validate_appcast'), \
+                    patch.object(release, 'previous_version_check', side_effect=[None, ValueError('build must increase')]):
+                def gh(*args):
+                    if args[0] == 'api':
+                        if '/git/' in args[1]:
+                            return json.dumps({'object':{'type':'commit','sha':'a'*40}})
+                        return '[[]]'
+                    if args[1] == 'view':
+                        return json.dumps({'assets':[{'name':p.name,'size':p.stat().st_size} for p in (root/'build/release-assets').iterdir()]})
+                    return ''
+                with patch.object(release, 'gh', side_effect=gh) as command, self.assertRaisesRegex(ValueError, 'increase'):
+                    release.publish()
+                self.assertTrue(any(call.args[:2] == ('release','upload') for call in command.call_args_list))
+                self.assertFalse(any('--draft=false' in call.args for call in command.call_args_list))
 
     def test_remote_tag_peels_and_rejects_changed_commit(self):
         ref = {'object': {'type':'tag', 'sha':'b'*40}}
@@ -164,7 +188,7 @@ class ReleaseTests(unittest.TestCase):
     def test_success_publishes_only_after_readback(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.publish_fixture(root), patch.object(release, 'ROOT', root):
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
                 def gh(*args):
                     if args[0] == 'api':
                         if '/git/' in args[1]:
@@ -175,7 +199,7 @@ class ReleaseTests(unittest.TestCase):
                     return ''
                 with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh', side_effect=gh) as command:
                     release.publish()
-                    self.assertEqual(command.call_args.args, ('release','edit','v1.2.3','--draft=false','--tag','v1.2.3','--verify-tag'))
+                    self.assertEqual(command.call_args.args, ('release','edit','v1.2.3','--draft=false','--latest','--tag','v1.2.3','--verify-tag'))
                 self.assertIn('Android APK omitted', (root/'summary').read_text())
 
 

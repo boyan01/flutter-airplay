@@ -13,7 +13,8 @@ name: Release assets
 permissions:
   contents: read
 concurrency:
-  group: release-assets-${{ github.ref }}
+  # Serialize tags so an older run cannot replace the latest update feed.
+  group: release-assets
   cancel-in-progress: false
 jobs:
   prepare:
@@ -32,7 +33,11 @@ jobs:
         RELEASE_TAG: ${{ github.ref_name }}
         RELEASE_EVENT: ${{ github.event_name }}
         RELEASE_REF_TYPE: ${{ github.ref_type }}
-      run: python3 scripts/release_assets.py metadata
+        SPARKLE_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.SPARKLE_PRIVATE_KEY || '' }}
+        SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: python3 -I scripts/release_assets.py metadata
     - name: Test packaging helpers
       run: ./scripts/test_native.sh build
   linux:
@@ -140,12 +145,20 @@ jobs:
         channel: stable
         flutter-version: ${{ needs.prepare.outputs.flutter_version }}
         cache: true
-    - name: Build, sign and verify Apple Silicon DMG
+    - name: Build, sign and verify Apple Silicon DMG and Sparkle appcast
+      env:
+        AIRPLAY_REQUIRE_UPDATES: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
       run: ./scripts/package_macos.sh
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: release-macos
-        path: build/distribution/macos/*.dmg
+        path: |-
+          build/distribution/macos/*.dmg
+          build/distribution/macos/appcast.xml
         if-no-files-found: error
         retention-days: 14
   android:
@@ -262,4 +275,5 @@ jobs:
         RELEASE_TAG: ${{ github.ref_name }}
         RELEASE_SHA: ${{ github.sha }}
         ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
-      run: python3 scripts/release_assets.py publish
+        SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
+      run: python3 -I scripts/release_assets.py publish

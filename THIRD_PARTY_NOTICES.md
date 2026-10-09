@@ -53,6 +53,16 @@ The LGPL-2.1-or-later license and source/build notices are bundled in the existi
 [license assets](assets/licenses/).
 Redistributions must retain the corresponding source and exact build configuration.
 
+## Sparkle macOS updates
+
+Source: https://github.com/sparkle-project/Sparkle
+Version: 2.10.0, pinned exactly by the macOS Swift Package Manager dependency.
+
+The macOS host embeds the unmodified Sparkle framework and its update helpers.
+Sparkle's MIT license and bundled components' BSD, MIT and zlib notices are
+retained in [sparkle.txt](assets/licenses/sparkle.txt). Its upstream binary
+package checksum is verified by Swift Package Manager.
+
 ## Linux system dependencies
 
 The Linux host links distribution-provided FFmpeg, GTK/GLib, PulseAudio, Avahi,

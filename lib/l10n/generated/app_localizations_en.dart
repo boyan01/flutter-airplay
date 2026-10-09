@@ -539,4 +539,121 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cancelLoginRequest => 'Cancel startup request';
+
+  @override
+  String get appUpdates => 'App updates';
+
+  @override
+  String get automaticallyCheckForUpdates => 'Automatically check for updates';
+
+  @override
+  String get automaticallyCheckForUpdatesHelp =>
+      'Check periodically. You choose when to install.';
+
+  @override
+  String get checkForUpdates => 'Check for updates';
+
+  @override
+  String get checkingForUpdates => 'Checking for updates…';
+
+  @override
+  String get viewUpdate => 'View update';
+
+  @override
+  String get downloadUpdate => 'Download update';
+
+  @override
+  String get preparingUpdate => 'Preparing update…';
+
+  @override
+  String get installingUpdate => 'Installing update…';
+
+  @override
+  String get updateRestartHelp =>
+      'Flutter AirPlay will restart to finish installing the update.';
+
+  @override
+  String get updateBackgroundDownload =>
+      'You can close this window. The download will continue in the background.';
+
+  @override
+  String get updateLater => 'Later';
+
+  @override
+  String get cancelUpdateDownload => 'Cancel download';
+
+  @override
+  String updateCurrentVersion(String version) {
+    return 'Current version $version';
+  }
+
+  @override
+  String get updateReleaseNotes => 'What’s new';
+
+  @override
+  String get updateFailed => 'Unable to complete the update';
+
+  @override
+  String updateToVersion(String version) {
+    return 'Update to $version…';
+  }
+
+  @override
+  String get viewUpdateProgress => 'View download progress';
+
+  @override
+  String get installAndRestart => 'Install and restart';
+
+  @override
+  String get updateInterruptTitle => 'Install update';
+
+  @override
+  String get updateInterruptMessage =>
+      'Installing this update will interrupt the current AirPlay connection and restart Flutter AirPlay.';
+
+  @override
+  String get updateInstallAndDisconnect => 'Disconnect and Install';
+
+  @override
+  String get updateDownloading => 'Downloading update…';
+
+  @override
+  String updateDownloadingProgress(int percent) {
+    return 'Downloading update… $percent%';
+  }
+
+  @override
+  String updateAvailable(String version) {
+    return 'Version $version is available';
+  }
+
+  @override
+  String get updateAvailableUnknownVersion => 'An update is available';
+
+  @override
+  String get updateReady => 'Update ready to install';
+
+  @override
+  String get updatesUpToDate => 'No new version available';
+
+  @override
+  String get updatesNotChecked => 'Updates have not been checked yet';
+
+  @override
+  String get updateCheckFailed => 'Unable to check for updates';
+
+  @override
+  String get retryUpdateCheck => 'Retry update check';
+
+  @override
+  String get updatesUnavailable =>
+      'App updates are unavailable. Check the update configuration.';
+
+  @override
+  String get updatesInitializing => 'Loading update settings…';
+
+  @override
+  String updateLastChecked(String time) {
+    return 'Last checked: $time';
+  }
 }

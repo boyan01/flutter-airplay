@@ -207,5 +207,74 @@
   "loginError": "Unable to read or change startup registration. Check system permissions and the installation location, then refresh.",
   "loginNotApplied": "The system has not applied this change. Check Login Items or Startup Apps for approval, then refresh.",
   "refreshLogin": "Refresh startup status",
-  "cancelLoginRequest": "Cancel startup request"
+  "cancelLoginRequest": "Cancel startup request",
+  "appUpdates": "App updates",
+  "automaticallyCheckForUpdates": "Automatically check for updates",
+  "automaticallyCheckForUpdatesHelp": "Check periodically. You choose when to install.",
+  "checkForUpdates": "Check for updates",
+  "checkingForUpdates": "Checking for updates…",
+  "viewUpdate": "View update",
+  "downloadUpdate": "Download update",
+  "preparingUpdate": "Preparing update…",
+  "installingUpdate": "Installing update…",
+  "updateRestartHelp": "Flutter AirPlay will restart to finish installing the update.",
+  "updateBackgroundDownload": "You can close this window. The download will continue in the background.",
+  "updateLater": "Later",
+  "cancelUpdateDownload": "Cancel download",
+  "updateCurrentVersion": "Current version {version}",
+  "@updateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateReleaseNotes": "What’s new",
+  "updateFailed": "Unable to complete the update",
+  "updateToVersion": "Update to {version}…",
+  "@updateToVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "viewUpdateProgress": "View download progress",
+  "installAndRestart": "Install and restart",
+  "updateInterruptTitle": "Install update",
+  "updateInterruptMessage": "Installing this update will interrupt the current AirPlay connection and restart Flutter AirPlay.",
+  "updateInstallAndDisconnect": "Disconnect and Install",
+  "updateDownloading": "Downloading update…",
+  "updateDownloadingProgress": "Downloading update… {percent}%",
+  "@updateDownloadingProgress": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "updateAvailable": "Version {version} is available",
+  "@updateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateAvailableUnknownVersion": "An update is available",
+  "updateReady": "Update ready to install",
+  "updatesUpToDate": "No new version available",
+  "updatesNotChecked": "Updates have not been checked yet",
+  "updateCheckFailed": "Unable to check for updates",
+  "retryUpdateCheck": "Retry update check",
+  "updatesUnavailable": "App updates are unavailable. Check the update configuration.",
+  "updatesInitializing": "Loading update settings…",
+  "updateLastChecked": "Last checked: {time}",
+  "@updateLastChecked": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

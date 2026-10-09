@@ -10,8 +10,12 @@ final class TestReceiver {
   func install(on: FlutterBinaryMessenger, video: VideoSurface) {}
   func setDisplay(_ display: CGDirectDisplayID) {}
 }
+final class TestUpdates {
+  func install(on: FlutterBinaryMessenger) {}
+}
 final class AppDelegate: NSObject, NSApplicationDelegate {
   let receiver = TestReceiver()
+  let updates = TestUpdates()
   var keepRunningWithoutWindow = false
   func configureApplication() {}
 }
@@ -50,6 +54,12 @@ print("PASS: close interception preserves the receiver")
 NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
 require(window.actions.contains("windowTransitionStarted"), "fullscreen transition must notify Dart before resizing")
 print("PASS: fullscreen transition bridge")
+NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: app)
+require(window.actions.contains("updateCheckDue"), "application activation must notify the shared update scheduler")
+window.actions.removeAll()
+NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+require(window.actions.contains("updateCheckDue"), "wake must notify the shared update scheduler")
+print("PASS: update scheduler activation and wake bridge")
 window.hideOnClose = false
 window.close()
 require(!window.isVisible && delegate.receiver.disposed, "real close must clean up the receiver")

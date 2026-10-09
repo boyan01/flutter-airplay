@@ -200,5 +200,74 @@
   "loginError": "无法读取或修改登录启动设置。请检查系统权限与安装位置，然后刷新。",
   "loginNotApplied": "系统尚未应用此更改。请在登录项或启动应用设置中检查是否需要批准，然后刷新。",
   "refreshLogin": "刷新启动状态",
-  "cancelLoginRequest": "取消启动登记"
+  "cancelLoginRequest": "取消启动登记",
+  "appUpdates": "应用更新",
+  "automaticallyCheckForUpdates": "自动检查更新",
+  "automaticallyCheckForUpdatesHelp": "定期检查，由你决定何时安装。",
+  "checkForUpdates": "检查更新",
+  "checkingForUpdates": "正在检查更新…",
+  "viewUpdate": "查看更新",
+  "downloadUpdate": "下载更新",
+  "preparingUpdate": "正在准备更新…",
+  "installingUpdate": "正在安装更新…",
+  "updateRestartHelp": "Flutter AirPlay 将重新启动以完成更新安装。",
+  "updateBackgroundDownload": "可以关闭此窗口，下载会在后台继续。",
+  "updateLater": "稍后",
+  "cancelUpdateDownload": "取消下载",
+  "updateCurrentVersion": "当前版本 {version}",
+  "@updateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateReleaseNotes": "更新内容",
+  "updateFailed": "无法完成更新",
+  "updateToVersion": "更新到 {version}…",
+  "@updateToVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "viewUpdateProgress": "查看下载进度",
+  "installAndRestart": "安装并重启",
+  "updateInterruptTitle": "安装更新",
+  "updateInterruptMessage": "安装更新需要退出并重启应用，将中断当前投屏。",
+  "updateInstallAndDisconnect": "断开并更新",
+  "updateDownloading": "正在下载更新…",
+  "updateDownloadingProgress": "正在下载更新… {percent}%",
+  "@updateDownloadingProgress": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "updateAvailable": "发现新版本 {version}",
+  "@updateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateAvailableUnknownVersion": "发现新版本",
+  "updateReady": "更新已下载，等待安装",
+  "updatesUpToDate": "暂无新版本",
+  "updatesNotChecked": "尚未检查更新",
+  "updateCheckFailed": "检查更新失败",
+  "retryUpdateCheck": "重新检查更新",
+  "updatesUnavailable": "应用更新不可用，请检查更新配置。",
+  "updatesInitializing": "正在读取更新设置…",
+  "updateLastChecked": "上次检查：{time}",
+  "@updateLastChecked": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

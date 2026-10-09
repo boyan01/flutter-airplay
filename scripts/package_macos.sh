@@ -7,16 +7,32 @@ cd "$project_root"
     echo 'macOS packaging requires an Apple Silicon Mac.' >&2; exit 1;
 }
 version="$(python3 -c 'from scripts.release_assets import version; print(version())')"
-flutter pub get --enforce-lockfile
+if [[ "${AIRPLAY_REQUIRE_UPDATES:-false}" == true ]]; then
+    public_key="$(python3 -I scripts/release_assets.py updates-config --required)"
+else
+    public_key="$(python3 -I scripts/release_assets.py updates-config)"
+fi
+# Keep release overrides outside the checkout; Xcode gives this file highest precedence.
+updates_config="$(mktemp "${TMPDIR:-/tmp}/airplay-updates-config.XXXXXX")"
+chmod 600 "$updates_config"
+printf 'AIRPLAY_UPDATE_PUBLIC_KEY = %s\n' "$public_key" > "$updates_config"
+trap 'rm -f "$updates_config"' EXIT
+env -u SPARKLE_PRIVATE_KEY flutter pub get --enforce-lockfile
 # The Xcode build prepares the native player through ensure_native.py.
-flutter build macos --release
+env -u SPARKLE_PRIVATE_KEY XCODE_XCCONFIG_FILE="$updates_config" flutter build macos --release
+rm -f "$updates_config"
+trap - EXIT
 output="$project_root/build/distribution/macos"
 app="$output/Flutter AirPlay.app"
 dmg="$output/Flutter-AirPlay-$version-macos-arm64.dmg"
 mkdir -p "$output"
+# Never retain a previous signed feed when building a bundle without update keys.
+rm -f "$output/appcast.xml"
 # Replace only this script's generated staging copy.
 rm -rf "$app"
 ditto "$project_root/build/macos/Build/Products/Release/Flutter AirPlay.app" "$app"
+# Confirm even a keyless build has no stale embedded key before sealing the image.
+python3 -I scripts/release_assets.py updates-bundle --app "$app"
 mkdir -p "$app/Contents/Resources/licenses"
 cp LICENSE THIRD_PARTY_NOTICES.md "$app/Contents/Resources/licenses/"
 cp vendor/UxPlay/UPSTREAM.md "$app/Contents/Resources/licenses/UxPlay-UPSTREAM.md"
@@ -43,5 +59,11 @@ ditto "$mountpoint/Flutter AirPlay.app" "$staging/Installed App/Flutter AirPlay.
 python3 scripts/audit_macos.py --smoke "$staging/Installed App/Flutter AirPlay.app"
 hdiutil detach "$mountpoint"
 mounted=false
-(cd "$output" && shasum -a 256 "$(basename "$dmg")" > SHA256SUMS)
+if [[ -n "$public_key" ]]; then
+    python3 -I scripts/release_assets.py appcast --app "$app" --dmg "$dmg"
+    (cd "$output" && shasum -a 256 "$(basename "$dmg")" appcast.xml > SHA256SUMS)
+else
+    printf 'macOS updates disabled: Sparkle signing keys are not configured; no appcast generated.\n'
+    (cd "$output" && shasum -a 256 "$(basename "$dmg")" > SHA256SUMS)
+fi
 printf 'Application: %s\nDisk image: %s\n' "$app" "$dmg"

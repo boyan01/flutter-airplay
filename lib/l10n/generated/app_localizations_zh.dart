@@ -521,4 +521,116 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get cancelLoginRequest => '取消启动登记';
+
+  @override
+  String get appUpdates => '应用更新';
+
+  @override
+  String get automaticallyCheckForUpdates => '自动检查更新';
+
+  @override
+  String get automaticallyCheckForUpdatesHelp => '定期检查，由你决定何时安装。';
+
+  @override
+  String get checkForUpdates => '检查更新';
+
+  @override
+  String get checkingForUpdates => '正在检查更新…';
+
+  @override
+  String get viewUpdate => '查看更新';
+
+  @override
+  String get downloadUpdate => '下载更新';
+
+  @override
+  String get preparingUpdate => '正在准备更新…';
+
+  @override
+  String get installingUpdate => '正在安装更新…';
+
+  @override
+  String get updateRestartHelp => 'Flutter AirPlay 将重新启动以完成更新安装。';
+
+  @override
+  String get updateBackgroundDownload => '可以关闭此窗口，下载会在后台继续。';
+
+  @override
+  String get updateLater => '稍后';
+
+  @override
+  String get cancelUpdateDownload => '取消下载';
+
+  @override
+  String updateCurrentVersion(String version) {
+    return '当前版本 $version';
+  }
+
+  @override
+  String get updateReleaseNotes => '更新内容';
+
+  @override
+  String get updateFailed => '无法完成更新';
+
+  @override
+  String updateToVersion(String version) {
+    return '更新到 $version…';
+  }
+
+  @override
+  String get viewUpdateProgress => '查看下载进度';
+
+  @override
+  String get installAndRestart => '安装并重启';
+
+  @override
+  String get updateInterruptTitle => '安装更新';
+
+  @override
+  String get updateInterruptMessage => '安装更新需要退出并重启应用，将中断当前投屏。';
+
+  @override
+  String get updateInstallAndDisconnect => '断开并更新';
+
+  @override
+  String get updateDownloading => '正在下载更新…';
+
+  @override
+  String updateDownloadingProgress(int percent) {
+    return '正在下载更新… $percent%';
+  }
+
+  @override
+  String updateAvailable(String version) {
+    return '发现新版本 $version';
+  }
+
+  @override
+  String get updateAvailableUnknownVersion => '发现新版本';
+
+  @override
+  String get updateReady => '更新已下载，等待安装';
+
+  @override
+  String get updatesUpToDate => '暂无新版本';
+
+  @override
+  String get updatesNotChecked => '尚未检查更新';
+
+  @override
+  String get updateCheckFailed => '检查更新失败';
+
+  @override
+  String get retryUpdateCheck => '重新检查更新';
+
+  @override
+  String get updatesUnavailable => '应用更新不可用，请检查更新配置。';
+
+  @override
+  String get updatesInitializing => '正在读取更新设置…';
+
+  @override
+  String updateLastChecked(String time) {
+    return '上次检查：$time';
+  }
 }

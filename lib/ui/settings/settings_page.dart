@@ -9,6 +9,7 @@ import '../../receiver/receiver_model.dart';
 import '../../receiver/receiver_settings.dart';
 import '../../platform/window_controller.dart';
 import '../../platform/launch_at_login.dart';
+import '../../platform/app_updates.dart';
 import '../widgets/receiver_strings.dart';
 import '../widgets/receiver_name_field.dart';
 import '../tv_focus.dart';
@@ -22,17 +23,22 @@ import 'audio_output_page.dart';
 
 import 'settings_labels.dart';
 import 'launch_at_login_tile.dart';
+import 'app_update_settings.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
     required this.model,
     this.launchAtLogin = const LaunchAtLogin(),
+    this.updates,
+    this.onOpenUpdate,
     required this.editName,
     required this.onLogs,
   });
   final ReceiverModel model;
   final LaunchAtLogin launchAtLogin;
+  final AppUpdates? updates;
+  final VoidCallback? onOpenUpdate;
   final bool editName;
   final VoidCallback onLogs;
   @override
@@ -478,6 +484,11 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: model.buildTime.isEmpty
                 ? null
                 : Text('${l10n(context).buildTime}: $_localBuildTime'),
+          ),
+        if (widget.updates != null && model.platform == 'macos')
+          AppUpdateSettings(
+            updates: widget.updates!,
+            onOpenUpdate: widget.onOpenUpdate,
           ),
         TvFocus(
           child: ListTile(

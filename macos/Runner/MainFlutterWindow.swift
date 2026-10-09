@@ -142,6 +142,7 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
     center()
     RegisterGeneratedPlugins(registry: controller)
     (NSApp.delegate as? AppDelegate)?.receiver.install(on: controller.engine.binaryMessenger, video: surface)
+    (NSApp.delegate as? AppDelegate)?.updates.install(on: controller.engine.binaryMessenger)
     updateReceiverDisplay()
     presentation = FlutterMethodChannel(name: "tech.soit.flutterairplay/window", binaryMessenger: controller.engine.binaryMessenger)
     presentation?.setMethodCallHandler { [weak self] call, result in
@@ -301,6 +302,12 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
 
   private func installPresentationObservers() {
     let center = NotificationCenter.default
+    presentationObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: NSApp, queue: .main) { [weak self] _ in
+      self?.openFlutterPanel("updateCheckDue")
+    })
+    presentationObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.openFlutterPanel("updateCheckDue")
+    })
     presentationObservers.append(center.addObserver(forName: NSWindow.didChangeScreenNotification, object: self, queue: .main) { [weak self] _ in
       self?.updateReceiverDisplay()
     })
@@ -336,6 +343,9 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
 
   deinit {
     startupTimeout?.cancel()
-    for observer in presentationObservers { NotificationCenter.default.removeObserver(observer) }
+    for observer in presentationObservers {
+      NotificationCenter.default.removeObserver(observer)
+      NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    }
   }
 }

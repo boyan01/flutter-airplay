@@ -30,6 +30,16 @@
 	<string>Flutter AirPlay uses your local network to receive screen mirroring and audio from your iPhone.</string>
 	<key>NSBonjourServices</key>
 	<array><string>_airplay._tcp</string><string>_raop._tcp</string></array>
+	<key>SUFeedURL</key>
+	<string>https://github.com/boyan01/flutter-airplay/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(AIRPLAY_UPDATE_PUBLIC_KEY)</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
