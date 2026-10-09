@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -51,6 +52,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   String _homeAction = '';
   double _displayRefreshRate = 60;
   late final FlutterFrameDiagnostics _frameDiagnostics;
+  late final AppLifecycleListener _lifecycle;
   ReceiverModel get model => widget.model;
 
   @override
@@ -65,6 +67,16 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       model: model,
       onAction: _windowAction,
       onError: _windowError,
+    );
+    _lifecycle = AppLifecycleListener(
+      onExitRequested: () async {
+        // Native window-close notifications can outlive the Dart isolate.
+        // Unregister FFI callbacks before allowing the host to terminate.
+        _window.listen(null);
+        await _desktop.dispose();
+        await _window.releaseNativeWindow();
+        return AppExitResponse.exit;
+      },
     );
     _window.listen(_windowAction);
     model.addListener(_changed);
@@ -282,10 +294,10 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _frameDiagnostics.dispose();
     _window.listen(null);
-    _desktop.dispose();
-    unawaited(_window.releaseNativeWindow());
+    unawaited(_desktop.dispose().then((_) => _window.releaseNativeWindow()));
     model.removeListener(_changed);
     _homeFocus.dispose();
     model.dispose();

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_airplay/platform/launch_at_login.dart';
 import 'package:flutter_airplay/app/receiver_app.dart';
 import 'package:flutter_airplay/ui/logs/logs_page.dart';
@@ -6,7 +8,8 @@ import 'package:flutter_airplay/receiver/receiver_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'dart:ui' show PointerDeviceKind, PictureRecorder, ImageByteFormat;
+import 'dart:ui'
+    show AppExitResponse, PointerDeviceKind, PictureRecorder, ImageByteFormat;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,6 +25,19 @@ class _FakeLogin extends LaunchAtLogin {
   Future<bool> setEnabled(bool enabled) async => enabled;
 }
 
+class _ExitWindow extends WindowController {
+  _ExitWindow() : super(withWindow: (action) async => action(FakeWindow()));
+
+  final released = Completer<void>();
+  int releases = 0;
+
+  @override
+  Future<void> releaseNativeWindow() {
+    releases++;
+    return released.future;
+  }
+}
+
 void main() {
   Future<FakeReceiver> launch(
     WidgetTester tester, {
@@ -32,6 +48,7 @@ void main() {
     String locale = 'zh',
     FakeReceiver? backend,
     List<String>? windowCalls,
+    WindowController? controller,
   }) async {
     await tester.binding.setSurfaceSize(size);
     tester.platformDispatcher.localesTestValue = [Locale(locale)];
@@ -55,7 +72,9 @@ void main() {
       ReceiverApp(
         launchAtLogin: _FakeLogin(),
         model: ReceiverModel(backend),
-        window: WindowController(withWindow: (action) async => action(window)),
+        window:
+            controller ??
+            WindowController(withWindow: (action) async => action(window)),
       ),
     );
     await tester.pumpAndSettle();
@@ -64,6 +83,40 @@ void main() {
   }
 
   for (final platform in ['macos', 'windows', 'linux']) {
+    testWidgets('$platform releases desktop resources before allowing exit', (
+      tester,
+    ) async {
+      final window = _ExitWindow();
+      const channel = MethodChannel('tech.soit.flutterairplay/window');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        (call) async => call.method == 'desktopReady' ? false : null,
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        );
+      });
+      await launch(tester, platform: platform, controller: window);
+      AppExitResponse? response;
+      final exit = tester.binding.handleRequestAppExit().then((value) {
+        response = value;
+      });
+      await tester.pumpAndSettle();
+      expect(find.byType(ReceiverApp), findsOneWidget);
+      expect(window.releases, 1);
+      expect(response, isNull);
+      window.released.complete();
+      await tester.pumpAndSettle();
+      await exit;
+      expect(response, AppExitResponse.exit);
+      // Repeated requests and eventual widget disposal must be safe.
+      expect(await tester.binding.handleRequestAppExit(), AppExitResponse.exit);
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets(
       '$platform player size menu stays usable in a narrow window with large text',
       (tester) async {

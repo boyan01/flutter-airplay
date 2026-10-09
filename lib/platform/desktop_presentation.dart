@@ -97,6 +97,7 @@ class DesktopPresentation {
           await window.withWindow((value) {
             _windowId = value.id;
           });
+          if (_disposed) return;
           _windowListener = native.WindowManager.instance.addListener((event) {
             if (event.windowId == _windowId &&
                 (event is native.WindowResizedEvent ||
@@ -133,6 +134,7 @@ class DesktopPresentation {
           _trayVisible = await window.finishDesktopStartup(
             trayAvailable: _trayVisible,
           );
+          if (_disposed) return;
           await window.setClosePolicy(canHide);
         } catch (_) {
           _ready = false;
@@ -492,12 +494,15 @@ class DesktopPresentation {
     tray.icon = _images[index];
   }
 
-  void dispose() {
+  Future<void> dispose() {
+    if (_disposed) return _pending;
     _disposed = true;
     _sizing.dispose();
     _autoHide?.cancel();
     if (_ready) unawaited(window.setClosePolicy(false));
     _releaseResources();
+    // Let in-flight initialization finish before releasing the window wrapper.
+    return _pending;
   }
 
   void _releaseResources() {
