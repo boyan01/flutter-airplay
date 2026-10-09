@@ -266,6 +266,72 @@ void main() {
   });
 
   for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {
+    testWidgets('$target playback buffer presets save and restore focus', (
+      tester,
+    ) async {
+      final backend = await launch(
+        tester,
+        platform: target == 'tv' ? 'android' : target,
+        tv: target == 'tv',
+        size: target == 'tv' ? const Size(960, 540) : const Size(390, 800),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+      await tester.tap(find.byKey(const Key('advancedSettings')));
+      await tester.pumpAndSettle();
+      final entry = find.byKey(const Key('playbackBuffer'));
+      await tester.ensureVisible(entry);
+      expect(
+        find.text(target == 'macos' ? '默认（120 ms）' : '默认（80 ms）'),
+        findsOneWidget,
+      );
+      if (target == 'ios') {
+        tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await tester.binding.setSurfaceSize(const Size(320, 480));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(entry);
+      }
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      for (final value in [0, 40, 60, 80, 100, 120, 150, 200, 300]) {
+        expect(find.byKey(Key('playbackBuffer$value')), findsOneWidget);
+      }
+      if (target == 'tv') {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      } else {
+        await tester.ensureVisible(find.byKey(const Key('playbackBuffer300')));
+        await tester.tap(find.byKey(const Key('playbackBuffer300')));
+      }
+      await tester.pumpAndSettle();
+      expect(backend.savedPlaybackBufferMs, target == 'tv' ? 40 : 300);
+      expect(tester.widget<ListTile>(entry).focusNode!.hasFocus, isTrue);
+      if (target == 'macos') {
+        backend.saveFailure = 'Could not save buffer';
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('playbackBuffer40')));
+        await tester.tap(find.byKey(const Key('playbackBuffer40')));
+        await tester.pumpAndSettle();
+        expect(backend.savedPlaybackBufferMs, 300);
+        expect(find.text('Could not save buffer'), findsWidgets);
+        backend.saveFailure = null;
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('playbackBuffer0')));
+        await tester.tap(find.byKey(const Key('playbackBuffer0')));
+        await tester.pumpAndSettle();
+        expect(backend.savedPlaybackBufferMs, 0);
+        expect(find.text('默认（120 ms）'), findsOneWidget);
+      }
+
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final target in ['macos', 'windows', 'linux', 'ios', 'android', 'tv']) {
     testWidgets(
       '$target playback statistics overlay follows controls and persists',
       (tester) async {
@@ -1314,6 +1380,37 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final tv in [false, true]) {
+    testWidgets(
+      'Android buffer dialog Back preserves settings and reception ($tv)',
+      (tester) async {
+        final backend = await launch(
+          tester,
+          platform: 'android',
+          tv: tv,
+          size: tv ? const Size(960, 540) : const Size(390, 700),
+        );
+        await tester.tap(find.byKey(const Key('openSettings')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
+        await tester.tap(find.byKey(const Key('advancedSettings')));
+        await tester.pumpAndSettle();
+        final entry = find.byKey(const Key('playbackBuffer'));
+        await tester.ensureVisible(entry);
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(find.byType(SimpleDialog), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.byType(SimpleDialog), findsNothing);
+        expect(find.byType(SettingsPage), findsOneWidget);
+        expect(tester.widget<ListTile>(entry).focusNode!.hasFocus, isTrue);
+        expect(backend.savedPlaybackBufferMs, 0);
+        expect(backend.stops, 0);
+      },
+    );
+  }
 
   for (final tv in [false, true]) {
     for (final page in [

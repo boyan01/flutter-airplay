@@ -193,6 +193,7 @@ final class ReceiverHost {
         if value.fields & UInt32(AIRPLAY_SETTING_SHOW_ON_CONNECT.rawValue) != 0 { result["showOnConnect"] = value.show_on_connect }
         if value.fields & UInt32(AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT.rawValue) != 0 { result["fullscreenOnConnect"] = value.fullscreen_on_connect }
         if value.fields & UInt32(AIRPLAY_SETTING_ALWAYS_ON_TOP.rawValue) != 0 { result["alwaysOnTop"] = value.always_on_top }
+        if value.fields & UInt32(AIRPLAY_SETTING_PLAYBACK_BUFFER.rawValue) != 0 { result["playbackBufferMs"] = value.playback_buffer_ms }
         return result
     }
     private static func snapshot(_ value: AirplayReceiverSnapshot) -> [String: Any] {
@@ -251,10 +252,13 @@ final class ReceiverHost {
         if let value = values["fullscreenOnConnect"] { result.fields |= UInt32(AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT.rawValue); result.fullscreen_on_connect = value }
         if let value = values["alwaysOnTop"] { result.fields |= UInt32(AIRPLAY_SETTING_ALWAYS_ON_TOP.rawValue); result.always_on_top = value }
     }
-    func save(name: String, path: String, autoStart: Bool? = nil, videoQuality: String? = nil, fastPairing: Bool? = nil, options: [String: Bool] = [:]) throws {
+    func save(name: String, path: String, autoStart: Bool? = nil, videoQuality: String? = nil, fastPairing: Bool? = nil, playbackBufferMs: Int32? = nil, options: [String: Bool] = [:]) throws {
         var settings = AirplayReceiverSettings()
         var flags = options; flags["autoStart"] = autoStart; flags["fastPairing"] = fastPairing
         Self.options(flags, into: &settings)
+        if let buffer = playbackBufferMs {
+            settings.fields |= UInt32(AIRPLAY_SETTING_PLAYBACK_BUFFER.rawValue); settings.playback_buffer_ms = buffer
+        }
         if let quality = videoQuality {
             guard let index = Self.qualities.firstIndex(of: quality) else { throw ReceiverFailure(message: "Unknown video quality") }
             settings.fields |= UInt32(AIRPLAY_SETTING_VIDEO_QUALITY.rawValue); settings.video_quality = Int32(index)

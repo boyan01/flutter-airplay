@@ -43,6 +43,9 @@ bool airplay_player_set_hevc_decoder(AirplayPlayer *, const char *decoder);
 // Sets the advertised size before start; the sender chooses actual frame dimensions.
 // Defaults to 1920x1080. Call on the same lifecycle thread as start/destroy.
 bool airplay_player_set_video_size(AirplayPlayer *, int width, int height);
+// Sets the shared audio/video buffer: 0=platform default, or 40, 60, 80, 100, 120, 150, 200, 300 ms.
+// Call on the lifecycle thread before start; a running timeline cannot be changed.
+bool airplay_player_set_playback_buffer(AirplayPlayer *, int milliseconds);
 // Skips legacy pairing when enabled. Defaults to true; set before receiver start.
 bool airplay_player_set_fast_pairing(AirplayPlayer *, bool enabled);
 bool airplay_player_start(AirplayPlayer *, const char *name, const uint8_t identity[6],

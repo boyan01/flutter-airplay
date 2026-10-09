@@ -125,6 +125,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reset => 'Reset';
 
   @override
+  String get playbackBuffer => 'Playback buffer';
+
+  @override
+  String playbackBufferDefault(int milliseconds) {
+    return 'Default ($milliseconds ms)';
+  }
+
+  @override
+  String playbackBufferValue(int milliseconds) {
+    return '$milliseconds ms';
+  }
+
+  @override
+  String get playbackBufferHelp =>
+      'Lower values reduce delay but may cause stuttering or audio dropouts. Audio and video share this buffer. This is not the total mirroring delay.';
+
+  @override
   String get settingsApplyHelp =>
       'Applies automatically while waiting, or after the current connection ends.';
 

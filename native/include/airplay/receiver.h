@@ -20,7 +20,8 @@ typedef enum AirplaySettingFields {
     AIRPLAY_SETTING_AUTO_START = 1 << 4, AIRPLAY_SETTING_FAST_PAIRING = 1 << 5,
     AIRPLAY_SETTING_LAUNCH_AT_LOGIN = 1 << 6, AIRPLAY_SETTING_KEEP_IN_MENU_BAR = 1 << 7,
     AIRPLAY_SETTING_SHOW_ON_CONNECT = 1 << 8, AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT = 1 << 9,
-    AIRPLAY_SETTING_ALWAYS_ON_TOP = 1 << 10, AIRPLAY_SETTING_PLAYBACK_STATS = 1 << 11, AIRPLAY_SETTINGS_ALL = (1 << 12) - 1
+    AIRPLAY_SETTING_ALWAYS_ON_TOP = 1 << 10, AIRPLAY_SETTING_PLAYBACK_STATS = 1 << 11,
+    AIRPLAY_SETTING_PLAYBACK_BUFFER = 1 << 12, AIRPLAY_SETTINGS_ALL = (1 << 13) - 1
 } AirplaySettingFields;
 // Settings are copied before an asynchronous call returns. Lengths preserve
 // embedded NULs for validation. fields permits native menus to update one option.
@@ -33,6 +34,7 @@ typedef struct {
     bool auto_start, fast_pairing, launch_at_login, keep_in_menu_bar;
     bool show_on_connect, fullscreen_on_connect, always_on_top;
     bool show_playback_stats;
+    int32_t playback_buffer_ms; // 0=platform default, or 40, 60, 80, 100, 120, 150, 200, 300 ms.
 } AirplayReceiverSettings;
 typedef struct { int32_t width, height; } AirplayVideoSize;
 typedef struct { int64_t id; const char *time, *text; } AirplayReceiverLog;

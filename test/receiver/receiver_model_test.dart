@@ -173,6 +173,29 @@ void main() {
       await backend.controller.close();
     },
   );
+  for (final platform in ['macos', 'ios', 'android', 'windows', 'linux']) {
+    test(
+      '$platform defers playback buffer until the connection ends',
+      () async {
+        final backend = FakeReceiver(capabilities: {'platform': platform});
+        final model = ReceiverModel(backend);
+        await model.initialize();
+        expect(model.defaultPlaybackBufferMs, platform == 'macos' ? 120 : 80);
+        backend.state('streaming');
+        await model.save(model.name, model.path, playbackBufferMs: 60);
+        expect(model.settingsPending, isTrue);
+        expect(backend.stops, 0);
+        expect(backend.activeSettings['playbackBufferMs'], 0);
+        backend.state('waiting');
+        await Future<void>.delayed(Duration.zero);
+        expect(backend.stops, 1);
+        expect(backend.activeSettings['playbackBufferMs'], 60);
+        expect(model.settingsPending, isFalse);
+        model.dispose();
+        await backend.controller.close();
+      },
+    );
+  }
   test('Audio selection persists without restarting active receiver', () async {
     final backend = FakeReceiver(capabilities: {'platform': 'android'});
     final model = ReceiverModel(backend);

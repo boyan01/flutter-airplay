@@ -5,6 +5,26 @@ import 'package:flutter_airplay/receiver/receiver_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('playback buffer accepts presets and rejects unsupported values', () {
+    expect(ReceiverSettings.fromJson({}).playbackBufferMs, 0);
+    for (final value in ReceiverSettings.playbackBufferOptions) {
+      final settings = validatedReceiverSettings({
+        'name': 'Fixture',
+        'playbackBufferMs': value,
+      });
+      expect(settings.toJson()['playbackBufferMs'], value);
+    }
+    for (final value in [-1, 0.5, 80.5, 90, 301, '80']) {
+      expect(
+        () => validatedReceiverSettings({
+          'name': 'Fixture',
+          'playbackBufferMs': value,
+        }),
+        throwsStateError,
+      );
+    }
+  });
+
   test('JSON completion handles numeric request IDs, results and errors', () {
     final success = ReceiverReply.fromJson({
       'request': 2.0,

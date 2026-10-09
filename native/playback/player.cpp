@@ -65,6 +65,16 @@ extern "C" bool airplay_player_set_video_size(AirplayPlayer *p, int width, int h
     p->requested_width = width; p->requested_height = height;
     return true;
 }
+extern "C" bool airplay_player_set_playback_buffer(AirplayPlayer *p, int milliseconds) {
+    if (!p || p->protocol->started() ||
+        (milliseconds != 0 && milliseconds != 40 && milliseconds != 60 && milliseconds != 80 &&
+         milliseconds != 100 && milliseconds != 120 && milliseconds != 150 &&
+         milliseconds != 200 && milliseconds != 300)) return false;
+    const auto delay = milliseconds ? milliseconds : AirplayPlayer::default_playback_buffer_ms;
+    p->timeline.set_delay(int64_t(delay) * 1000000);
+    p->log(("Playback buffer: " + std::to_string(delay) + " ms").c_str());
+    return true;
+}
 extern "C" bool airplay_player_set_fast_pairing(AirplayPlayer *p, bool enabled) {
     if (!p || p->protocol->started()) return false;
     p->fast_pairing = enabled;

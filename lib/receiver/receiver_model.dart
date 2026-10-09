@@ -26,6 +26,7 @@ class ReceiverModel extends ChangeNotifier {
     name: name,
     path: path,
     fastPairing: fastPairing,
+    playbackBufferMs: playbackBufferMs,
     videoQuality: VideoQuality.values.firstWhere(
       (value) => value.value == videoQuality,
     ),
@@ -45,6 +46,8 @@ class ReceiverModel extends ChangeNotifier {
   bool autoStart = true;
   bool fastPairing = true;
   bool showPlaybackStats = false;
+  int playbackBufferMs = 0;
+  int get defaultPlaybackBufferMs => platform == 'macos' ? 120 : 80;
   PlaybackStats? playbackStats;
   String videoQuality = 'auto';
   String audioOutput = 'auto';
@@ -137,6 +140,7 @@ class ReceiverModel extends ChangeNotifier {
     autoStart = settings.autoStart;
     fastPairing = settings.fastPairing;
     showPlaybackStats = settings.showPlaybackStats;
+    playbackBufferMs = settings.playbackBufferMs;
     if (!showPlaybackStats || data.videoWidth == 0) {
       playbackStats = null;
     }
@@ -294,6 +298,7 @@ class ReceiverModel extends ChangeNotifier {
     String? audioOutput,
     bool? fastPairing,
     bool? showPlaybackStats,
+    int? playbackBufferMs,
     Map<String, bool>? desktopOptions,
   }) {
     final options = desktopOptions == null
@@ -315,6 +320,7 @@ class ReceiverModel extends ChangeNotifier {
           autoStart: autoStart ?? this.autoStart,
           fastPairing: fastPairing ?? this.fastPairing,
           showPlaybackStats: showPlaybackStats ?? this.showPlaybackStats,
+          playbackBufferMs: playbackBufferMs ?? this.playbackBufferMs,
           videoQuality: supportsVideoQuality
               ? videoQuality ?? this.videoQuality
               : null,
@@ -328,6 +334,7 @@ class ReceiverModel extends ChangeNotifier {
         this.autoStart = autoStart ?? this.autoStart;
         this.fastPairing = fastPairing ?? this.fastPairing;
         this.showPlaybackStats = showPlaybackStats ?? this.showPlaybackStats;
+        this.playbackBufferMs = playbackBufferMs ?? this.playbackBufferMs;
         if (!this.showPlaybackStats) playbackStats = null;
         this.videoQuality = videoQuality ?? this.videoQuality;
         this.audioOutput = audioOutput ?? this.audioOutput;
@@ -356,6 +363,7 @@ class ReceiverModel extends ChangeNotifier {
         name: nextName.trim(),
         path: nextPath.trim(),
         fastPairing: fastPairing,
+        playbackBufferMs: playbackBufferMs,
         videoQuality: _receiverSettings.videoQuality,
         audioOutput: _receiverSettings.audioOutput,
       );

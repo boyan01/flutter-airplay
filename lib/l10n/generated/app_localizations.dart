@@ -326,6 +326,30 @@ abstract class AppLocalizations {
   /// **'Reset'**
   String get reset;
 
+  /// No description provided for @playbackBuffer.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback buffer'**
+  String get playbackBuffer;
+
+  /// No description provided for @playbackBufferDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default ({milliseconds} ms)'**
+  String playbackBufferDefault(int milliseconds);
+
+  /// No description provided for @playbackBufferValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{milliseconds} ms'**
+  String playbackBufferValue(int milliseconds);
+
+  /// No description provided for @playbackBufferHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Lower values reduce delay but may cause stuttering or audio dropouts. Audio and video share this buffer. This is not the total mirroring delay.'**
+  String get playbackBufferHelp;
+
   /// No description provided for @settingsApplyHelp.
   ///
   /// In en, this message translates to:

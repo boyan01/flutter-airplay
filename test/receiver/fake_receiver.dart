@@ -42,6 +42,7 @@ class FakeReceiver extends ReceiverRepository {
   String? startedName, savedName, failure;
   String? savedVideoQuality, savedAudioOutput;
   bool savedFastPairing = false, savedShowPlaybackStats = false;
+  int savedPlaybackBufferMs = 0;
   final fastPairingCalls = <bool?>[];
   Map<String, bool> savedOptions = {};
   String? saveFailure;
@@ -59,6 +60,7 @@ class FakeReceiver extends ReceiverRepository {
     'autoStart': autoStart,
     'fastPairing': savedFastPairing,
     'showPlaybackStats': savedShowPlaybackStats,
+    'playbackBufferMs': savedPlaybackBufferMs,
     'status': currentStatus,
     'defaultName': 'System Device',
     'activeSettings': activeSettings,
@@ -91,6 +93,7 @@ class FakeReceiver extends ReceiverRepository {
       'name': savedName ?? startedName ?? 'Flutter AirPlay',
       'fastPairing': savedFastPairing,
       'showPlaybackStats': savedShowPlaybackStats,
+      'playbackBufferMs': savedPlaybackBufferMs,
       'videoQuality': savedVideoQuality ?? 'auto',
       'audioOutput': savedAudioOutput ?? 'auto',
     });
@@ -135,6 +138,7 @@ class FakeReceiver extends ReceiverRepository {
       'path': path,
       'fastPairing': savedFastPairing,
       'showPlaybackStats': savedShowPlaybackStats,
+      'playbackBufferMs': savedPlaybackBufferMs,
       if (capabilities?['platform'] == 'android' || enableVideoQuality)
         'videoQuality': savedVideoQuality ?? 'auto',
       if (capabilities?['platform'] == 'android')
@@ -174,6 +178,7 @@ class FakeReceiver extends ReceiverRepository {
     String? audioOutput,
     bool? fastPairing,
     bool? showPlaybackStats,
+    int? playbackBufferMs,
     Map<String, bool> desktopOptions = const {},
   }) async {
     saves++;
@@ -184,6 +189,7 @@ class FakeReceiver extends ReceiverRepository {
     }
     this.autoStart = autoStart;
     if (showPlaybackStats != null) savedShowPlaybackStats = showPlaybackStats;
+    if (playbackBufferMs != null) savedPlaybackBufferMs = playbackBufferMs;
     if (fastPairing != null) savedFastPairing = fastPairing;
     savedName = name;
     savedVideoQuality = videoQuality;

@@ -148,6 +148,7 @@ int main() {
             if (session != 0) check(airplay_player_set_video_size(player, request_width, request_height), "configure requested quality");
             char error[512];
             check(airplay_player_start(player, "Synthetic Receiver", identity, key.c_str(), error, sizeof(error)), error);
+            check(!airplay_player_set_playback_buffer(player, 40), "cannot change a running timeline");
             check(!airplay_player_set_video_size(player, 1280, 720), "cannot mutate a running receiver request");
             const auto port = airplay_player_port(player);
             check(port != 0, "dynamic receiver port");

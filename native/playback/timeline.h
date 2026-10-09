@@ -40,10 +40,13 @@ public:
         if (!anchored_) { offset_ = now + delay_ - local_pts; anchored_ = true; }
         return local_pts + offset_;
     }
+    void set_delay(int64_t delay) {
+        std::lock_guard<std::mutex> guard(lock_); delay_ = delay; anchored_ = false;
+    }
     void reset() { std::lock_guard<std::mutex> guard(lock_); anchored_ = false; }
 private:
     std::mutex lock_;
-    const int64_t delay_;
+    int64_t delay_;
     bool anchored_ = false;
     int64_t offset_ = 0;
 };

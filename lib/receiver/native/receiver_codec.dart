@@ -52,6 +52,12 @@ ReceiverSettings validatedReceiverSettings(Map<String, dynamic> values) {
   if (path.isNotEmpty) {
     throw StateError('Playback uses the built-in receiver core');
   }
+  final buffer = values['playbackBufferMs'];
+  if (buffer != null &&
+      (buffer is! int ||
+          !ReceiverSettings.playbackBufferOptions.contains(buffer))) {
+    throw StateError('Invalid playback buffer');
+  }
   try {
     return ReceiverSettings.fromJson({...values, 'name': name, 'path': path});
   } on ArgumentError {

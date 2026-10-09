@@ -23,6 +23,7 @@ extern "C" uint16_t airplay_player_port(AirplayPlayer*) { std::abort(); }
 extern "C" size_t airplay_player_txt(AirplayPlayer*, bool, uint8_t*, size_t) { std::abort(); }
 extern "C" bool airplay_player_prepare_restart(AirplayPlayer*) { std::abort(); }
 extern "C" void airplay_player_set_stats_enabled(AirplayPlayer*, bool) { std::abort(); }
+extern "C" bool airplay_player_set_playback_buffer(AirplayPlayer*, int) { std::abort(); }
 extern "C" bool airplay_player_set_fast_pairing(AirplayPlayer*, bool) { std::abort(); }
 extern "C" bool airplay_player_set_video_size(AirplayPlayer*, int, int) { std::abort(); }
 extern "C" bool airplay_player_start(AirplayPlayer*, const char*, const uint8_t[6], const char*, char*, size_t) { std::abort(); }
@@ -43,6 +44,21 @@ int main() {
     require(!airplay_receiver_save(handle, &settings, error, sizeof(error)), "invalid name rejected");
     auto* snapshot = airplay_receiver_snapshot(handle, error, sizeof(error));
     require(snapshot && std::string(snapshot->settings.name) == "New name", "failed settings retain desired value");
+    airplay_receiver_free_snapshot(snapshot);
+    settings.fields = AIRPLAY_SETTING_PLAYBACK_BUFFER;
+    for (int value : {0, 40, 60, 80, 100, 120, 150, 200, 300}) {
+        settings.playback_buffer_ms = value;
+        require(airplay_receiver_save(handle, &settings, error, sizeof(error)), "buffer preset accepted");
+        snapshot = airplay_receiver_snapshot(handle, error, sizeof(error));
+        require(snapshot && snapshot->settings.playback_buffer_ms == value, "typed snapshot retains buffer");
+        airplay_receiver_free_snapshot(snapshot);
+    }
+    for (int value : {-1, 90, 301}) {
+        settings.playback_buffer_ms = value;
+        require(!airplay_receiver_save(handle, &settings, error, sizeof(error)), "invalid buffer rejected");
+    }
+    snapshot = airplay_receiver_snapshot(handle, error, sizeof(error));
+    require(snapshot && snapshot->settings.playback_buffer_ms == 300, "invalid buffer retains previous value");
     airplay_receiver_free_snapshot(snapshot);
     require(!airplay_receiver_start(handle, UINT64_MAX, error, sizeof(error)), "output failure reaches control caller");
     snapshot = airplay_receiver_snapshot(handle, error, sizeof(error));

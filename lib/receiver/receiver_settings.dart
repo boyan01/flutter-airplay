@@ -20,12 +20,14 @@ enum AudioOutput { auto, aaudio, audiotrack }
 /// Desired values. Persistence and native conversion belong to their adapters.
 @JsonSerializable()
 class ReceiverSettings {
+  static const playbackBufferOptions = [0, 40, 60, 80, 100, 120, 150, 200, 300];
   const ReceiverSettings({
     this.name = 'Flutter AirPlay',
     this.path = '',
     this.autoStart = true,
     this.fastPairing = true,
     this.showPlaybackStats = false,
+    this.playbackBufferMs = 0,
     this.videoQuality = VideoQuality.auto,
     this.audioOutput = AudioOutput.auto,
     this.launchAtLogin = false,
@@ -43,6 +45,8 @@ class ReceiverSettings {
   final bool autoStart;
   final bool fastPairing;
   final bool showPlaybackStats;
+  // Zero preserves the native platform default.
+  final int playbackBufferMs;
   final VideoQuality videoQuality;
   final AudioOutput audioOutput;
   final bool launchAtLogin;
@@ -67,6 +71,7 @@ class ReceiverSettings {
       name == other.name &&
       path == other.path &&
       fastPairing == other.fastPairing &&
+      playbackBufferMs == other.playbackBufferMs &&
       (!videoQualitySupported || videoQuality == other.videoQuality) &&
       (!androidAudio || audioOutput == other.audioOutput);
 }

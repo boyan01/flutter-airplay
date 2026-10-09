@@ -34,6 +34,7 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 - **🔄 Background Reception**: Android runs as a foreground service with notification controls, continuing reception when switched to the background or screen-off.
 - **🎯 Dynamic Resolution & Auto-negotiation**: Supports "Match Native" (up to 4K 2160p), 1440p, 1080p, and 720p with real-time stream dimension monitoring.
 - **🔒 Zero Bloat & Bundled Dependencies**: No need to install Homebrew packages or GStreamer runtime on macOS.
+- **Playback Buffer**: Settings → Advanced → Playback buffer offers the platform default (macOS: 120 ms; other platforms: 80 ms), or 40, 60, 80, 100, 120, 150, 200 and 300 ms. Lower values reduce receiver delay but can increase stuttering or audio dropouts. Audio and video use the same buffer; this value is not total mirroring latency. Changes apply while waiting or after the current connection ends.
 - **Playback Statistics**: Enable Settings → Advanced → Playback statistics overlay on any platform. The passive overlay shows codec, decoder backend, decoded size, one-second scheduler submission FPS, cumulative scheduler drops and queue depths. Drops count late, out-of-order and overflow pictures since the last playback reset; they exclude lifecycle cancellation and network loss. Submission does not measure actual screen presentation.
 
 ---

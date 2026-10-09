@@ -38,6 +38,24 @@
   "name": "设备名",
   "randomName": "随机名称",
   "reset": "重置",
+  "playbackBuffer": "播放缓冲",
+  "playbackBufferDefault": "默认（{milliseconds} ms）",
+  "@playbackBufferDefault": {
+    "placeholders": {
+      "milliseconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playbackBufferValue": "{milliseconds} ms",
+  "@playbackBufferValue": {
+    "placeholders": {
+      "milliseconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playbackBufferHelp": "较低的值可减少延迟，但可能增加卡顿或音频断续。音频和视频共用此缓冲。此数值不代表完整投屏延迟。",
   "settingsApplyHelp": "等待连接时自动生效；已有连接时，结束后自动生效。",
   "nameHelp": "显示在 iPhone「屏幕镜像」列表中",
   "confirm": "确认",

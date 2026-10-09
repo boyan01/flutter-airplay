@@ -96,15 +96,25 @@ int main() {
     std::string name = "Copied 测试";
     AirplayReceiverSettings settings{}; settings.fields = AIRPLAY_SETTING_NAME | AIRPLAY_SETTING_FAST_PAIRING;
     settings.name = name.data(); settings.name_size = name.size(); settings.fast_pairing = true;
-    std::string input = "{\"method\":\"save\",\"arguments\":{\"name\":\"Copied 测试\",\"fastPairing\":true,\"showPlaybackStats\":true}}";
+    std::string input = "{\"method\":\"save\",\"arguments\":{\"name\":\"Copied 测试\",\"fastPairing\":true,\"showPlaybackStats\":true,\"playbackBufferMs\":150}}";
     require(airplay_receiver_control(handle, token, 1, input.data(), input.size()), "JSON save admitted");
     input.assign(input.size(), 'x');
     name.assign(name.size(), 'x');
     require(!item(reply(10, 1).get(), "error"), "submission owns argument bytes");
     auto saved = snapshot(handle);
     require(std::string(saved->settings.name) == "Copied 测试" && saved->settings.fast_pairing && saved->settings.show_playback_stats, "typed Unicode and overlay settings preserved");
+    require(saved->settings.playback_buffer_ms == 150, "JSON buffer reaches typed settings");
     require(saved->settings.auto_start && saved->settings.keep_in_menu_bar && saved->settings.show_on_connect,
             "partial saves retain shared defaults");
+    int64_t buffer_request = 100;
+    for (const auto *invalid : {"-1", "90", "80.5", "\"80\"", "true", "4294967376"}) {
+        const auto arguments = std::string("{\"playbackBufferMs\":") + invalid + "}";
+        require(command(handle, token, buffer_request, "save", arguments.c_str()), "invalid buffer request admitted");
+        require(item(reply(10, buffer_request++).get(), "error") != nullptr, "invalid JSON buffer rejected");
+    }
+    require(snapshot(handle)->settings.playback_buffer_ms == 150, "invalid JSON buffer preserves desired settings");
+    require(command(handle, token, buffer_request, "snapshot"), "buffer snapshot admitted");
+    require(integer(item(reply(10, buffer_request).get(), "data"), "playbackBufferMs") == 150, "JSON snapshot retains buffer");
     preferences.reject = true;
     settings.fields = AIRPLAY_SETTING_ALWAYS_ON_TOP; settings.always_on_top = true;
     require(!airplay_receiver_save(handle, &settings, error, sizeof(error)), "platform preferences failure aborts typed save");

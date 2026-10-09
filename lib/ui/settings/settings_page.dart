@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../receiver/receiver_model.dart';
+import '../../receiver/receiver_settings.dart';
 import '../../platform/window_controller.dart';
 import '../../platform/launch_at_login.dart';
 import '../widgets/receiver_strings.dart';
@@ -45,6 +46,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final _options = Map<String, bool>.of(widget.model.desktopOptions);
   final _qualityFocus = FocusNode();
   final _audioOutputFocus = FocusNode();
+  final _playbackBufferFocus = FocusNode();
   Timer? _textSave;
   String? _error;
   String? _systemSettingsError;
@@ -81,6 +83,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _path.dispose();
     _qualityFocus.dispose();
     _audioOutputFocus.dispose();
+    _playbackBufferFocus.dispose();
     super.dispose();
   }
 
@@ -127,6 +130,49 @@ class _SettingsPageState extends State<SettingsPage> {
       MaterialPageRoute(builder: (_) => VideoQualityPage(model: model)),
     );
     if (mounted && model.isTelevision) _qualityFocus.requestFocus();
+  }
+
+  String _bufferLabel(BuildContext context, int value) => value == 0
+      ? l10n(context).playbackBufferDefault(model.defaultPlaybackBufferMs)
+      : l10n(context).playbackBufferValue(value);
+
+  Future<void> _editPlaybackBuffer() async {
+    await _save();
+    if (!mounted) return;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l10n(context).playbackBuffer),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Text(
+              '${l10n(context).playbackBufferHelp}\n\n${l10n(context).settingsApplyHelp}',
+            ),
+          ),
+          for (final value in ReceiverSettings.playbackBufferOptions)
+            TvFocus(
+              child: ListTile(
+                key: Key('playbackBuffer$value'),
+                autofocus: value == model.playbackBufferMs,
+                title: Text(_bufferLabel(context, value)),
+                selected: value == model.playbackBufferMs,
+                trailing: Icon(
+                  value == model.playbackBufferMs
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
+                onTap: () => Navigator.pop(context, value),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    _playbackBufferFocus.requestFocus();
+    if (selected != null && selected != model.playbackBufferMs) {
+      await model.save(model.name, model.path, playbackBufferMs: selected);
+    }
   }
 
   Widget _option(String key, String title, {bool enabled = true}) =>
@@ -324,6 +370,17 @@ class _SettingsPageState extends State<SettingsPage> {
           title: Text(l10n(context).advanced),
           tilePadding: EdgeInsets.zero,
           children: [
+            TvFocus(
+              child: ListTile(
+                key: const Key('playbackBuffer'),
+                focusNode: _playbackBufferFocus,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n(context).playbackBuffer),
+                subtitle: Text(_bufferLabel(context, model.playbackBufferMs)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: model.editable ? _editPlaybackBuffer : null,
+              ),
+            ),
             TvFocus(
               child: SwitchListTile(
                 key: const Key('fastPairing'),

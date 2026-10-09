@@ -38,6 +38,24 @@
   "name": "Device name",
   "randomName": "Random name",
   "reset": "Reset",
+  "playbackBuffer": "Playback buffer",
+  "playbackBufferDefault": "Default ({milliseconds} ms)",
+  "@playbackBufferDefault": {
+    "placeholders": {
+      "milliseconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playbackBufferValue": "{milliseconds} ms",
+  "@playbackBufferValue": {
+    "placeholders": {
+      "milliseconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playbackBufferHelp": "Lower values reduce delay but may cause stuttering or audio dropouts. Audio and video share this buffer. This is not the total mirroring delay.",
   "settingsApplyHelp": "Applies automatically while waiting, or after the current connection ends.",
   "nameHelp": "Shown in iPhone Screen Mirroring",
   "confirm": "Confirm",

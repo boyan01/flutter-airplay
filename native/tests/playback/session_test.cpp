@@ -457,10 +457,23 @@ void check_mac_arrival_jitter() {
     if (progress.times.size() != count || max_gap > 30000000)
         throw std::runtime_error("Mac arrival jitter produces a presentation stall");
 }
+void check_playback_buffer() {
+    const auto check = [](bool condition, const char *message) {
+        if (!condition) throw std::runtime_error(message);
+    };
+    auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, nullptr, nullptr, nullptr);
+    for (int value : {0, 40, 60, 80, 100, 120, 150, 200, 300, 0}) {
+        check(airplay_player_set_playback_buffer(p.get(), value), "configure playback buffer before start");
+        const int64_t delay = int64_t(value ? value : AirplayPlayer::default_playback_buffer_ms) * 1000000;
+        check(p->timeline.deadline(10000000000, 1000000000) == 1000000000 + delay, "buffer anchors the shared timeline");
+        check(p->timeline.deadline(10010000000, 1100000000) == 1010000000 + delay, "audio/video retain relative PTS");
+        check(!airplay_player_set_playback_buffer(p.get(), 90), "unsupported playback buffer rejected");
+    }
+}
 int main(int argc, char **argv) {
     try {
         if (argc == 2 && !strcmp(argv[1], "--video-interruption")) { check_mac_video_interruption(); return 0; }
-        check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
+        check_playback_buffer(); check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
     catch (const std::exception &error) { std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
 }
 #else

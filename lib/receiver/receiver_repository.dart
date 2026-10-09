@@ -21,6 +21,7 @@ abstract class ReceiverRepository {
     String? audioOutput,
     bool? fastPairing,
     bool? showPlaybackStats,
+    int? playbackBufferMs,
     Map<String, bool> desktopOptions = const {},
   });
   Future<void> start(String name, String path);
@@ -146,6 +147,7 @@ class NativeReceiverRepository implements ReceiverRepository {
     String? audioOutput,
     bool? fastPairing,
     bool? showPlaybackStats,
+    int? playbackBufferMs,
     Map<String, bool> desktopOptions = const {},
   }) => _save({
     'name': name,
@@ -155,6 +157,7 @@ class NativeReceiverRepository implements ReceiverRepository {
     'audioOutput': ?audioOutput,
     'fastPairing': ?fastPairing,
     'showPlaybackStats': ?showPlaybackStats,
+    'playbackBufferMs': ?playbackBufferMs,
     ...desktopOptions,
   });
   Future<void> _save(Map<String, dynamic> patch) {

@@ -30,6 +30,7 @@ struct Settings {
     std::string name, path;
     AirplayVideoQuality video_quality = AIRPLAY_VIDEO_AUTO;
     AirplayAudioOutput audio_output = AIRPLAY_AUDIO_AUTO;
+    int playback_buffer_ms = 0;
     bool auto_start = true, fast_pairing = true, launch_at_login = false, keep_in_menu_bar = true;
     bool show_on_connect = true, fullscreen_on_connect = false, always_on_top = false, show_playback_stats = false;
     void apply(const Settings& patch) {
@@ -45,6 +46,7 @@ struct Settings {
         if (patch.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) fullscreen_on_connect = patch.fullscreen_on_connect;
         if (patch.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) always_on_top = patch.always_on_top;
         if (patch.fields & AIRPLAY_SETTING_PLAYBACK_STATS) show_playback_stats = patch.show_playback_stats;
+        if (patch.fields & AIRPLAY_SETTING_PLAYBACK_BUFFER) playback_buffer_ms = patch.playback_buffer_ms;
     }
 };
 const char* status_name(AirplayReceiverStatus status) {
@@ -113,6 +115,10 @@ const char* audio_name(int value) {
     switch (value) { case AIRPLAY_AUDIO_AUTO: return "auto"; case AIRPLAY_AUDIO_AAUDIO: return "aaudio";
         case AIRPLAY_AUDIO_AUDIOTRACK: return "audiotrack"; default: throw std::runtime_error("Invalid audio output selection"); }
 }
+bool valid_playback_buffer(int64_t value) {
+    return value == 0 || value == 40 || value == 60 || value == 80 || value == 100 ||
+        value == 120 || value == 150 || value == 200 || value == 300;
+}
 Settings copied_settings(const AirplayReceiverSettings& value) {
     if (value.fields & ~uint32_t(AIRPLAY_SETTINGS_ALL)) throw std::runtime_error("Invalid settings fields");
     Settings result; result.fields = value.fields;
@@ -128,6 +134,10 @@ Settings copied_settings(const AirplayReceiverSettings& value) {
     if (value.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) result.fullscreen_on_connect = value.fullscreen_on_connect;
     if (value.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) result.always_on_top = value.always_on_top;
     if (value.fields & AIRPLAY_SETTING_PLAYBACK_STATS) result.show_playback_stats = value.show_playback_stats;
+    if (value.fields & AIRPLAY_SETTING_PLAYBACK_BUFFER) {
+        if (!valid_playback_buffer(value.playback_buffer_ms)) throw std::runtime_error("Invalid playback buffer");
+        result.playback_buffer_ms = value.playback_buffer_ms;
+    }
     if (value.fields & AIRPLAY_SETTING_NAME) {
         result.name = trim(result.name);
         if (!valid_name(result.name)) throw std::runtime_error("Invalid receiver name");
@@ -165,6 +175,12 @@ Settings settings_from_json(plist_t value) {
         result.audio_output = output == "auto" ? AIRPLAY_AUDIO_AUTO : output == "aaudio" ? AIRPLAY_AUDIO_AAUDIO : AIRPLAY_AUDIO_AUDIOTRACK;
         result.fields |= AIRPLAY_SETTING_AUDIO_OUTPUT;
     }
+    if (auto node = item(value, "playbackBufferMs")) {
+        const auto buffer = integer(value, "playbackBufferMs", -1);
+        if (plist_get_node_type(node) != PLIST_UINT || !valid_playback_buffer(buffer))
+            throw std::runtime_error("Invalid playback buffer");
+        result.playback_buffer_ms = int(buffer); result.fields |= AIRPLAY_SETTING_PLAYBACK_BUFFER;
+    }
     auto bool_field = [&](const char* key, uint32_t field, bool& target) {
         if (auto node = item(value, key)) {
             if (plist_get_node_type(node) != PLIST_BOOLEAN) throw std::runtime_error(std::string("Invalid setting: ") + key);
@@ -195,6 +211,7 @@ Json settings_json(const Settings& value) {
     if (value.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) set(result.get(), "fullscreenOnConnect", value.fullscreen_on_connect);
     if (value.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) set(result.get(), "alwaysOnTop", value.always_on_top);
     if (value.fields & AIRPLAY_SETTING_PLAYBACK_STATS) set(result.get(), "showPlaybackStats", value.show_playback_stats);
+    if (value.fields & AIRPLAY_SETTING_PLAYBACK_BUFFER) set(result.get(), "playbackBufferMs", int64_t(value.playback_buffer_ms));
     return result;
 }
 void fill_settings(AirplayReceiverSettings& out, const Settings& value) {
@@ -211,6 +228,7 @@ void fill_settings(AirplayReceiverSettings& out, const Settings& value) {
     if (value.fields & AIRPLAY_SETTING_FULLSCREEN_ON_CONNECT) out.fullscreen_on_connect = value.fullscreen_on_connect;
     if (value.fields & AIRPLAY_SETTING_ALWAYS_ON_TOP) out.always_on_top = value.always_on_top;
     if (value.fields & AIRPLAY_SETTING_PLAYBACK_STATS) out.show_playback_stats = value.show_playback_stats;
+    if (value.fields & AIRPLAY_SETTING_PLAYBACK_BUFFER) out.playback_buffer_ms = value.playback_buffer_ms;
 }
 
 class Receiver;
@@ -533,10 +551,12 @@ private:
             player_ = host.create_player(host.context, callbacks, width, height, int(mode), error, sizeof(error));
             if (!player_) throw std::runtime_error(error[0] ? error : "Cannot create native player");
             airplay_player_set_stats_enabled(player_, settings_.show_playback_stats);
-            if (!airplay_player_set_fast_pairing(player_, settings_.fast_pairing) ||
+            if (!airplay_player_set_playback_buffer(player_, settings_.playback_buffer_ms) ||
+                !airplay_player_set_fast_pairing(player_, settings_.fast_pairing) ||
                 !airplay_player_set_video_size(player_, width, height)) throw std::runtime_error("Cannot configure native player");
             receiving_name_ = settings_.name; active_ = settings_;
-            active_.fields = AIRPLAY_SETTING_NAME | AIRPLAY_SETTING_PATH | AIRPLAY_SETTING_VIDEO_QUALITY | AIRPLAY_SETTING_FAST_PAIRING;
+            active_.fields = AIRPLAY_SETTING_NAME | AIRPLAY_SETTING_PATH | AIRPLAY_SETTING_VIDEO_QUALITY |
+                AIRPLAY_SETTING_FAST_PAIRING | AIRPLAY_SETTING_PLAYBACK_BUFFER;
             auto capabilities = item(metadata_.get(), "capabilities");
             if (text(capabilities, "platform") == "android") active_.fields |= AIRPLAY_SETTING_AUDIO_OUTPUT;
             log("Receiver request: quality=" + std::string(quality_name(settings_.video_quality)) + ", " + std::to_string(width) + "x" + std::to_string(height) + ", maxFPS=60; sender chooses actual codec/size/rate");

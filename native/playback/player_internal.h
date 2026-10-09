@@ -23,10 +23,11 @@ struct AirplayPlayer {
     std::unique_ptr<airplay::ProtocolAdapter> protocol;
 #if defined(__APPLE__) && TARGET_OS_OSX
     // Cover short TCP arrival stalls without changing relative audio/video time.
-    Timeline timeline{120000000};
+    static constexpr int default_playback_buffer_ms = 120;
 #else
-    Timeline timeline;
+    static constexpr int default_playback_buffer_ms = 80;
 #endif
+    Timeline timeline{int64_t(default_playback_buffer_ms) * 1000000};
     std::shared_ptr<AudioBuffer> pcm = std::make_shared<AudioBuffer>();
     AudioDecoder audio;
     std::unique_ptr<AudioOutput> output;

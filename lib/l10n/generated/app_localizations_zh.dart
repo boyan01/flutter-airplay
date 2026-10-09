@@ -124,6 +124,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String get reset => '重置';
 
   @override
+  String get playbackBuffer => '播放缓冲';
+
+  @override
+  String playbackBufferDefault(int milliseconds) {
+    return '默认（$milliseconds ms）';
+  }
+
+  @override
+  String playbackBufferValue(int milliseconds) {
+    return '$milliseconds ms';
+  }
+
+  @override
+  String get playbackBufferHelp =>
+      '较低的值可减少延迟，但可能增加卡顿或音频断续。音频和视频共用此缓冲。此数值不代表完整投屏延迟。';
+
+  @override
   String get settingsApplyHelp => '等待连接时自动生效；已有连接时，结束后自动生效。';
 
   @override

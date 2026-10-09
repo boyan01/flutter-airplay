@@ -121,6 +121,7 @@ void main() {
       expect(data.settings.name, 'Existing receiver');
       expect(data.settings.autoStart, false);
       expect(data.settings.fastPairing, true);
+      expect(data.settings.playbackBufferMs, 0);
       expect(preferences.value, isNull);
     });
   }
@@ -131,12 +132,14 @@ void main() {
       'autoStart': false,
       'fastPairing': false,
       'showPlaybackStats': true,
+      'playbackBufferMs': 100,
     });
     final data = await repository(control('macos')).snapshot();
     expect(data.settings.name, 'Saved in Dart');
     expect(data.settings.videoQuality, VideoQuality.p720);
     expect(data.settings.fastPairing, false);
     expect(data.settings.showPlaybackStats, true);
+    expect(data.settings.playbackBufferMs, 100);
   });
   test(
     'serialized saves preserve options and canonical native values',
@@ -145,13 +148,14 @@ void main() {
       final repo = repository(native);
       await repo.snapshot();
       await Future.wait([
-        repo.save('  Updated  ', '', fastPairing: false),
+        repo.save('  Updated  ', '', fastPairing: false, playbackBufferMs: 200),
         repo.save('Last', '', videoQuality: '1080'),
       ]);
       final data = jsonDecode(preferences.value!);
       expect(data['name'], 'Last');
       expect(data['videoQuality'], '1080');
       expect(data['fastPairing'], false);
+      expect(data['playbackBufferMs'], 200);
       await expectLater(
         repo.save('Rejected', '', videoQuality: 'invalid'),
         throwsStateError,
