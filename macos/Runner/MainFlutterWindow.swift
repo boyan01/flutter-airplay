@@ -110,10 +110,14 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
   }
 
   func animationDidEnd(_ animation: NSAnimation) {
-    guard animation === resizeAnimation else { return }
+    guard let animation = animation as? WindowResizeAnimation,
+          animation === resizeAnimation else { return }
     let completion = resizeCompletion
     resizeAnimation = nil
     resizeCompletion = nil
+    // AppKit may finish between frame ticks. Commit the exact target before
+    // reporting success, regardless of the last interpolated frame.
+    setFrame(animation.target, display: true)
     completion?(true)
   }
 

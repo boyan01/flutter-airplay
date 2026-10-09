@@ -27,6 +27,16 @@ extension MainFlutterWindow {
   func fireTestStartupTimeout() { startupTimeout?.perform() }
   var hasStartupTimeout: Bool { startupTimeout != nil }
   var hasFinishedStartup: Bool { startupFinished }
+  func finishTestResizeBeforeFinalFrame() {
+    guard let animation = resizeAnimation else { return }
+    // Model an end notification after a delayed tick left an intermediate frame.
+    animation.delegate = nil
+    animation.stop()
+    animation.currentProgress = 0.5
+    require(!frame.equalTo(animation.target), "completion regression must begin before the target")
+    animationDidEnd(animation)
+    animationDidEnd(animation)
+  }
 }
 final class RecordingWindow: MainFlutterWindow {
   var actions: [String] = []
@@ -212,6 +222,18 @@ runUntil {
 print("Native resize: elapsed=\(Date().timeIntervalSince(started)) frames=\(resizeFrames.count)")
 require(resizeFrames.count > 3, "animation must produce intermediate window frames")
 require(resizeResults == [true] && resizeWindow.frame.equalTo(resizeTarget), "animation must reach its target exactly once")
+
+// Cover completion independently of display cadence and the final animation tick.
+resizeWindow.setFrame(NSRect(x: 200, y: 200, width: 440, height: 560), display: true)
+var delayedTickResults: [Bool] = []
+resizeWindow.resizeWindow(to: resizeTarget, duration: 0.2) {
+  require(resizeWindow.frame.equalTo(resizeTarget), "success callback must observe the exact target")
+  delayedTickResults.append($0)
+}
+resizeWindow.finishTestResizeBeforeFinalFrame()
+require(delayedTickResults == [true] && resizeWindow.frame.equalTo(resizeTarget),
+  "completion after a delayed tick must reach its target exactly once")
+print("PASS: delayed animation tick commits the exact target before completion")
 
 let nextTarget = NSRect(x: 250, y: 200, width: 600, height: 700)
 resizeWindow.resizeWindow(to: nextTarget, duration: 0.2) { resizeResults.append($0) }
