@@ -265,197 +265,213 @@ void main() {
     );
     final model = ReceiverModel(backend);
     const controller = WindowController();
-    addTearDown(
-      () => cleanUpDesktop(tester, [
-        // Restore visibility/fullscreen even if an assertion fails. ReceiverScreen
-        // owns the model, its presentation and the native wrapper's disposal.
-        (
-          phase: 'geometry: exit fullscreen',
-          action: () => controller.execute(WindowCommand.exitFullscreen),
-        ),
-        (
-          phase: 'geometry: show window',
-          action: () => controller.withWindow((value) => value.show()),
-        ),
-        (
-          phase: 'geometry: unmount ReceiverApp',
-          action: () => tester.pumpWidget(const SizedBox()),
-        ),
-        (
-          phase: 'geometry: close receiver stream',
-          action: backend.controller.close,
-        ),
-      ]),
-    );
-    await tester.pumpWidget(ReceiverApp(model: model, window: controller));
-    await _waitForWindow(
-      tester,
-      (value) => model.loaded && model.status == 'waiting' && !value.fullscreen,
-      reason: 'receiver application startup',
-    );
+    Future<void> cleanUp() => cleanUpDesktop(tester, [
+      // Restore visibility/fullscreen even if an assertion fails. ReceiverScreen
+      // owns the model, its presentation and the native wrapper's disposal.
+      (
+        phase: 'geometry: exit fullscreen',
+        action: () => controller.execute(WindowCommand.exitFullscreen),
+      ),
+      (
+        phase: 'geometry: show window',
+        action: () => controller.withWindow((value) => value.show()),
+      ),
+      (
+        phase: 'geometry: unmount ReceiverApp',
+        action: () => tester.pumpWidget(const SizedBox()),
+      ),
+      (
+        phase: 'geometry: close receiver stream',
+        action: backend.controller.close,
+      ),
+    ]);
+    // The binding unmounts via runApp and awaits a live frame before addTearDown.
+    // Keep receiver/native disposal out of that uninstrumented warm-up frame;
+    // clean up inside the test body with bounded phases, including on failure.
+    try {
+      await tester.pumpWidget(ReceiverApp(model: model, window: controller));
+      await _waitForWindow(
+        tester,
+        (value) =>
+            model.loaded && model.status == 'waiting' && !value.fullscreen,
+        reason: 'receiver application startup',
+      );
 
-    // Simulate a user-resized and moved idle window before any sender connects.
-    // The restored frame must be this one, not the launch default of 440x560.
-    await controller.withWindow((value) {
-      value.aspectRatio = 0;
-      value.contentSize = const native.Size(width: 520, height: 600);
-      value.position = const native.Point(x: 80, y: 70);
-    });
-    final baseline = await _waitForWindow(
-      tester,
-      (value) =>
-          (value.content.width - 520).abs() <= 3 &&
-          (value.content.height - 600).abs() <= 3 &&
-          value.aspectRatio == 0,
-      reason: 'nondefault idle frame',
-    );
-    Future<_WindowGeometry> expectVideo(
-      int width,
-      int height,
-      String reason,
-    ) async {
-      final geometry = await _waitForWindow(
+      // Simulate a user-resized and moved idle window before any sender connects.
+      // The restored frame must be this one, not the launch default of 440x560.
+      await controller.withWindow((value) {
+        value.aspectRatio = 0;
+        value.contentSize = const native.Size(width: 520, height: 600);
+        value.position = const native.Point(x: 80, y: 70);
+      });
+      final baseline = await _waitForWindow(
+        tester,
+        (value) =>
+            (value.content.width - 520).abs() <= 3 &&
+            (value.content.height - 600).abs() <= 3 &&
+            value.aspectRatio == 0,
+        reason: 'nondefault idle frame',
+      );
+      Future<_WindowGeometry> expectVideo(
+        int width,
+        int height,
+        String reason,
+      ) async {
+        final geometry = await _waitForWindow(
+          tester,
+          (value) =>
+              !value.fullscreen &&
+              value.hasRatio(width / height) &&
+              model.status == 'streaming' &&
+              model.videoWidth == width &&
+              model.videoHeight == height,
+          reason: reason,
+        );
+        // Also check Flutter's video viewport: correct native frame dimensions
+        // alone would miss leftover titlebar padding or device-switch sidebars.
+        final player = find.byKey(const Key('playerPage'));
+        final video = find.descendant(
+          of: player,
+          matching: find.byType(AspectRatio),
+        );
+        expect(video, findsOneWidget);
+        final viewportSize = tester.getSize(player);
+        final videoSize = tester.getSize(video);
+        expect(videoSize.width, closeTo(viewportSize.width, 2), reason: reason);
+        expect(
+          videoSize.height,
+          closeTo(viewportSize.height, 2),
+          reason: reason,
+        );
+        return geometry;
+      }
+
+      Future<_WindowGeometry> expectBaseline(String reason) => _waitForWindow(
         tester,
         (value) =>
             !value.fullscreen &&
-            value.hasRatio(width / height) &&
-            model.status == 'streaming' &&
-            model.videoWidth == width &&
-            model.videoHeight == height,
+            value.aspectRatio == 0 &&
+            value.sameFrame(baseline),
         reason: reason,
       );
-      // Also check Flutter's video viewport: correct native frame dimensions
-      // alone would miss leftover titlebar padding or device-switch sidebars.
-      final player = find.byKey(const Key('playerPage'));
-      final video = find.descendant(
-        of: player,
-        matching: find.byType(AspectRatio),
+
+      backend.state('streaming');
+      await _waitForWindow(
+        tester,
+        (value) => value.sameFrame(baseline) && value.aspectRatio == 0,
+        reason: 'connection without a decoded video frame keeps idle geometry',
       );
-      expect(video, findsOneWidget);
-      final viewportSize = tester.getSize(player);
-      final videoSize = tester.getSize(video);
-      expect(videoSize.width, closeTo(viewportSize.width, 2), reason: reason);
-      expect(videoSize.height, closeTo(viewportSize.height, 2), reason: reason);
-      return geometry;
-    }
+      frame(backend, 1536, 2048);
+      await expectVideo(1536, 2048, 'iPad portrait');
+      frame(backend, 2048, 1536);
+      await expectVideo(2048, 1536, 'iPad landscape');
+      backend.state('waiting');
+      await expectBaseline('iPad disconnect restores the complete idle frame');
 
-    Future<_WindowGeometry> expectBaseline(String reason) => _waitForWindow(
-      tester,
-      (value) =>
-          !value.fullscreen &&
-          value.aspectRatio == 0 &&
-          value.sameFrame(baseline),
-      reason: reason,
-    );
-
-    backend.state('streaming');
-    await _waitForWindow(
-      tester,
-      (value) => value.sameFrame(baseline) && value.aspectRatio == 0,
-      reason: 'connection without a decoded video frame keeps idle geometry',
-    );
-    frame(backend, 1536, 2048);
-    await expectVideo(1536, 2048, 'iPad portrait');
-    frame(backend, 2048, 1536);
-    await expectVideo(2048, 1536, 'iPad landscape');
-    backend.state('waiting');
-    await expectBaseline('iPad disconnect restores the complete idle frame');
-
-    frame(backend, 2048, 1536);
-    await expectVideo(2048, 1536, 'iPad reconnect');
-    backend.state('waiting');
-    backend.state('streaming');
-    await expectBaseline(
-      'new connection without a frame restores the previous session',
-    );
-    frame(backend, 2048, 1536);
-    await expectVideo(
-      2048,
-      1536,
-      'video after reconnect waiting for first frame',
-    );
-    // No pump or await between sessions: the old restore and new video resize
-    // compete in the production presentation queue.
-    backend.state('waiting');
-    frame(backend, 1170, 2532);
-    await expectVideo(1170, 2532, 'immediate iPhone session wins over restore');
-    frame(backend, 2532, 1170);
-    // Interrupt a rotation that has already begun, then coalesce a same-turn
-    // burst. The final portrait must win over the older landscape animation.
-    await tester.pump(const Duration(milliseconds: 150));
-    for (var rotation = 0; rotation < 5; rotation++) {
+      frame(backend, 2048, 1536);
+      await expectVideo(2048, 1536, 'iPad reconnect');
+      backend.state('waiting');
+      backend.state('streaming');
+      await expectBaseline(
+        'new connection without a frame restores the previous session',
+      );
+      frame(backend, 2048, 1536);
+      await expectVideo(
+        2048,
+        1536,
+        'video after reconnect waiting for first frame',
+      );
+      // No pump or await between sessions: the old restore and new video resize
+      // compete in the production presentation queue.
+      backend.state('waiting');
       frame(backend, 1170, 2532);
+      await expectVideo(
+        1170,
+        2532,
+        'immediate iPhone session wins over restore',
+      );
       frame(backend, 2532, 1170);
+      // Interrupt a rotation that has already begun, then coalesce a same-turn
+      // burst. The final portrait must win over the older landscape animation.
+      await tester.pump(const Duration(milliseconds: 150));
+      for (var rotation = 0; rotation < 5; rotation++) {
+        frame(backend, 1170, 2532);
+        frame(backend, 2532, 1170);
+      }
+      frame(backend, 1170, 2532);
+      final phone = await expectVideo(
+        1170,
+        2532,
+        'latest dimensions win a rapid rotation burst',
+      );
+
+      media(backend, paused: true);
+      expect(model.status, 'streaming');
+      expect(model.hasVideo, isFalse);
+      await _waitForWindow(
+        tester,
+        (value) => value.sameFrame(phone) && value.hasRatio(1170 / 2532),
+        reason: 'paused video0 retains the session geometry',
+      );
+      media(backend, audio: false);
+      expect(model.status, 'streaming');
+      expect(model.videoPaused, isFalse);
+      await _waitForWindow(
+        tester,
+        (value) => value.sameFrame(phone) && value.hasRatio(1170 / 2532),
+        reason: 'decoder reset video0 retains the session geometry',
+      );
+      backend.state('waiting');
+      await expectBaseline(
+        'iPhone disconnect restores the original idle frame',
+      );
+
+      frame(backend, 1536, 2048);
+      await expectVideo(1536, 2048, 'video before fullscreen disconnect');
+      await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
+      final fullscreen = await _waitForWindow(
+        tester,
+        (value) => value.fullscreen,
+        reason: 'enter fullscreen before disconnect',
+        stableFor: const Duration(seconds: 1),
+      );
+      backend.state('waiting');
+      await _waitForWindow(
+        tester,
+        (value) => value.fullscreen && value.sameFrame(fullscreen),
+        reason: 'disconnect defers idle-frame restoration while fullscreen',
+      );
+      await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
+      await expectBaseline('fullscreen exit applies the deferred idle frame');
+
+      frame(backend, 2048, 1536);
+      await expectVideo(2048, 1536, 'video before fullscreen rotation');
+      await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
+      final rotatingFullscreen = await _waitForWindow(
+        tester,
+        (value) => value.fullscreen,
+        reason: 'enter fullscreen before rotations',
+        stableFor: const Duration(seconds: 1),
+      );
+      frame(backend, 1536, 2048);
+      frame(backend, 2048, 1536);
+      frame(backend, 1536, 2048);
+      await _waitForWindow(
+        tester,
+        (value) => value.fullscreen && value.sameFrame(rotatingFullscreen),
+        reason: 'rotations do not change the fullscreen frame',
+      );
+      await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
+      await expectVideo(
+        1536,
+        2048,
+        'fullscreen exit applies the latest rotation',
+      );
+      backend.state('waiting');
+      await expectBaseline('final disconnect restores the saved idle frame');
+    } finally {
+      await cleanUp();
     }
-    frame(backend, 1170, 2532);
-    final phone = await expectVideo(
-      1170,
-      2532,
-      'latest dimensions win a rapid rotation burst',
-    );
-
-    media(backend, paused: true);
-    expect(model.status, 'streaming');
-    expect(model.hasVideo, isFalse);
-    await _waitForWindow(
-      tester,
-      (value) => value.sameFrame(phone) && value.hasRatio(1170 / 2532),
-      reason: 'paused video0 retains the session geometry',
-    );
-    media(backend, audio: false);
-    expect(model.status, 'streaming');
-    expect(model.videoPaused, isFalse);
-    await _waitForWindow(
-      tester,
-      (value) => value.sameFrame(phone) && value.hasRatio(1170 / 2532),
-      reason: 'decoder reset video0 retains the session geometry',
-    );
-    backend.state('waiting');
-    await expectBaseline('iPhone disconnect restores the original idle frame');
-
-    frame(backend, 1536, 2048);
-    await expectVideo(1536, 2048, 'video before fullscreen disconnect');
-    await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
-    final fullscreen = await _waitForWindow(
-      tester,
-      (value) => value.fullscreen,
-      reason: 'enter fullscreen before disconnect',
-      stableFor: const Duration(seconds: 1),
-    );
-    backend.state('waiting');
-    await _waitForWindow(
-      tester,
-      (value) => value.fullscreen && value.sameFrame(fullscreen),
-      reason: 'disconnect defers idle-frame restoration while fullscreen',
-    );
-    await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
-    await expectBaseline('fullscreen exit applies the deferred idle frame');
-
-    frame(backend, 2048, 1536);
-    await expectVideo(2048, 1536, 'video before fullscreen rotation');
-    await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
-    final rotatingFullscreen = await _waitForWindow(
-      tester,
-      (value) => value.fullscreen,
-      reason: 'enter fullscreen before rotations',
-      stableFor: const Duration(seconds: 1),
-    );
-    frame(backend, 1536, 2048);
-    frame(backend, 2048, 1536);
-    frame(backend, 1536, 2048);
-    await _waitForWindow(
-      tester,
-      (value) => value.fullscreen && value.sameFrame(rotatingFullscreen),
-      reason: 'rotations do not change the fullscreen frame',
-    );
-    await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
-    await expectVideo(
-      1536,
-      2048,
-      'fullscreen exit applies the latest rotation',
-    );
-    backend.state('waiting');
-    await expectBaseline('final disconnect restores the saved idle frame');
   });
 
   testWidgets(
