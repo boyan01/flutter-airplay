@@ -576,6 +576,32 @@ void main() {
       expect(readMenu(), containsPair('Audio playing · Test iPad', false));
       expect(readMenu(), isNot(contains('Enter Full Screen')));
       expect(readMenu(), isNot(contains('Keep player on top')));
+      // Reinsert controls removed after the first video. GTK destroys removed
+      // widgets, so stale wrappers can keep labels in D-Bus but lose state.
+      frame(backend, 640, 360);
+      await update();
+      expect(readMenu(), containsPair('Disconnect current connection', true));
+      expect(readMenu(), containsPair('Enter Full Screen', true));
+      expect(readMenu(), containsPair('Keep player on top', true));
+      final menuItems = presentation.menuForTesting!.allItems;
+      try {
+        final onTop = menuItems.singleWhere(
+          (item) => item.label == 'Keep player on top',
+        );
+        expect(onTop.type, native.MenuItemType.checkbox);
+        expect(
+          onTop.state,
+          model.desktopOptions['alwaysOnTop']!
+              ? native.MenuItemState.checked
+              : native.MenuItemState.unchecked,
+        );
+      } finally {
+        for (final item in menuItems) {
+          item.dispose();
+        }
+      }
+      media(backend);
+      await update();
       backend.state('stopping');
       await update();
       expect(readMenu(), containsPair('Stopping…', false));

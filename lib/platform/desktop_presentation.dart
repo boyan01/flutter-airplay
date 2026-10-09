@@ -36,6 +36,7 @@ class DesktopPresentation {
   final _items = <native.MenuItem>[];
   final _itemListeners = <int>[];
   final _visibleItems = <int>[];
+  final _itemFactories = <(native.MenuItem, int) Function()>[];
   final _images = <native.Image>[];
   int? _trayListener, _menuListener, _windowListener, _windowId;
   Timer? _autoHide;
@@ -338,6 +339,29 @@ class DesktopPresentation {
     return expanded;
   }
 
+  (native.MenuItem, int) _createMenuItem(
+    WindowAction? action,
+    native.MenuItemType type,
+  ) {
+    final item = native.MenuItem.createWithLabelAndType('', type);
+    if (item == null) {
+      throw PlatformException(
+        code: 'tray_menu_failed',
+        message: 'Unable to create tray menu item',
+      );
+    }
+    final listener = action == null
+        ? 0
+        : item.addListener((event) {
+            if (event is native.MenuItemClickedEvent) {
+              Timer.run(() {
+                if (!_disposed) unawaited(onAction(action, false));
+              });
+            }
+          });
+    return (item, listener);
+  }
+
   void _updateMenu() {
     final tray = _tray, strings = _strings;
     if (tray == null || strings == null) return;
@@ -354,25 +378,10 @@ class DesktopPresentation {
         WindowAction? action, {
         native.MenuItemType type = native.MenuItemType.normal,
       }) {
-        final item = native.MenuItem.createWithLabelAndType('', type);
-        if (item == null) {
-          throw PlatformException(
-            code: 'tray_menu_failed',
-            message: 'Unable to create tray menu item',
-          );
-        }
+        final (item, listener) = _createMenuItem(action, type);
         _items.add(item);
-        _itemListeners.add(
-          action == null
-              ? 0
-              : item.addListener((event) {
-                  if (event is native.MenuItemClickedEvent) {
-                    Timer.run(() {
-                      if (!_disposed) unawaited(onAction(action, false));
-                    });
-                  }
-                }),
-        );
+        _itemListeners.add(listener);
+        _itemFactories.add(() => _createMenuItem(action, type));
       }
 
       add(null);
@@ -445,21 +454,6 @@ class DesktopPresentation {
           ? strings.checkForUpdates
           : updateActionLabel(strings, updates!, tray: true),
     ];
-    for (var i = 0; i < _items.length; i++) {
-      _items[i].label = labels[i];
-      _items[i].isEnabled = switch (i) {
-        0 || 1 => false,
-        4 => model.status == 'streaming' && model.canStop,
-        5 => !transitioning && (model.canStart || model.canStop),
-        7 => model.hasVideo,
-        8 => model.hasVideo && model.editable,
-        14 => updates != null && updates!.initialized,
-        _ => true,
-      };
-    }
-    _items[8].state = model.desktopOptions['alwaysOnTop']!
-        ? native.MenuItemState.checked
-        : native.MenuItemState.unchecked;
     // Native menus have no shared visibility property. Keep item identities and
     // positions stable during tracking, then reconcile membership after closing.
     if (!_menuOpen) {
@@ -480,7 +474,18 @@ class DesktopPresentation {
       ];
       for (var i = _visibleItems.length - 1; i >= 0; i--) {
         if (!visible.contains(_visibleItems[i])) {
-          _menu!.removeItem(_items[_visibleItems.removeAt(i)]);
+          final index = _visibleItems.removeAt(i);
+          final item = _items[index];
+          if (_itemListeners[index] != 0) {
+            item.removeListener(_itemListeners[index]);
+          }
+          _menu!.removeItem(item);
+          item.dispose();
+          // GTK owns inserted widgets and destroys them on removal. Recreate
+          // the item before reusing this slot on every desktop backend.
+          final (replacement, listener) = _itemFactories[index]();
+          _items[index] = replacement;
+          _itemListeners[index] = listener;
         }
       }
       for (var i = 0; i < visible.length; i++) {
@@ -489,10 +494,25 @@ class DesktopPresentation {
           _visibleItems.insert(i, visible[i]);
         }
       }
-      // Linux's exported D-Bus menu only announces changes when reattached.
-      // Publish the populated menu, and defer refreshes while it is tracking.
-      tray.setContextMenu(_menu);
     }
+    for (var i = 0; i < _items.length; i++) {
+      _items[i].label = labels[i];
+      _items[i].isEnabled = switch (i) {
+        0 || 1 => false,
+        4 => model.status == 'streaming' && model.canStop,
+        5 => !transitioning && (model.canStart || model.canStop),
+        7 => model.hasVideo,
+        8 => model.hasVideo && model.editable,
+        14 => updates != null && updates!.initialized,
+        _ => true,
+      };
+    }
+    _items[8].state = model.desktopOptions['alwaysOnTop']!
+        ? native.MenuItemState.checked
+        : native.MenuItemState.unchecked;
+    // Linux's exported D-Bus menu only announces changes when reattached.
+    // Publish the populated menu, and defer refreshes while it is tracking.
+    if (!_menuOpen) tray.setContextMenu(_menu);
     tray.setTooltip('${model.receivingName} · $statusLabel');
     final index = model.status == 'error'
         ? 4
@@ -537,7 +557,8 @@ class DesktopPresentation {
       if (_itemListeners[i] != 0) _items[i].removeListener(_itemListeners[i]);
     }
     if (_menuListener != null) _menu?.removeListener(_menuListener!);
-    _menu?.clear();
+    // Dispose the owning menu directly. nativeapi 0.4's Linux Clear loops
+    // forever if an item has already lost its GTK widget.
     _menu?.dispose();
     for (final item in _items) {
       item.dispose();
@@ -554,6 +575,7 @@ class DesktopPresentation {
     _items.clear();
     _visibleItems.clear();
     _itemListeners.clear();
+    _itemFactories.clear();
     _images.clear();
   }
 }
