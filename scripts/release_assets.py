@@ -35,6 +35,10 @@ if args[1] == "derive" {
     let seed = Data(base64Encoded: readLine()!)!
     let key = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
     print(key.publicKey.rawRepresentation.base64EncodedString())
+} else if args[1] == "sign" {
+    let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(base64Encoded: readLine()!)!)
+    let data = try Data(contentsOf: URL(fileURLWithPath: args[2]))
+    print(try key.signature(for: data).base64EncodedString())
 } else {
     let key = try Curve25519.Signing.PublicKey(rawRepresentation: Data(base64Encoded: args[3])!)
     let data = try Data(contentsOf: URL(fileURLWithPath: args[2]))
@@ -366,6 +370,53 @@ def add_android_appcast(feed, apk, current, version_code):
     tree.write(feed, encoding='utf-8', xml_declaration=True)
 
 
+def windows_signature_payload(attributes):
+    return ('Flutter AirPlay Windows update\n' + '\n'.join(attributes[key] for key in
+            ('version', 'build', 'arch', 'length', 'sha256')) + '\n').encode()
+
+
+def add_windows_appcast(feed, setup, current, build, public):
+    # package_windows.ps1 already validates the executable's actual VERSIONINFO.
+    if setup.name != f'Flutter-AirPlay-{current}-windows-x64-setup.exe' or setup.is_symlink() or not setup.is_file() or not setup.stat().st_size:
+        raise ValueError('Unexpected Windows update installer.')
+    _, _, short, feed_build = read_appcast(feed.read_bytes())
+    if (short, feed_build) != (current, build):
+        raise ValueError('Windows version does not match appcast.')
+    attributes = {'version': current, 'build': str(build), 'arch': 'x64',
+                  'url': f'https://github.com/{REPOSITORY}/releases/download/v{current}/{setup.name}',
+                  'length': str(setup.stat().st_size), 'sha256': hashlib.sha256(setup.read_bytes()).hexdigest()}
+    payload = windows_signature_payload(attributes)
+    tree = ET.parse(feed)
+    item = tree.find('./channel/item')
+    existing = item.findall(f'{{{ANDROID_NS}}}windows')
+    with tempfile.TemporaryDirectory(prefix='windows-update-sign-') as directory:
+        message = Path(directory) / 'manifest'
+        message.write_bytes(payload)
+        if existing:
+            if len(existing) != 1 or {k: v for k, v in existing[0].attrib.items() if k != 'edSignature'} != attributes:
+                raise ValueError('Existing Windows appcast metadata does not match installer.')
+            verify_signature(message, existing[0].get('edSignature', ''), public)
+            return
+        if signing_config(required=True) != public:
+            raise ValueError('Windows signing public key mismatch.')
+        private = os.environ.get('SPARKLE_PRIVATE_KEY', '')
+        if not private:
+            raise ValueError('Windows update publishing requires SPARKLE_PRIVATE_KEY.')
+        if sys.platform == 'darwin':
+            signature = crypto_command(['swift', '-e', SWIFT_CRYPTO, 'sign', str(message)],
+                                       input=(private + '\n').encode()).decode().strip()
+        else:
+            key = Path(directory) / 'key.der'
+            key.write_bytes(bytes.fromhex('302e020100300506032b657004220420') + decode_key(private, 'SPARKLE_PRIVATE_KEY', 32))
+            signature = base64.b64encode(crypto_command(['openssl', 'pkeyutl', '-sign', '-keyform', 'DER',
+                                         '-inkey', str(key), '-rawin', '-in', str(message)])).decode()
+        verify_signature(message, signature, public)
+    attributes['edSignature'] = signature
+    ET.SubElement(item, f'{{{ANDROID_NS}}}windows', attributes)
+    ET.indent(tree)
+    tree.write(feed, encoding='utf-8', xml_declaration=True)
+
+
 def asset_names(current, signed):
     prefix = f'Flutter-AirPlay-{current}'
     names = [f'{prefix}-linux-x64.deb', f'{prefix}-linux-x64-bundle.tar.gz',
@@ -422,6 +473,9 @@ def publish():
         add_android_appcast(directory / 'appcast.xml',
                             directory / f'Flutter-AirPlay-{current}-android-arm64.apk',
                             current, os.environ.get('ANDROID_VERSION_CODE', ''))
+    add_windows_appcast(directory / 'appcast.xml',
+                        directory / f'Flutter-AirPlay-{current}-windows-x64-setup.exe',
+                        current, build_number(), public)
     files = collect(directory, current, signed)
     validate_appcast(directory / 'appcast.xml', directory / f'Flutter-AirPlay-{current}-macos-arm64.dmg', current, build_number(), public, required_notes=True)
     # Listing avoids treating an authorization/network failure as a missing release.
@@ -434,7 +488,7 @@ def publish():
                      any(a['name'] not in {p.name for p in files} for a in existing['assets'])):
         raise ValueError('Existing draft does not match this release run; inspect it manually.')
     notes = ('Linux x64: Ubuntu 24.04 or compatible system with the documented runtime dependencies.\n'
-             'Windows x64: Setup is not Authenticode-signed.\n'
+             'Windows x64: In-app updates verify Ed25519-signed metadata and the installer digest. Setup is not Authenticode-signed.\n'
              'macOS arm64 (Apple Silicon, macOS 12+): App in DMG is ad-hoc signed, not Developer ID signed or notarized.\n'
              'Drag the app to Applications. macOS may block downloaded apps from unidentified developers.\n'
              'macOS updates: Sparkle appcast.xml and Ed25519-signed DMG included.\n')

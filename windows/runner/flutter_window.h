@@ -36,6 +36,7 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   std::unique_ptr<ReceiverBridge> receiver_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> presentation_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> updates_;
   bool hide_on_close_ = false, quit_requested_ = false, desktop_ready_ = false;
 
   void UpdateSnapshot(const flutter::EncodableMap& snapshot);

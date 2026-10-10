@@ -673,7 +673,7 @@ Windows CI 在通过 Debug／原生回归后使用固定的 Inno Setup 6.7.3 编
 `windows-x64-setup` artifact；打包产物目前未签名，正式分发的 Authenticode 签名另行配置。
 `bash scripts/test_native.sh windows installer build/distribution/windows/Flutter-AirPlay-<version>-windows-x64-setup.exe`
 验证英文静默安装、中文覆盖升级、安装文件、Release 进程启动和卸载；先退出应用，
-且当前用户不能已有正式安装。用例安装到 `artifacts/windows-installer-smoke/app`，
+且当前用户不能已有正式安装。用例安装到 `artifacts/windows-installer-smoke/app with spaces`，
 结束时卸载，日志保存在同一个 ignored 目录。它验证安装生命周期，不替代向导页面的人工检查。
 Android 授权更新使用同一 application ID/签名的 `adb install -r` 保留数据。
 Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及相关共享库，不启用 GPL/nonfree
@@ -692,7 +692,7 @@ Windows FFmpeg 构建仅启用原生 AAC、HEVC decoder、D3D11 HEVC 硬解及�
 - `Flutter-AirPlay-<version>-windows-x64-setup.exe`
 - `Flutter-AirPlay-<version>-macos-arm64.dmg`（ad-hoc 签名，无公证）
 - `Flutter-AirPlay-<version>-android-arm64.apk`（已配置正式签名时）
-- `appcast.xml`（Sparkle macOS 更新 feed，DMG 含 Ed25519 签名）
+- `appcast.xml`（共用更新 feed，macOS DMG 和 Windows 更新元数据含 Ed25519 签名）
 - 所有应用产物和 appcast 的 `SHA256SUMS`
 
 发版时同时更新 `pubspec.yaml` 和 `CHANGELOG.md`。AI 发版规则见 `AGENTS.md`；
@@ -751,13 +751,40 @@ Dart 从 `package_info_plus` 读取当前版本，复用更新检查调度和面
 真实验收需用同一正式密钥签名的两个递增版本，在手机和 TV 验证授权、取消、覆盖安装和设置保留。
 系统安装界面需验证遥控器操作；宿主编译和 fixture 测试不能替代真实安装验收。
 
+### Windows 应用内更新
+
+Windows 正式安装版复用 Flutter 更新面板和检查计划，默认自动检查，下载与安装均由用户触发。
+`package_windows.ps1` 通过 `SPARKLE_PUBLIC_KEY` 环境变量读取共用公钥，构建时传入
+`--dart-define=AIRPLAY_UPDATE_PUBLIC_KEY=...`；未配置公钥、Debug 构建或非当前用户注册的
+Inno Setup 安装目录禁用更新。已有旧版需先手动安装一次配置公钥的新版本。
+本地使用 `-SkipBuild` 时保留原构建的公钥配置，改变公钥后必须重新构建。
+
+发布端在 `appcast.xml` 中添加 `airplay:windows`，包含 `version`、`build`、`arch=x64`、
+`url`、`length`、`sha256` 和 `edSignature`。签名消息使用 UTF-8，依次为
+`Flutter AirPlay Windows update`、version、build、arch、length、sha256，每项后都有一个 LF。
+这使签名同时绑定版本和安装包 digest，无需客户端将完整安装包读入内存。
+Linux publish job 使用现有 `SPARKLE_PRIVATE_KEY` 签名，并用公钥复验后才发布；
+重试时校验已有 Windows 元数据及签名。私钥只传入签名步骤，不进入 Windows 安装包。
+
+下载完成后点击“安装并重启”，宿主重新计算 SHA-256，并在启动安装程序前锁定文件，禁止写入或删除。
+安装程序启动失败则应用保持运行，可重试。启动成功后应用真正退出，释放接收器和播放资源；
+Inno Setup 等待旧 PID 退出，最多 60 秒，然后覆盖原安装目录，成功后启动新版。
+不强杀进程，不触发系统重启。安装日志保留在应用临时目录的 `updates/install.log`，
+安装失败由安装程序报告；此流程没有自动回滚或差分更新。Authenticode 签名仍需另行配置。
+
+`flutter test test/platform/windows_app_updates_test.dart` 覆盖实际 Python feed 生成到 Dart 验签、
+篡改拒绝、下载完整性及启动安装失败后的重试；共享下载回归也覆盖 Android。
+现有 `scripts/test_native.sh windows installer <setup.exe>` 增加等待旧进程退出和更新后启动检查。
+真实验收仍需两个版本递增的安装包，验证应用内交接、路径带空格、设置与配对保留及更新后重新投屏。
+macOS 上的 Dart／Python 测试不能证明 Windows 宿主编译、安装或设备行为。
+
 ### macOS Sparkle 更新签名配置
 
 macOS 通过固定的 Sparkle 2.10.0 SPM 依赖更新，feed 为
 `https://github.com/boyan01/flutter-airplay/releases/latest/download/appcast.xml`。
 appcast 的版本使用整数 `CFBundleVersion`，显示版本使用 `CFBundleShortVersionString`；
 最低系统为 12.0，下载地址指向具体 `vMAJOR.MINOR.PATCH` Release 的现有 arm64 DMG，
-release notes 链接到同一 Release。Windows、Linux 和 iPad 没有此安装流程。Android 共用 feed，使用独立的 APK 安装流程。
+release notes 链接到同一 Release。Linux 和 iPad 没有此安装流程。Android 和 Windows 共用 feed，使用各自的安装流程。
 检查状态、版本说明、下载进度和安装操作统一由 Flutter 更新面板呈现；原生使用自定义
 `SPUUserDriver`，不显示 Sparkle 标准窗口。关闭面板只关闭展示，取消下载需明确点击取消；
 下载和解压完成后等待“安装并重启”，投屏中的最后退出确认及正常资源清理仍保留。

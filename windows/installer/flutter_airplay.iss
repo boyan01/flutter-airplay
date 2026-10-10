@@ -69,9 +69,44 @@ Name: "{autoprograms}\Flutter AirPlay"; Filename: "{app}\flutter_airplay.exe"; W
 Name: "{autodesktop}\Flutter AirPlay"; Filename: "{app}\flutter_airplay.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\flutter_airplay.exe"; Description: "{cm:LaunchProgram,Flutter AirPlay}"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"
+Filename: "{app}\flutter_airplay.exe"; Description: "{cm:LaunchProgram,Flutter AirPlay}"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"; Check: not IsUpdate
+Filename: "{app}\flutter_airplay.exe"; Flags: nowait; WorkingDir: "{app}"; Check: IsUpdate
 
 [Code]
+function OpenProcess(Access: LongWord; Inherit: Boolean; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:AIRPLAYUPDATE|0}') = '1';
+end;
+
+function InitializeSetup: Boolean;
+var
+  Process: THandle;
+  ProcessId: Integer;
+begin
+  Result := True;
+  if not IsUpdate then Exit;
+  ProcessId := StrToIntDef(ExpandConstant('{param:UPDATEPID|0}'), 0);
+  Result := False;
+  if ProcessId <= 0 then Exit;
+  Process := OpenProcess($00100000, False, ProcessId);
+  if Process = 0 then begin
+    { ERROR_INVALID_PARAMETER means the old process has already exited. }
+    Result := DLLGetLastError = 87;
+    Exit;
+  end;
+  Log('Waiting for previous application process to exit.');
+  Result := WaitForSingleObject(Process, 60000) = 0;
+  CloseHandle(Process);
+  if not Result then Log('Update cancelled: the old application did not exit.');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Command, LegacyCommand: String;

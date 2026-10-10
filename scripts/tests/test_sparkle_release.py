@@ -71,6 +71,26 @@ class SparkleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.add_android_appcast(feed, apk, '1.2.3', '4005')
 
+    def test_windows_extension_rejects_version_and_installer_mismatches(self):
+        feed = self.make_feed()
+        setup = self.root / 'Flutter-AirPlay-1.2.3-windows-x64-setup.exe'
+        setup.write_bytes(b'installer')
+        before = feed.read_bytes()
+        for version, build in (('1.2.3', 5), ('1.2.4', 4)):
+            with self.assertRaises(ValueError):
+                release.add_windows_appcast(feed, setup, version, build, PUBLIC)
+            self.assertEqual(feed.read_bytes(), before)
+        with patch.object(release, 'signing_config', return_value=PUBLIC), \
+                patch.object(release, 'crypto_command', return_value=SIGNATURE.encode()), \
+                patch.object(release, 'verify_signature'):
+            release.add_windows_appcast(feed, setup, '1.2.3', 4, PUBLIC)
+            entry = release.read_appcast(feed.read_bytes())[0].find(f'{{{release.ANDROID_NS}}}windows')
+            self.assertEqual(entry.get('build'), '4')
+            self.assertEqual(entry.get('arch'), 'x64')
+            setup.write_bytes(b'changed installer')
+            with self.assertRaises(ValueError):
+                release.add_windows_appcast(feed, setup, '1.2.3', 4, PUBLIC)
+
     def test_android_extension_requires_actual_apk_build(self):
         feed = self.make_feed()
         with self.assertRaises(ValueError):

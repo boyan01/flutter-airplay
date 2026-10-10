@@ -6,6 +6,7 @@
 #include <system_error>
 #include <flutter/standard_method_codec.h>
 #include "resource.h"
+#include "update_installer.h"
 #include <flutter/plugin_registrar_windows.h>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -224,6 +225,25 @@ bool FlutterWindow::OnCreate() {
     } else { result->NotImplemented(); return; }
     result->Success();
   });
+  updates_ = std::make_unique<flutter::MethodChannel<Value>>(registrar->messenger(),
+      "tech.soit.flutterairplay/windowsUpdates", &flutter::StandardMethodCodec::GetInstance());
+  updates_->SetMethodCallHandler([this](const flutter::MethodCall<Value>& call, std::unique_ptr<flutter::MethodResult<Value>> result) {
+    if (call.method_name() == "canUpdate") { result->Success(Value(CanInstallUpdate())); return; }
+    if (call.method_name() != "install") { result->NotImplemented(); return; }
+    const auto* args = call.arguments() ? std::get_if<Map>(call.arguments()) : nullptr;
+    if (!args) { result->Error("invalid_arguments", "Installer arguments are required."); return; }
+    const auto path = args->find(Value("path")), hash = args->find(Value("sha256"));
+    if (path == args->end() || hash == args->end() || !std::holds_alternative<std::string>(path->second) ||
+        !std::holds_alternative<std::string>(hash->second)) {
+      result->Error("invalid_arguments", "Installer path and checksum are required."); return;
+    }
+    try {
+      StartUpdateInstaller(std::get<std::string>(path->second), std::get<std::string>(hash->second));
+      result->Success();
+      quit_requested_ = true;
+      PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
+    } catch (const std::exception& error) { result->Error("update_install_error", error.what()); }
+  });
   IDXGIAdapter *adapter = nullptr;
   flutter_controller_->engine()->GetGraphicsAdapter(&adapter);
   receiver_ = std::make_unique<ReceiverBridge>(GetHandle(), registrar->messenger(), registrar->texture_registrar(),
@@ -244,6 +264,7 @@ void FlutterWindow::OnDestroy() {
   if (startup_timer_) { KillTimer(GetHandle(), startup_timer_); startup_timer_ = 0; }
   SetThreadExecutionState(ES_CONTINUOUS);
   if (presentation_) { presentation_->SetMethodCallHandler(nullptr); presentation_.reset(); }
+  if (updates_) { updates_->SetMethodCallHandler(nullptr); updates_.reset(); }
   receiver_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

@@ -117,6 +117,7 @@ jobs:
         "AIRPLAY_ISCC=$compilerDir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
     - name: Build Windows Release installer
       env:
+        SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
         AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
         AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
       run: ./windows/scripts/package_windows.ps1 -InnoCompiler $env:AIRPLAY_ISCC
@@ -276,5 +277,6 @@ jobs:
         RELEASE_SHA: ${{ github.sha }}
         ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
         ANDROID_VERSION_CODE: ${{ needs.android.outputs.version_code }}
+        SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY || secrets.SPARKLE_PUBLIC_KEY }}
       run: python3 -I scripts/release_assets.py publish

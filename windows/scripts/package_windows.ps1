@@ -29,7 +29,14 @@ try {
     $appVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
     $fileVersion = "$appVersion.$($Matches[4])"
     if (-not $SkipBuild) {
-        & flutter build windows --release
+        $buildArgs = @('build', 'windows', '--release')
+        if ($env:SPARKLE_PUBLIC_KEY) {
+            if ([Convert]::FromBase64String($env:SPARKLE_PUBLIC_KEY).Length -ne 32) {
+                throw 'SPARKLE_PUBLIC_KEY must encode 32 bytes.'
+            }
+            $buildArgs += "--dart-define=AIRPLAY_UPDATE_PUBLIC_KEY=$($env:SPARKLE_PUBLIC_KEY)"
+        }
+        & flutter @buildArgs
         if ($LASTEXITCODE -ne 0) { throw 'Flutter Windows Release build failed.' }
     }
     $bundle = Join-Path $root 'build/windows/x64/runner/Release'

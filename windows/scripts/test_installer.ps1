@@ -8,10 +8,11 @@ $registration = 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/{D839
 if (Test-Path -LiteralPath $registration) { throw 'Installer smoke test requires no existing Flutter AirPlay installation.' }
 if (Get-Process -Name flutter_airplay -ErrorAction SilentlyContinue) { throw 'Quit Flutter AirPlay before the installer smoke test.' }
 $evidence = Join-Path $root 'artifacts/windows-installer-smoke'
-$app = Join-Path $evidence 'app'
+$app = Join-Path $evidence 'app with spaces'
 if (Test-Path -LiteralPath $app) { throw "Remove the previous smoke-test installation before retrying: $app" }
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $child = $null
+$update = $null
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -22,6 +23,8 @@ public static class AirPlayWindowFixture {
     public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool PostMessageW(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 }
 '@
 function Read-RegistryValue([string]$Path) {
@@ -175,11 +178,56 @@ try {
         Stop-App
         Write-Host 'PASS: login cold startup, silent login duplicate and visible manual reopen'
     }
+    # Exercise the update installer's wait and relaunch path with a live old
+    # process. WM_ENDSESSION uses the host's normal destruction/receiver cleanup.
+    Start-App
+    $oldWindow = Wait-AppWindow
+    $oldPid = $script:child.Id
+    $arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS /SP- /AIRPLAYUPDATE=1 /UPDATEPID=$oldPid /DIR=`"$app`" /LOG=`"$evidence/update.log`""
+    $updateLog = Join-Path $evidence 'update.log'
+    Remove-Item -LiteralPath $updateLog -ErrorAction SilentlyContinue
+    $update = Start-Process -FilePath $Installer -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    $waiting = $false
+    do {
+        if (Test-Path -LiteralPath $updateLog) {
+            $waiting = [bool](Select-String -LiteralPath $updateLog -SimpleMatch 'Waiting for previous application process to exit.' -Quiet)
+        }
+        if ($waiting -or $update.HasExited) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $waiting -or $update.HasExited -or $script:child.HasExited) {
+        throw 'Update installer did not wait for the live old process.'
+    }
+    if (-not [AirPlayWindowFixture]::PostMessageW($oldWindow, 0x0016, [IntPtr]1, [IntPtr]0)) {
+        throw 'Could not request old application shutdown.'
+    }
+    if (-not $script:child.WaitForExit(20000)) { throw 'Old application did not finish receiver cleanup.' }
+    $script:child = $null
+    if (-not $update.WaitForExit(90000) -or $update.ExitCode -ne 0) { throw 'Update installation failed. See update.log.' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    do {
+        $restarted = @(Get-Process -Name flutter_airplay -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $app 'flutter_airplay.exe') })
+        if ($restarted.Count -eq 1) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($restarted.Count -ne 1 -or $restarted[0].Id -eq $oldPid) { throw 'Update did not launch the new application.' }
+    $script:child = $restarted[0]
+    Assert-AppVisible (Wait-AppWindow)
+    Stop-App
+    Write-Host 'PASS: update waits for old process exit and launches the installed app'
     Write-Host 'PASS: English install, Chinese upgrade, payload and Release startup'
 
 } finally {
     try {
         Stop-App
+        if ($update -and -not $update.HasExited -and -not $update.WaitForExit(90000)) {
+            throw 'Update installer is still running; inspect the smoke installation before cleanup.'
+        }
+        # An assertion can fail after Setup relaunches but before $child is set.
+        Get-Process -Name flutter_airplay -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -eq (Join-Path $app 'flutter_airplay.exe') } |
+            ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(10000) | Out-Null }
         $uninstaller = Join-Path $app 'unins000.exe'
         if (Test-Path -LiteralPath $uninstaller) {
             # Exercise new-command cleanup even if an earlier assertion failed.

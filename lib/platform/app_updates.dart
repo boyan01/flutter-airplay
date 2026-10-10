@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'android_app_updates.dart';
+import 'windows_app_updates.dart';
 
 enum UpdateStatus {
   idle,
@@ -76,6 +77,8 @@ class AppUpdates extends ChangeNotifier {
            service ??
            (defaultTargetPlatform == TargetPlatform.android
                ? AndroidAppUpdateService()
+               : defaultTargetPlatform == TargetPlatform.windows
+               ? WindowsAppUpdateService()
                : AppUpdateService()),
        _preferences = preferences ?? AppUpdatePreferences(),
        _now = now ?? DateTime.now;
@@ -110,7 +113,7 @@ class AppUpdates extends ChangeNotifier {
   Future<void> initialize(String platform) async {
     if (initialized || _initializing || _disposed) return;
     requiresSystemInstall = platform == 'android';
-    supported = platform == 'macos' || platform == 'android';
+    supported = {'macos', 'android', 'windows'}.contains(platform);
     if (!supported) {
       initialized = true;
       notifyListeners();

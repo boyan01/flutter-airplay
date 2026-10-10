@@ -151,7 +151,7 @@ class ReleaseTests(unittest.TestCase):
     def test_failed_upload_never_publishes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'), patch.object(release, 'add_windows_appcast'):
                 with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh') as gh:
                     gh.side_effect = [json.dumps({'object': {'type':'commit', 'sha':'a'*40}}), '[[]]', '', OSError('upload failed')]
                     with self.assertRaises(OSError):
@@ -161,7 +161,7 @@ class ReleaseTests(unittest.TestCase):
     def test_refuses_already_published_release(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'), patch.object(release, 'add_windows_appcast'):
                 with patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'gh', side_effect=[json.dumps({'object':{'type':'commit','sha':'a'*40}}), json.dumps([[{'tag_name':'v1.2.3','draft':False}]])]) as gh:
                     with self.assertRaises(ValueError):
                         release.publish()
@@ -171,7 +171,7 @@ class ReleaseTests(unittest.TestCase):
         for case in ('resume', 'wrong-commit', 'unknown-asset', 'bad-upload', 'moved-after-upload'):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
+                with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'), patch.object(release, 'add_windows_appcast'):
                     checks = []
                     def gh(*args):
                         if args[0] == 'api':
@@ -202,7 +202,7 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.publish_fixture(root), patch.object(release, 'ROOT', root), \
-                    patch.object(release, 'validate_appcast'), \
+                    patch.object(release, 'validate_appcast'), patch.object(release, 'add_windows_appcast'), \
                     patch.object(release, 'previous_version_check', side_effect=[None, ValueError('build must increase')]):
                 def gh(*args):
                     if args[0] == 'api':
@@ -232,7 +232,7 @@ class ReleaseTests(unittest.TestCase):
     def test_success_publishes_only_after_readback(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'):
+            with self.publish_fixture(root), patch.object(release, 'ROOT', root), patch.object(release, 'validate_appcast'), patch.object(release, 'add_windows_appcast'):
                 bodies = []
                 def gh(*args):
                     if '--notes-file' in args:

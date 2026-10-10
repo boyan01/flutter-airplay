@@ -399,10 +399,27 @@ void main() {
     updates.dispose();
   });
 
+  testWidgets(
+    'Windows shares automatic scheduling and restart install behavior',
+    (tester) async {
+      final service = FakeUpdateService();
+      final updates = AppUpdates(
+        service: service,
+        preferences: MemoryPreferences(),
+      );
+      await updates.initialize('windows');
+      expect(updates.supported, isTrue);
+      expect(updates.enabled, isTrue);
+      expect(updates.requiresSystemInstall, isFalse);
+      expect(service.initializations, 1);
+      updates.dispose();
+    },
+  );
+
   testWidgets('unsupported hosts never touch the native channel', (
     tester,
   ) async {
-    for (final platform in ['windows', 'linux', 'ios']) {
+    for (final platform in ['linux', 'ios']) {
       final service = FakeUpdateService();
       final updates = AppUpdates(
         service: service,
