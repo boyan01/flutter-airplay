@@ -13,9 +13,9 @@
 
 ## 日常开发
 
-命令均从仓库根目录执行。Flutter stable 版本由 `.flutter-version` 固定；
-确保 PATH 中的 `flutter --version` 与该文件一致。升级时先用新 stable 跑完相关验证，
-再更新 `.flutter-version` 和依赖锁文件。
+命令均从仓库根目录执行。CI 和 Release 构建使用最新 Flutter stable；
+本地开发使用 PATH 中的 Flutter SDK，可用 `flutter channel stable` 和 `flutter upgrade` 更新。
+升级后跑完相关验证，依赖变化时更新依赖锁文件。
 会在内部调用 Flutter 的脚本也使用 PATH 中的 SDK。首次设置或依赖变化后执行：
 
 ```sh
@@ -295,9 +295,8 @@ Dart 用例按 `test/receiver/`、`test/ui/` 组织，fixture 位于对应测试
 ### GitHub Actions
 
 `CI` 在 PR 和推送到 `main` 时运行，也可在 Actions 页面手动启动全部平台任务。
-各平台使用 `.flutter-version` 固定的 Flutter stable，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
-每周一的 `Verify new Flutter stable` 任务用最新 stable 检查 Dart 分析、测试、绑定生成及构建规则，
-不会自动修改固定版本。
+各平台使用最新 Flutter stable，依赖安装校验 `pubspec.lock`，应用编译统一使用 Debug。
+每周一的 `Verify new Flutter stable` 任务用最新 stable 检查 Dart 分析、测试、绑定生成及构建规则。
 独立原生脚本仍使用自身的优化配置。
 
 | 任务 | 覆盖 |
@@ -711,7 +710,7 @@ GitHub Release 正文使用该版本的中英文条目，再附安装与平台�
 非法版本号会在构建前失败。`BUILD` 是 macOS `CFBundleVersion`、Android versionCode 和 Windows 文件版本的第四段，
 必须为 1..65535；每次公开更新的 BUILD 与 MAJOR.MINOR.PATCH 都必须严格大于所有既有稳定版。
 发布先读取前版 appcast，尚无 feed 的旧版则读取其 tag 的 `pubspec.yaml`；历史无法读取或
-解析会失败，不猜测版本。不能仅改 tag 给旧二进制换版本。SDK 使用 `.flutter-version`。
+解析会失败，不猜测版本。不能仅改 tag 给旧二进制换版本。CI 构建使用最新 Flutter stable。
 GitHub Actions 的手动运行只构建和保留 artifacts，永远不创建或发布 Release。
 Release 工作流仅允许手动运行和推送版本 tag 触发，不在 PR 创建或更新时运行。
 

@@ -226,7 +226,6 @@ class SparkleTests(unittest.TestCase):
 
     def test_tag_metadata_fails_before_output_when_signing_missing(self):
         output = self.root / 'output'
-        (self.root / '.flutter-version').write_text('3.47.2\n')
         with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY':'', 'SPARKLE_PUBLIC_KEY':'',
                                     'RELEASE_EVENT':'push', 'RELEASE_REF_TYPE':'tag', 'RELEASE_TAG':'v1.2.3',
                                     'GITHUB_OUTPUT':str(output)}), self.assertRaisesRegex(ValueError, 'require'):

@@ -119,5 +119,5 @@ try {
     New-Item -ItemType Directory -Force (Join-Path $native 'Release/ffmpeg-licenses') | Out-Null
     Copy-Item (Join-Path $cache 'ffmpeg-aac/licenses/*') (Join-Path $native 'Release/ffmpeg-licenses') -Force
 } finally { Pop-Location }
-Write-Host 'Windows native player built. Use the Flutter SDK pinned in .flutter-version: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
+Write-Host 'Windows native player built. Use the latest Flutter stable SDK: flutter run -d windows. See DEVELOPMENT.md for setup, tests and packaging.'
 if ($Tests) { Write-Host 'Native fixtures built. Run them with: bash scripts/test_native.sh windows' }

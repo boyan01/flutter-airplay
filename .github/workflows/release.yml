@@ -22,7 +22,6 @@ jobs:
     timeout-minutes: 10
     outputs:
       version: ${{ steps.metadata.outputs.version }}
-      flutter_version: ${{ steps.metadata.outputs.flutter_version }}
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       with:
@@ -62,7 +61,6 @@ jobs:
     - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
       with:
         channel: stable
-        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
         cache: true
     - run: flutter pub get --enforce-lockfile
     - name: Build Release .deb and portable bundle
@@ -103,7 +101,6 @@ jobs:
     - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
       with:
         channel: stable
-        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
         cache: true
     - run: flutter pub get --enforce-lockfile
     - name: Prepare Inno Setup compiler
@@ -143,7 +140,6 @@ jobs:
     - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
       with:
         channel: stable
-        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
         cache: true
     - name: Build, sign and verify Apple Silicon DMG and Sparkle appcast
       env:
@@ -208,7 +204,6 @@ jobs:
       if: steps.signing.outputs.configured == 'true'
       with:
         channel: stable
-        flutter-version: ${{ needs.prepare.outputs.flutter_version }}
         cache: true
     - run: flutter pub get --enforce-lockfile
       if: steps.signing.outputs.configured == 'true'

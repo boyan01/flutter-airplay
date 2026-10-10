@@ -66,7 +66,6 @@ class ReleaseTests(unittest.TestCase):
     def test_metadata_allows_build_only_refs_but_validates_tags(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / '.flutter-version').write_text('3.47.2\n')
             (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
             (root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
             output = root / 'output'

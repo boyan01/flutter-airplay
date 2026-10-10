@@ -232,11 +232,8 @@ def metadata():
         changelog_entry(current)
         signing_config(required=True)
         previous_version_check(current, build_number())
-    sdk = (ROOT / '.flutter-version').read_text().strip()
-    if not re.fullmatch(VERSION_RE, sdk):
-        raise ValueError('Invalid pinned Flutter version.')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-        output.write(f'version={current}\nbuild={build_number()}\nflutter_version={sdk}\n')
+        output.write(f'version={current}\nbuild={build_number()}\n')
 
 
 def sparkle_tool(name='sign_update'):
