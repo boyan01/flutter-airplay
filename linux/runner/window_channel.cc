@@ -8,7 +8,7 @@
 
 namespace {
 bool TrayRegistered(GCancellable* cancellable) {
-  // nativeapi 0.4 reports visibility even when registration fails. Require a
+  // nativeapi reports visibility even when registration fails. Require a
   // host and this process's item; nativeapi uses a private D-Bus connection.
   g_autoptr(GDBusConnection) bus = g_bus_get_sync(G_BUS_TYPE_SESSION, cancellable, nullptr);
   if (!bus) return false;
@@ -52,18 +52,6 @@ WindowChannel::WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window,
       window_(GTK_WINDOW(g_object_ref(window))),
       tray_registered_(std::move(tray_registered)),
       launch_at_login_(launch_at_login) {
-  state_handler_ = g_signal_connect(window_, "window-state-event",
-      G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer data) -> gboolean {
-        // nativeapi already reports maximize/restore. Only fullscreen lacks
-        // a dedicated event in its current Dart contract.
-        if (!(event->changed_mask & GDK_WINDOW_STATE_FULLSCREEN)) return FALSE;
-        auto* self = static_cast<WindowChannel*>(data);
-        g_autoptr(FlValue) state = fl_value_new_map();
-        fl_value_set_string_take(state, "fullscreen", fl_value_new_bool((event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) != 0));
-        fl_value_set_string_take(state, "maximized", fl_value_new_bool((event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0));
-        self->Invoke("windowStateChanged", state);
-        return FALSE;
-      }), this);
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   channel_ = fl_method_channel_new(messenger_, "tech.soit.flutterairplay/window", FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(channel_,
@@ -86,8 +74,6 @@ WindowChannel::~WindowChannel() {
     g_clear_object(&startup_call_);
   }
   if (startup_timeout_) g_source_remove(startup_timeout_);
-  if (g_signal_handler_is_connected(window_, state_handler_))
-    g_signal_handler_disconnect(window_, state_handler_);
   fl_method_channel_set_method_call_handler(channel_, nullptr, nullptr, nullptr);
   fl_binary_messenger_set_message_handler_on_channel(messenger_, "tech.soit.flutterairplay/window", nullptr, nullptr, nullptr);
   g_object_unref(channel_); g_object_unref(messenger_); g_object_unref(window_);

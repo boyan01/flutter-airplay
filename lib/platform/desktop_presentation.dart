@@ -100,7 +100,7 @@ class DesktopPresentation {
           if (!ui.isRunningOnPlatformThread) {
             throw PlatformException(
               code: 'platform_thread_required',
-              message: 'Desktop callbacks require the platform thread',
+              message: 'Desktop operations require the platform thread',
             );
           }
           await _createTray();
@@ -125,14 +125,23 @@ class DesktopPresentation {
                 }
               });
             }
+            final fullscreenCompleted =
+                event is native.WindowEnteredFullScreenEvent ||
+                event is native.WindowExitedFullScreenEvent;
             if (event.windowId == _windowId &&
-                (event is native.WindowMaximizedEvent ||
+                (fullscreenCompleted ||
+                    event is native.WindowMaximizedEvent ||
                     event is native.WindowRestoredEvent)) {
               // Leave the native callback before querying or changing the window.
               Timer.run(() {
                 if (!_disposed) {
                   unawaited(
-                    onAction(WindowAction.nativeWindowStateChanged, false),
+                    onAction(
+                      fullscreenCompleted
+                          ? WindowAction.windowStateChanged
+                          : WindowAction.nativeWindowStateChanged,
+                      false,
+                    ),
                   );
                 }
               });
@@ -326,9 +335,7 @@ class DesktopPresentation {
           model.hasVideo &&
           !_fullscreen &&
           model.desktopOptions['alwaysOnTop']!;
-      // nativeapi 0.4's X11 getter reads GDK state, which omits EWMH ABOVE.
-      // Apply the desired state on Linux even when that getter says false.
-      if (model.platform == 'linux' || value.isAlwaysOnTop != onTop) {
+      if (value.isAlwaysOnTop != onTop) {
         value.isAlwaysOnTop = onTop;
       }
     });
@@ -557,7 +564,7 @@ class DesktopPresentation {
       if (_itemListeners[i] != 0) _items[i].removeListener(_itemListeners[i]);
     }
     if (_menuListener != null) _menu?.removeListener(_menuListener!);
-    // Dispose the owning menu directly. nativeapi 0.4's Linux Clear loops
+    // Dispose the owning menu directly. nativeapi 0.5.2's Linux Clear loops
     // forever if an item has already lost its GTK widget.
     _menu?.dispose();
     for (final item in _items) {

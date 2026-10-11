@@ -4,7 +4,7 @@
 #include <gtk/gtk.h>
 #include <functional>
 
-// The host only bridges OS close/reopen and completed window state changes.
+// The host bridges OS close/reopen and desktop startup.
 class WindowChannel {
  public:
   WindowChannel(FlBinaryMessenger* messenger, GtkWindow* window,
@@ -24,7 +24,6 @@ class WindowChannel {
   FlBinaryMessenger* messenger_;
   FlMethodChannel* channel_;
   GtkWindow* window_;
-  gulong state_handler_ = 0;
   guint startup_timeout_ = 0, tray_retry_ = 0, tray_timeout_ = 0;
   GCancellable* tray_probe_ = nullptr;
   FlMethodCall* startup_call_ = nullptr;

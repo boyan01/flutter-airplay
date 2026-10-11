@@ -343,7 +343,6 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
       presentationObservers.append(center.addObserver(forName: notification, object: self, queue: .main) { [weak self] _ in
         guard let self = self else { return }
         self.logPresentation(notification.rawValue)
-        self.presentation?.invokeMethod("windowStateChanged", arguments: ["fullscreen": self.styleMask.contains(.fullScreen), "maximized": self.isZoomed])
       })
     }
   }

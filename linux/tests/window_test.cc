@@ -41,13 +41,6 @@ void WindowTest() {
     g_assert_true(gtk_widget_get_visible(GTK_WIDGET(window)));
     channel.Show();
     g_assert_cmpstr(GetString(messenger->events->back(), "method"), ==, "openApp");
-    GdkEventWindowState state{};
-    state.type = GDK_WINDOW_STATE;
-    state.changed_mask = GDK_WINDOW_STATE_FULLSCREEN;
-    state.new_window_state = GDK_WINDOW_STATE_FULLSCREEN;
-    gboolean handled;
-    g_signal_emit_by_name(window, "window-state-event", &state, &handled);
-    g_assert_cmpstr(GetString(messenger->events->back(), "method"), ==, "windowStateChanged");
     g_autoptr(FlValue) close = fl_value_new_bool(false);
     Command(messenger, "setClosePolicy", close);
     g_assert_false(channel.HideOnClose());

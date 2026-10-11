@@ -123,7 +123,7 @@ class WindowController {
         });
       default:
         // Closing must preserve receiver cleanup and the tray policy.
-        // nativeapi 0.4 has no window-close operation.
+        // Keep the host close path so tray policy and receiver cleanup run.
         await _channel.invokeMethod<void>(command.name);
     }
   }

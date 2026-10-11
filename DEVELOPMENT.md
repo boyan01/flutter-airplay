@@ -401,14 +401,18 @@ Linux Flutter 宿主测试在 `linux/flutter/ephemeral/` 已有 engine 库时启
 桌面窗口的全屏、最大化、最小化、拖动、尺寸、比例、置顶与显示/隐藏统一由
 `WindowController` 调用 `nativeapi`。`DesktopPresentation` 持有托盘、菜单、窗口事件订阅和
 会话自动显示/隐藏的计时器，使用共享接收器状态和 Flutter 本地化。三种桌面宿主均启用
-UI / 平台线程合并，使 FFI 调用和同步事件回调在平台线程执行。
+UI / 平台线程合并，使桌面 FFI 操作在平台线程执行；新版事件回调投递到注册它的 isolate。
 窗口调用避开 Flutter 当前帧，防止 AppKit 同步调整尺寸时嵌套帧回调。
-普通窗口命令在非合并引擎上可通过 `runOnPlatformThread` 切换线程；托盘事件订阅要求合并线程。
-最大化/还原直接订阅 `WindowManager.addListener`。宿主不重复发送普通尺寸和最大化事件，
-只补充当前插件缺少的全屏完成通知，另保留关闭请求拦截、可靠退出/接收器清理和防休眠。
-macOS 还保留 Dock 激活策略与系统菜单，避免 `nativeapi 0.4` 的 Application 初始化替换 Flutter AppDelegate；
-编辑菜单继续使用系统 responder chain。
-Linux 托盘可用性按 `TrayManager.isSupported()` 判断，不再依赖 Ayatana AppIndicator。
+普通窗口命令在非合并引擎上可通过 `runOnPlatformThread` 切换线程；当前托盘创建和更新直接执行，仍要求合并线程。
+窗口尺寸、最大化/还原和全屏完成统一订阅 `nativeapi 0.5.2` 的 `WindowManager.addListener`，
+宿主不重复发送这些事件。macOS 仍在全屏开始前暂停自动缩放，避免与系统过渡冲突。
+宿主保留关闭请求拦截、可靠退出/接收器清理和防休眠；不能以 isolate 自动回收替代显式清理。
+macOS 还保留 Dock 激活策略与系统菜单，以实现托盘显示策略和应用操作；
+编辑菜单继续使用系统 responder chain。标题栏双击继续使用现有公开 AppKit zoom 回退，
+不采用 nativeapi 的私有 Fill selector。Linux 保留托盘真实注册检查、移除菜单项后重建及
+直接释放菜单的处理；0.5.2 的可见性标记和 GTK 菜单实现仍需要这些保护。
+Linux 托盘先用 `TrayManager.isSupported()` 检查 session bus，再确认真实 host 和本进程的图标已注册，
+不再依赖 Ayatana AppIndicator。
 
 真实桌面回归统一入口：`./scripts/test_native.sh macos desktop --os-input`。
 将 `macos` 替换为 `linux` 或 `windows` 可运行对应平台；入口自动发现
@@ -954,7 +958,7 @@ autostart_settings 和 flutter_autostart 则主要针对 Android 权限，不适
 Linux 文件遵循 [XDG Autostart](https://specifications.freedesktop.org/autostart/latest/)
 和 [Desktop Entry Exec 转义](https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html)。
 
-项目现有 nativeapi 0.4.0 也暴露 LaunchAtLogin API，但其 Linux IsEnabled 仅检查文件存在，
+项目现有 nativeapi 0.5.2 也暴露 LaunchAtLogin API，但其 Linux IsEnabled 仅检查文件存在，
 Exec 转义未完整处理 Desktop Entry 两层规则，故本次未直接使用该 API。
 Linux 启动路径含 `%`、`=` 或控制字符时明确拒绝登记（GIO 对含 `%` 的 executable 解析有限制），
 请移动到常规固定安装路径后重试；不使用 shell 或 env 命令包装应用。

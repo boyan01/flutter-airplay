@@ -633,6 +633,7 @@ void main() {
     late native.Window nativeWindow;
     await controller.withWindow((value) => nativeWindow = value);
     final errors = <PlatformException>[];
+    final fullscreenCompletions = <bool>[];
     late DesktopPresentation presentation;
     presentation = DesktopPresentation(
       window: controller,
@@ -644,6 +645,11 @@ void main() {
         }
         if (action == WindowAction.windowStateChanged ||
             action == WindowAction.nativeWindowStateChanged) {
+          if (action == WindowAction.windowStateChanged) {
+            await controller.withWindow(
+              (value) => fullscreenCompletions.add(value.isFullScreen),
+            );
+          }
           await presentation.stateChanged(
             transitionCompleted: action == WindowAction.windowStateChanged,
           );
@@ -775,6 +781,11 @@ void main() {
           (value.content.width - idleContent.width).abs() <= 3 &&
           (value.content.height - idleContent.height).abs() <= 3,
       reason: 'fullscreen disconnect restores idle size and on-top policy',
+    );
+    expect(
+      fullscreenCompletions,
+      [true, false, true, false],
+      reason: 'nativeapi must report each completed fullscreen transition once',
     );
     if (presentation.canHide) {
       debugPrint('Checking close-to-tray after fullscreen restoration');

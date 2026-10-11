@@ -14,7 +14,6 @@
 namespace {
 using Value = flutter::EncodableValue;
 using Map = flutter::EncodableMap;
-constexpr UINT kFullscreenStateMessage = WM_APP + 76;
 
 // Keep this value name aligned with the installer's startup-entry cleanup.
 constexpr auto kLoginValue = L"FlutterAirPlay";
@@ -288,7 +287,6 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (message == WM_CLOSE) { CloseAppWindow(); return 0; }
   if (message == WM_QUERYENDSESSION) return TRUE;
   if (message == WM_ENDSESSION && wparam) { DestroyWindow(hwnd); return 0; }
-  if (message == kFullscreenStateMessage) { FullscreenChanged(); return 0; }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -305,25 +303,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       break;
   }
 
-  const auto result = Win32Window::MessageHandler(hwnd, message, wparam, lparam);
-  if (message == WM_STYLECHANGED && wparam == static_cast<WPARAM>(GWL_STYLE)) {
-    const auto* styles = reinterpret_cast<const STYLESTRUCT*>(lparam);
-    if ((styles->styleOld ^ styles->styleNew) & WS_THICKFRAME) {
-      // nativeapi reports ordinary window state. Bridge only fullscreen's
-      // frame-style change, after the library has restored placement/styles.
-      PostMessageW(hwnd, kFullscreenStateMessage, 0, 0);
-    }
-  }
-  return result;
+  return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
 }
 
 void FlutterWindow::Invoke(const char* method) {
   if (presentation_) presentation_->InvokeMethod(method, nullptr);
-}
-
-void FlutterWindow::FullscreenChanged() {
-  if (presentation_) presentation_->InvokeMethod("windowStateChanged", std::make_unique<Value>(Map{
-      {Value("maximized"), Value(IsZoomed(GetHandle()) != FALSE)}, {Value("fullscreen"), Value(IsFullscreen())}}));
 }
 
 bool FlutterWindow::FinishDesktopStartup(bool tray_available) {

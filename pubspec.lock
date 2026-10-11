@@ -141,10 +141,10 @@ packages:
     dependency: transitive
     description:
       name: cnativeapi
-      sha256: "4cee4a015b5a503a9ac4bd6d8f91191946f9d944e62cb57f07907bc96b2f523e"
+      sha256: "251fb93cd7ec205445fa512ee5ddeb0b82b3273d071cfc0784ddffbbdebbf5d3"
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.0"
+    version: "0.5.2"
   code_assets:
     dependency: transitive
     description:
@@ -488,10 +488,10 @@ packages:
     dependency: "direct main"
     description:
       name: nativeapi
-      sha256: "75878a79f56e458960ff3c11782f9e6632c04e449296ec4ea2c2773f4b414431"
+      sha256: c4625e81f5ce2f4a9044c0ec1bdb38355119ffcf89e24eb20ae9fc5027a01e59
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.0"
+    version: "0.5.2"
   objective_c:
     dependency: transitive
     description:

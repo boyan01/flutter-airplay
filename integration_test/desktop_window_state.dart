@@ -155,7 +155,7 @@ Future<ProcessResult> runDesktopProcess(
   }
 }
 
-/// Check the real WM state, not nativeapi 0.4's known-false GDK ABOVE getter.
+/// Independently verify the real WM state rather than trusting the setter/getter.
 /// Linux desktop integration requires X11 and xprop, supplied by the shared
 /// desktop runner. This neither focuses a window nor changes any WM property.
 Future<bool> readWindowAlwaysOnTop(native.Window window) async {

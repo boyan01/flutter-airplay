@@ -18,7 +18,7 @@ dependencies:
     sdk: flutter
   intl: ^0.20.2
   mixin_logger: ^0.2.0
-  nativeapi: 0.4.0
+  nativeapi: 0.5.2
   package_info_plus: ^10.2.2
   path: ^1.9.1
   path_provider: ^2.1.6

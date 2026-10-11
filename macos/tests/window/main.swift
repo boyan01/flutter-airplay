@@ -9,6 +9,7 @@ final class TestReceiver {
   func dispose() { disposed = true }
   func install(on: FlutterBinaryMessenger, video: VideoSurface) {}
   func setDisplay(_ display: CGDirectDisplayID) {}
+  func log(_ message: String) {}
 }
 final class TestUpdates {
   func install(on: FlutterBinaryMessenger) {}

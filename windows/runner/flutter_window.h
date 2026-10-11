@@ -45,7 +45,6 @@ class FlutterWindow : public Win32Window {
   bool FinishDesktopStartup(bool tray_available);
   void ShowApp();
   void CloseAppWindow();
-  void FullscreenChanged();
   void Invoke(const char* method);
 };
 
