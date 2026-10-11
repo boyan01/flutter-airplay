@@ -31,6 +31,12 @@ inline int64_t realtime_ns() {
 #endif
 }
 
+// Translate a device's host timestamp using adjacent samples of both clocks.
+// A cached epoch difference is invalid after sleep if only one clock advances.
+inline int64_t host_time_to_monotonic(int64_t host_time, int64_t host_now, int64_t now) {
+    return now + (host_time - host_now);
+}
+
 // One session anchor for both media streams, including packets arriving audio-first.
 class Timeline {
 public:

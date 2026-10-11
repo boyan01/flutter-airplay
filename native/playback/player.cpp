@@ -134,6 +134,14 @@ void AirplayPlayer::flush_audio() {
     p->audio.flush();
     if (p->audio_playing) { p->audio_playing = false; p->event("audio_stopped", "Audio paused"); }
 }
+void AirplayPlayer::stop_audio() {
+    std::lock_guard<std::mutex> guard(lock);
+    output->stop();
+    audio_rtp_anchored = false; audio_ct = 0;
+    audio.flush();
+    if (audio_playing) { audio_playing = false; event("audio_stopped", "Audio stopped"); }
+    log("Audio output stopped: audio transport ended");
+}
 void AirplayPlayer::set_volume(float db) {
     auto *p = this; p->pcm->volume(db);
     char message[96];

@@ -117,6 +117,48 @@ void check_video_resume(void *surface, const char *decoder) {
 }
 
 #ifdef __APPLE__
+void check_audio_output_lifecycle() {
+    auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, nullptr, nullptr, nullptr);
+    const auto receive = receiver_callbacks(p.get());
+    if (!receive.audio_stop) throw std::runtime_error("audio transport end has no playback callback");
+    auto callbacks = [&] {
+        const auto report = p->output->diagnostics();
+        const auto field = report.find("callbacks_total=");
+        if (field == std::string::npos) throw std::runtime_error("Apple audio callback counter missing");
+        return std::stoull(report.substr(field + strlen("callbacks_total=")));
+    };
+    if (p->output->diagnostics().find("state=closed") == std::string::npos)
+        throw std::runtime_error("idle receiver opens audio before SETUP");
+    unsigned char ct = 8; unsigned short spf = 480;
+    for (int session = 0; session < 2; ++session) {
+        const auto before = callbacks();
+        receive.audio_get_format(receive.cls, &ct, &spf, nullptr, nullptr, nullptr);
+        const auto limit = monotonic_ns() + kSecond;
+        while (callbacks() == before && monotonic_ns() < limit)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        if (callbacks() == before) throw std::runtime_error("SETUP does not start or restart AudioUnit callbacks");
+        receive.audio_flush(receive.cls);
+        if (p->output->diagnostics().find("state=running") == std::string::npos)
+            throw std::runtime_error("temporary FLUSH closes the continuing audio output");
+        const int16_t samples[] = {1234, -1234};
+        const auto due = monotonic_ns() + 10 * kSecond;
+        p->pcm->write(samples, 1, due, p->pcm->generation());
+        const auto video_generation = p->video_generation;
+        const auto video_due = p->timeline.deadline(1234);
+        receive.audio_stop(receive.cls);
+        if (p->output->diagnostics().find("state=closed") == std::string::npos)
+            throw std::runtime_error("ended audio transport leaves AudioUnit running");
+        const auto stopped = callbacks();
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        if (callbacks() != stopped) throw std::runtime_error("idle AudioUnit keeps counting callbacks");
+        int16_t sound[2]{};
+        p->pcm->read(sound, 1, due);
+        if (sound[0] || sound[1]) throw std::runtime_error("ended transport retains old PCM");
+        if (p->video_generation != video_generation || p->timeline.deadline(1234) != video_due)
+            throw std::runtime_error("audio-only stop resets continuing video or its timeline");
+    }
+}
+
 void check_video_stall_diagnostics() {
     struct Diagnostics { std::atomic<int> warnings{0}, queue_reports{0}; } diagnostics;
     auto &warnings = diagnostics.warnings;
@@ -510,7 +552,7 @@ void check_playback_buffer() {
 int main(int argc, char **argv) {
     try {
         if (argc == 2 && !strcmp(argv[1], "--video-interruption")) { check_mac_video_interruption(); return 0; }
-        check_playback_buffer(); check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: sender video pause/resume, continuing audio and media clock"); }
+        check_audio_output_lifecycle(); check_playback_buffer(); check_mac_hevc(); check_audio_unsynchronized_burst(); check_video_resume(nullptr, nullptr); check_mac_decode_ahead(); check_mac_arrival_jitter(); std::puts("PASS: audio output stop/restart, sender video pause/resume, continuing audio and media clock"); }
     catch (const std::exception &error) { std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
 }
 #else

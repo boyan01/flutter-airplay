@@ -22,6 +22,7 @@ void reset(void *cls) { player(cls)->reset(); }
 void reset_type(void *cls, reset_type_t) { reset(cls); }
 void conn_reset(void *cls, int) { reset(cls); }
 void audio_flush(void *cls) { player(cls)->flush_audio(); }
+void audio_stop(void *cls) { player(cls)->stop_audio(); }
 void video_pause(void *cls) { player(cls)->pause_video(true); }
 void video_resume(void *cls) { player(cls)->pause_video(false); }
 void nothing(void *) {}
@@ -47,7 +48,7 @@ void log(void *cls, int level, const char *text) { player(cls)->log(text, level)
 raop_callbacks_t receiver_callbacks(AirplayPlayer *p) {
     raop_callbacks_t cb{}; cb.cls = p;
     cb.audio_process = audio_process; cb.video_process = video_process; cb.audio_get_format = audio_format;
-    cb.video_report_size = video_size; cb.audio_flush = audio_flush; cb.video_flush = reset;
+    cb.video_report_size = video_size; cb.audio_flush = audio_flush; cb.audio_stop = audio_stop; cb.video_flush = reset;
     cb.video_pause = video_pause; cb.video_resume = video_resume; cb.conn_feedback = nothing; cb.conn_reset = conn_reset;
     cb.video_reset = reset_type; cb.conn_init = connected; cb.conn_destroy = disconnected;
     cb.report_client_request = client; cb.mirror_video_running = mirror;

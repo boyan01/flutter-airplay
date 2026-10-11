@@ -85,6 +85,8 @@ struct raop_callbacks_s {
     void  (*conn_destroy)(void *cls);
   //void  (*conn_teardown)(void *cls, bool *teardown_96, bool *teardown_110 ); /*not used */
     void  (*audio_flush)(void *cls);
+    /* Audio transport has ended; unlike FLUSH, no more packets follow. */
+    void  (*audio_stop)(void *cls);
     void  (*video_flush)(void *cls);
     double (*audio_set_client_volume)(void *cls);
     void  (*audio_set_volume)(void *cls, float volume);

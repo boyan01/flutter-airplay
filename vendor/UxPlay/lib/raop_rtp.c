@@ -654,6 +654,11 @@ raop_rtp_thread_udp(void *arg)
         }
     }
 
+    /* No more audio_process calls follow, including on a transport error. */
+    if (raop_rtp->callbacks.audio_stop) {
+        raop_rtp->callbacks.audio_stop(raop_rtp->callbacks.cls);
+    }
+
     // Ensure running reflects the actual state
     MUTEX_LOCK(raop_rtp->run_mutex);
     raop_rtp->running = false;

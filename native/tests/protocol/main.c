@@ -12,6 +12,8 @@ static void capture(void *context, int level, const char *message) { puts(messag
 static atomic_int delivered;
 static atomic_int last_sequence;
 static atomic_int flushed;
+static atomic_int stopped;
+static void audio_stopped(void *context) { atomic_fetch_add(&stopped, 1); }
 static void test_hevc_configuration(void) {
     unsigned char payload[0x75 + 3 * 7] = {0};
     const unsigned char *parameters[3]; size_t sizes[3];
@@ -59,7 +61,9 @@ static bool wait_count(atomic_int *counter, int count) {
     return atomic_load(counter) >= count;
 }
 static void test_sound_after_silence(logger_t *log) {
+    const int stops_before = atomic_load(&stopped);
     raop_callbacks_t callbacks = {0};
+    callbacks.audio_stop = audio_stopped;
     callbacks.audio_process = receive_audio;
     callbacks.audio_flush = receive_flush;
     unsigned char key[16] = {0}, iv[16] = {0};
@@ -102,6 +106,7 @@ static void test_sound_after_silence(logger_t *log) {
 
     raop_rtp_flush(audio, 10);
     require(wait_count(&flushed, 1), "Real RTP receive thread processed FLUSH");
+    require(atomic_load(&stopped) == stops_before, "Temporary FLUSH does not end platform playback");
     send_audio(sender, data_port, 10, 28);
     require(wait_count(&delivered, 6) && atomic_load(&last_sequence) == 10,
             "New sound after FLUSH uses the sender's new sequence immediately");
@@ -117,6 +122,7 @@ static void test_sound_after_silence(logger_t *log) {
             "Silence transition preserves audio across 16-bit sequence wrap");
     CLOSESOCKET(sender);
     raop_rtp_destroy(audio);
+    require(atomic_load(&stopped) == stops_before + 1, "Transport destruction ends platform playback");
     raop_ntp_destroy(ntp);
 }
 int main(void) {
@@ -127,6 +133,7 @@ int main(void) {
     logger_set_callback(log, capture, NULL);
     raop_callbacks_t callbacks = {0};
     unsigned char test_key[16] = {0}, test_iv[16] = {0};
+    callbacks.audio_stop = audio_stopped;
     raop_rtp_t *audio = raop_rtp_init(log, &callbacks, NULL, "127.0.0.1", 4, test_key, test_iv);
     require(audio != NULL, "Synthetic loopback RTP instance");
     for (int cycle = 1; cycle <= 3; cycle++) {
@@ -145,6 +152,9 @@ int main(void) {
                 "Unsynced new RTP origin cannot generate an hours-future timestamp");
         raop_rtp_stop(audio);
         require(!raop_rtp_is_running(audio), "Real UDP thread stopped and joined");
+        require(atomic_load(&stopped) == cycle, "Ended audio transport stops platform playback exactly once");
+        raop_rtp_stop(audio);
+        require(atomic_load(&stopped) == cycle, "Repeated transport stop does not stop playback again");
     }
     raop_rtp_destroy(audio);
     test_sound_after_silence(log);

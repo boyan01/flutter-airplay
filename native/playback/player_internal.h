@@ -234,6 +234,7 @@ struct AirplayPlayer {
     void format_audio(uint8_t ct, uint16_t spf);
     void resize_video(float width, float height);
     void flush_audio();
+    void stop_audio();
     void set_volume(float db);
     int select_codec(bool hevc);
     void receive_video(const uint8_t* bytes, int size, int64_t local_pts);

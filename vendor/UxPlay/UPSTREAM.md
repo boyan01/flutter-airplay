@@ -29,6 +29,10 @@ buffer. Dequeue skips their empty payloads while preserving retransmission for
 actual packet loss. FLUSH clears this buffer and applies the sender's next
 sequence before flushing platform playback.
 
+An optional `audio_stop` callback fires when the audio receive thread exits,
+after its final packet callback. Embedded hosts use it to close audio output
+when the transport ends, while ordinary FLUSH keeps the output available.
+
 Control request and response summaries are logged at INFO level to diagnose
 handshake progress without enabling headers, key material or payload dumps.
 

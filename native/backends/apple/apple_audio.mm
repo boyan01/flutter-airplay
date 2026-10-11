@@ -41,7 +41,6 @@ public:
             AudioUnitInitialize(unit_)) { close(); return false; }
         mach_timebase_info_data_t info{}; mach_timebase_info(&info);
         host_scale_ = double(info.numer) / info.denom;
-        host_offset_ = monotonic_ns() - int64_t(mach_absolute_time() * host_scale_);
 #if TARGET_OS_IPHONE
         // The host owns AVAudioSession activation and interruption recovery.
         latency_ = int64_t(AVAudioSession.sharedInstance.outputLatency * kSecond);
@@ -92,8 +91,11 @@ private:
         auto *self = static_cast<AppleAudio *>(opaque);
         for (UInt32 i = 0; i < list->mNumberBuffers; ++i)
             if (list->mBuffers[i].mData) std::memset(list->mBuffers[i].mData, 0, list->mBuffers[i].mDataByteSize);
+        const auto now = monotonic_ns();
+        const auto host_now = mach_absolute_time();
         const auto time = timestamp->mFlags & kAudioTimeStampHostTimeValid
-            ? int64_t(timestamp->mHostTime * self->host_scale_) + self->host_offset_ : monotonic_ns();
+            ? host_time_to_monotonic(int64_t(timestamp->mHostTime * self->host_scale_),
+                                    int64_t(host_now * self->host_scale_), now) : now;
         if (list->mNumberBuffers == 1 && list->mBuffers[0].mData && list->mBuffers[0].mDataByteSize >= frames * 4)
             self->read(static_cast<int16_t *>(list->mBuffers[0].mData), frames, time + self->latency_);
         else ++self->invalid_buffers_;
@@ -103,7 +105,7 @@ private:
     std::shared_ptr<AudioBuffer> buffer_;
     AudioUnit unit_ = nullptr;
     double host_scale_ = 1;
-    int64_t host_offset_ = 0, latency_ = 0;
+    int64_t latency_ = 0;
     std::atomic<int64_t> last_callback_{0};
     int64_t last_time_ = 0;
     UInt32 last_frames_ = 0;

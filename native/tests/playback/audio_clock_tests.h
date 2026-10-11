@@ -3,7 +3,31 @@
 #include "../../playback/audio_clock.h"
 #include <stdexcept>
 
+inline void check_audio_host_clock() {
+    using namespace airplay;
+    AudioBuffer buffer(441);
+    const std::vector<int16_t> input(441 * 2, 12000);
+    std::vector<int16_t> output(input.size());
+    // The output stays open while the monotonic clock advances through sleep
+    // and the device host clock does not. Preserve its scheduled 10 ms lead.
+    for (const int64_t sleep : {int64_t(0), 60 * kSecond, 10 * 3600 * kSecond}) {
+        const auto host_now = 100 * kSecond;
+        const auto now = host_now + 10 * kSecond + sleep;
+        const auto host_time = host_now + 10000000;
+        const auto due = now + 10000000;
+        if (buffer.write(input.data(), 441, due, buffer.generation()) != 441)
+            throw std::runtime_error("sleep clock conversion leaves the PCM queue full");
+        buffer.read(output.data(), 441, host_time_to_monotonic(host_now - 10000000, host_now, now));
+        if (std::any_of(output.begin(), output.end(), [](auto x) { return x != 0; }))
+            throw std::runtime_error("host clock conversion plays future PCM early");
+        buffer.read(output.data(), 441, host_time_to_monotonic(host_time, host_now, now));
+        if (input != output)
+            throw std::runtime_error("sleep clock conversion silences or cuts scheduled PCM");
+    }
+}
+
 inline void check_audio_clock() {
+    check_audio_host_clock();
     using namespace airplay;
     constexpr int total = kSampleRate, callback = 192;
     constexpr int64_t start = kSecond;
