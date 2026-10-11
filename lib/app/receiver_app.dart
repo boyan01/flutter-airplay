@@ -85,6 +85,11 @@ class _ReceiverAppState extends State<ReceiverApp> {
                 LogicalKeyboardKey.escape,
                 includeRepeats: false,
               ): () {
+                final focused = FocusManager.instance.primaryFocus?.context;
+                if (focused != null && ModalRoute.of(focused) is PopupRoute) {
+                  Navigator.of(focused).pop();
+                  return;
+                }
                 if (!_dialogOpen) window.execute(WindowCommand.exitFullscreen);
               },
               const SingleActivator(

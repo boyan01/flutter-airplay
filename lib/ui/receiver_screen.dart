@@ -377,7 +377,9 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
         body: model.hasVideo
             ? PlayerPage(
                 model: model,
+                window: _window,
                 onFullscreen: _toggleFullscreen,
+                onCropEditingChanged: _desktop.setCropEditing,
                 onEscape: () => _toggleFullscreen(target: false),
                 onWindowAction: (action) => _windowAction(action, false),
                 dialogOpen: _dialogOpen || _updateDialogOpen,

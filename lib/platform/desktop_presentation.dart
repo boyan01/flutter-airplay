@@ -45,6 +45,7 @@ class DesktopPresentation {
   bool _openedForSession = false, _expanded = false, _transitioning = false;
   bool _fullscreen = false, _trayVisible = false;
   bool _menuOpen = false;
+  bool _editingCrop = false;
   String _signature = '';
   late final _sizing = DesktopWindowSizing(
     window,
@@ -63,8 +64,8 @@ class DesktopPresentation {
     }
     final geometry = _sizing.update(
       connected: model.status == 'streaming',
-      width: model.hasVideo ? model.videoWidth : 0,
-      height: model.hasVideo ? model.videoHeight : 0,
+      width: model.hasVideo ? model.displayVideoWidth : 0,
+      height: model.hasVideo ? model.displayVideoHeight : 0,
       reduceMotion: reduceMotion,
     );
     final signature = jsonEncode([
@@ -303,7 +304,7 @@ class DesktopPresentation {
       value.show();
       value.focus();
     });
-    if (!_transitioning) await _sizing.resume();
+    if (!_transitioning && !_editingCrop) await _sizing.resume();
   }
 
   Future<void> hide() async {
@@ -315,8 +316,22 @@ class DesktopPresentation {
   }
 
   Future<void> resize({bool actualSize = false}) async {
-    if (!_ready || _transitioning || _disposed) return;
+    if (!_ready || _transitioning || _editingCrop || _disposed) return;
     await _sizing.fit(actualSize: actualSize);
+  }
+
+  void setCropEditing(bool editing) {
+    if (_disposed || _editingCrop == editing) return;
+    _editingCrop = editing;
+    if (editing) {
+      _sizing.suspend();
+    } else if (!_transitioning) {
+      unawaited(
+        _sizing.resume().catchError((Object error) {
+          if (!_disposed && error is PlatformException) onError(error);
+        }),
+      );
+    }
   }
 
   void transitionStarted() {
@@ -341,7 +356,7 @@ class DesktopPresentation {
     });
     _transitioning = false;
     _expanded = expanded;
-    if (!expanded) await _sizing.resume();
+    if (!expanded && !_editingCrop) await _sizing.resume();
     if (!_disposed) _updateMenu();
     return expanded;
   }

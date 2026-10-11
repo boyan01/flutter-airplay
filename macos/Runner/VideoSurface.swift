@@ -2,10 +2,47 @@
 import Cocoa
 import AVFoundation
 
-// The Flutter view is a transparent sibling above this layer. Only metadata is
-// wrapped in CMSampleBuffer; decoder pixel buffers remain IOSurface-backed.
+// The transparent Flutter child stays above the independently clipped video layers.
+// Only metadata is wrapped in CMSampleBuffer; pixels remain IOSurface-backed.
+struct VideoPresentation {
+    var crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+    var sourceSize = CGSize.zero
+    var viewport = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    init() {}
+    init?(arguments: Any?) {
+        guard let values = arguments as? [String: Any] else { return nil }
+        func number(_ key: String) -> Double? {
+            guard let value = values[key] as? NSNumber,
+                  CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite else { return nil }
+            return value.doubleValue
+        }
+        guard let left = number("left"), let top = number("top"),
+              let width = number("width"), let height = number("height"),
+              left >= 0, left < 1, top >= 0, top < 1, width > 0, height > 0,
+              left + width <= 1 + 1e-9, top + height <= 1 + 1e-9 else { return nil }
+        crop = CGRect(x: left, y: top, width: min(width, 1 - left), height: min(height, 1 - top))
+        let viewportKeys = ["viewportLeft", "viewportTop", "viewportWidth", "viewportHeight"]
+        if viewportKeys.contains(where: { values[$0] != nil }) {
+            guard let x = number("viewportLeft"), let y = number("viewportTop"),
+                  let w = number("viewportWidth"), let h = number("viewportHeight"),
+                  x >= 0, y >= 0, w > 0, h > 0,
+                  x + w <= 1 + 1e-9, y + h <= 1 + 1e-9 else { return nil }
+            viewport = CGRect(x: x, y: y, width: min(w, 1 - x), height: min(h, 1 - y))
+        }
+        if values["sourceWidth"] != nil || values["sourceHeight"] != nil {
+            guard let width = number("sourceWidth"), let height = number("sourceHeight"),
+                  width > 0, height > 0 else { return nil }
+            sourceSize = CGSize(width: width, height: height)
+        }
+    }
+}
+
 final class VideoSurface: NSView, ReceiverVideoOutput {
     let displayLayer = AVSampleBufferDisplayLayer()
+    private let videoViewport = CALayer()
+    private var presentation = VideoPresentation()
+    private var layoutSourceSize = CGSize.zero
     let textureIdentifier: Int64 = -1
     var onError: ((String) -> Void)?
     var onLog: ((String) -> Void)?
@@ -34,7 +71,10 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         displayLayer.videoGravity = .resizeAspect
-        layer?.addSublayer(displayLayer)
+        videoViewport.masksToBounds = true
+        videoViewport.backgroundColor = NSColor.black.cgColor
+        layer?.addSublayer(videoViewport)
+        videoViewport.addSublayer(displayLayer)
         var timebase: CMTimebase?
         let status = CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault,
             sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase)
@@ -70,15 +110,59 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layout() {
         super.layout()
+        lock.lock()
+        let size = CGSize(width: frameWidth, height: frameHeight)
+        lock.unlock()
+        layoutSourceSize = size
+        layoutVideo()
+    }
+    func setVideoPresentation(_ value: VideoPresentation) {
+        precondition(Thread.isMainThread)
+        onLog?("[Video crop] Host received: crop=\(value.crop) source=\(value.sourceSize) decoded=\(layoutSourceSize) bounds=\(bounds)")
+        presentation = value
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        logVideoPresentation("applied")
+        DispatchQueue.main.async { [weak self] in
+            self?.logVideoPresentation("next_main_turn")
+        }
+    }
+    private func logVideoPresentation(_ phase: String) {
+        onLog?("[Video crop] Host \(phase): crop=\(presentation.crop) bounds=\(bounds) viewport=\(videoViewport.frame) video=\(displayLayer.frame) clipped=\(videoViewport.masksToBounds) attached=\(videoViewport.superlayer === layer) visible=\(window?.isVisible ?? false)")
+    }
+    private func layoutVideo() {
+        let source = layoutSourceSize.width > 0 && layoutSourceSize.height > 0
+            ? layoutSourceSize : presentation.sourceSize
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        displayLayer.frame = bounds
-        CATransaction.commit()
+        defer { CATransaction.commit() }
+        guard source.width > 0, source.height > 0, bounds.width > 0, bounds.height > 0 else {
+            videoViewport.frame = bounds
+            displayLayer.frame = videoViewport.bounds
+            return
+        }
+        let crop = presentation.crop
+        let target = presentation.viewport
+        let area = CGRect(x: bounds.minX + target.minX * bounds.width,
+                          y: bounds.minY + (1 - target.maxY) * bounds.height,
+                          width: target.width * bounds.width, height: target.height * bounds.height)
+        let scale = min(area.width / (source.width * crop.width),
+                        area.height / (source.height * crop.height))
+        let full = CGSize(width: source.width * scale, height: source.height * scale)
+        let visible = CGSize(width: full.width * crop.width, height: full.height * crop.height)
+        videoViewport.frame = CGRect(x: area.midX - visible.width / 2,
+                                     y: area.midY - visible.height / 2,
+                                     width: visible.width, height: visible.height)
+        // The protocol uses a top-left origin; AppKit layers use a bottom-left origin.
+        displayLayer.frame = CGRect(x: -crop.minX * full.width,
+                                    y: -(1 - crop.maxY) * full.height,
+                                    width: full.width, height: full.height)
     }
     func begin() throws {
         lock.lock(); defer { lock.unlock() }
         guard !disposed, clockReady else {
             throw ReceiverFailure(message: "Native video display is unavailable")
         }
+        frameWidth = 0; frameHeight = 0
         pending.removeAll(); needsFlush = true; active = true; failureReported = false
         received = 0; submitted = 0; dropped = 0
         overflowDrops = 0; expiredDrops = 0; coalescedDrops = 0; recoveries = 0
@@ -180,6 +264,11 @@ final class VideoSurface: NSView, ReceiverVideoOutput {
         let uptime = ProcessInfo.processInfo.systemUptime
         if scheduled { maxDrainDelay = max(maxDrainDelay, uptime - scheduledAt) }
         scheduled = false
+        let sourceSize = CGSize(width: frameWidth, height: frameHeight)
+        if layoutSourceSize != sourceSize {
+            layoutSourceSize = sourceSize
+            layoutVideo()
+        }
         if needsFlush {
             onLog?("Apple native display flush: epoch=\(metricsEpoch) active=\(active) disposed=\(disposed) pending=\(pending.count)")
             displayLayer.flushAndRemoveImage(); needsFlush = false; blockedSince = nil

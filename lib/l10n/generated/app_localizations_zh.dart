@@ -136,6 +136,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get continueWatching => '继续观看';
 
   @override
+  String get playbackMore => '更多';
+
+  @override
+  String get playbackFullscreen => '全屏';
+
+  @override
   String get fullscreen => '切换全屏（⌃⌘F）';
 
   @override
@@ -643,4 +649,61 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get androidUpdateInterruptMessage => '安装更新会关闭应用，将中断当前投屏。';
+
+  @override
+  String get cropVideo => '裁剪画面';
+
+  @override
+  String get cropResetOnResize => '画面比例已变化，已恢复完整画面';
+
+  @override
+  String get cropFailed => '无法调整画面裁剪';
+
+  @override
+  String get cropSelection => '画面裁剪选框';
+
+  @override
+  String get cropKeyboardHelp => '拖动选框移动，拖动边角调整大小';
+
+  @override
+  String get cropRatio16By9 => '16:9';
+
+  @override
+  String get cropRatioFree => '自由比例';
+
+  @override
+  String get cropMove => '移动选框';
+
+  @override
+  String get cropResize => '调整大小';
+
+  @override
+  String get cropRestoreFull => '恢复完整画面';
+
+  @override
+  String get cropApply => '应用裁剪';
+
+  @override
+  String get cropMoveActive => '移动 · 方向键移动 · 确认返回工具';
+
+  @override
+  String get cropResizeActive => '调整大小 · 左上缩小，右下放大 · 确认返回工具';
+
+  @override
+  String get cropReset => '重置';
+
+  @override
+  String get cropRatio => '比例';
+
+  @override
+  String get cropPreview => '预览';
+
+  @override
+  String get cropPreviewTitle => '裁剪画面 · 预览';
+
+  @override
+  String get cropReturnToEdit => '返回调整';
+
+  @override
+  String get cropTvHelp => '选择移动或调整大小，开始调整选框';
 }

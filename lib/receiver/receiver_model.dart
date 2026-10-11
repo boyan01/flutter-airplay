@@ -65,6 +65,68 @@ class ReceiverModel extends ChangeNotifier {
     'alwaysOnTop': false,
   };
   int textureId = -1, videoWidth = 0, videoHeight = 0;
+  static const fullVideoCrop = Rect.fromLTWH(0, 0, 1, 1);
+  Rect _videoCrop = fullVideoCrop;
+  Rect get videoCrop => _videoCrop;
+  int videoCropRevision = 0;
+  int? _videoGeneration;
+  int get displayVideoWidth => (videoWidth * videoCrop.width).round();
+  int get displayVideoHeight => (videoHeight * videoCrop.height).round();
+
+  void setVideoCrop(Rect crop) {
+    if (!hasVideo ||
+        !crop.left.isFinite ||
+        !crop.top.isFinite ||
+        !crop.width.isFinite ||
+        !crop.height.isFinite ||
+        crop.width < 0.02 ||
+        crop.height < 0.02 ||
+        crop.left < 0 ||
+        crop.top < 0 ||
+        crop.right > 1.000001 ||
+        crop.bottom > 1.000001) {
+      return;
+    }
+    _videoCrop = Rect.fromLTRB(
+      crop.left,
+      crop.top,
+      crop.right.clamp(0, 1),
+      crop.bottom.clamp(0, 1),
+    );
+    i(
+      '[Video crop] Model applied: left=${_videoCrop.left} top=${_videoCrop.top} '
+      'width=${_videoCrop.width} height=${_videoCrop.height} '
+      'source=${videoWidth}x$videoHeight',
+    );
+    _notify();
+  }
+
+  void reportVideoPresentationError(Object error) {
+    notice = commandError = _error(error);
+    _notify();
+  }
+
+  void _updateVideoSize(int width, int height) {
+    final changedAspect =
+        videoWidth > 0 &&
+        videoHeight > 0 &&
+        width > 0 &&
+        height > 0 &&
+        (videoWidth / videoHeight - width / height).abs() > 0.005;
+    if (changedAspect || width <= 0 || height <= 0) {
+      if (_videoCrop != fullVideoCrop) {
+        i(
+          '[Video crop] Model reset: source=${videoWidth}x$videoHeight -> '
+          '${width}x$height changedAspect=$changedAspect',
+        );
+      }
+      if (videoCrop != fullVideoCrop && changedAspect) videoCropRevision++;
+      _videoCrop = fullVideoCrop;
+    }
+    videoWidth = width;
+    videoHeight = height;
+  }
+
   bool audioPlaying = false, videoPaused = false;
   bool usesNativeVideo = false;
   bool get hasVideo =>
@@ -122,6 +184,13 @@ class ReceiverModel extends ChangeNotifier {
   }
 
   void _snapshot(ReceiverState data) {
+    if (_videoGeneration != null && _videoGeneration != data.generation) {
+      i(
+        '[Video crop] Generation reset: $_videoGeneration -> ${data.generation}',
+      );
+      _videoCrop = fullVideoCrop;
+    }
+    _videoGeneration = data.generation;
     final capabilities = data.capabilities;
     if (capabilities.platform.isNotEmpty) _platform = capabilities.platform;
     isTelevision = capabilities.isTelevision;
@@ -167,8 +236,7 @@ class ReceiverModel extends ChangeNotifier {
         '[Receiver video] Decoded frame ready: ${data.videoWidth}x${data.videoHeight}',
       );
     }
-    videoWidth = data.videoWidth;
-    videoHeight = data.videoHeight;
+    _updateVideoSize(data.videoWidth, data.videoHeight);
     audioPlaying = data.audioPlaying;
     videoPaused = data.videoPaused;
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
@@ -196,8 +264,7 @@ class ReceiverModel extends ChangeNotifier {
         if ({'stopped', 'stopping', 'error', 'waiting'}.contains(status)) {
           clientName = null;
           playbackStats = null;
-          videoWidth = 0;
-          videoHeight = 0;
+          _updateVideoSize(0, 0);
           audioPlaying = false;
           videoPaused = false;
         }
@@ -217,8 +284,7 @@ class ReceiverModel extends ChangeNotifier {
           );
         }
         textureId = event.textureId;
-        videoWidth = event.videoWidth;
-        videoHeight = event.videoHeight;
+        _updateVideoSize(event.videoWidth, event.videoHeight);
         if (!hasVideo) playbackStats = null;
         if (hasVideo) videoPaused = false;
         _notify();

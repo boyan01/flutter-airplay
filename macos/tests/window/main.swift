@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Cocoa
+import CoreVideo
 import FlutterMacOS
 
 // Geometry and tray coverage lives in the real Flutter desktop integration test.
@@ -50,6 +51,59 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)
+// Unlike the detached geometry fixture, exercise an AppKit-backed view with
+// a sibling overlay and allow subsequent layout transactions to run.
+let cropSurface = VideoSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+let cropControls = NSView(frame: cropSurface.bounds)
+cropControls.wantsLayer = true
+cropControls.autoresizingMask = [.width, .height]
+cropSurface.addSubview(cropControls)
+let cropWindow = NSWindow(contentRect: cropSurface.bounds,
+    styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+cropWindow.isReleasedWhenClosed = false
+cropWindow.contentView = cropSurface
+cropWindow.orderFront(nil)
+var cropFrame: CVPixelBuffer?
+require(CVPixelBufferCreate(nil, 1920, 1080, kCVPixelFormatType_32BGRA,
+    [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &cropFrame) == kCVReturnSuccess,
+    "visible crop test must provide a decoded IOSurface frame")
+try cropSurface.begin()
+var cropNow = timespec()
+clock_gettime(CLOCK_MONOTONIC, &cropNow)
+cropSurface.receive(cropFrame!, deadline:
+    Int64(cropNow.tv_sec) * 1_000_000_000 + Int64(cropNow.tv_nsec) + 50_000_000)
+let crop = VideoPresentation(arguments: ["left": 0.25, "top": 0.1,
+    "width": 0.5, "height": 0.5, "sourceWidth": 1920, "sourceHeight": 1080])!
+cropSurface.setVideoPresentation(crop)
+RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+let cropViewport = cropSurface.displayLayer.superlayer!
+require(cropViewport.superlayer === cropSurface.layer && cropViewport.masksToBounds,
+    "visible video viewport must stay attached and clipped after AppKit layout")
+require(cropViewport.frame == CGRect(x: 0, y: 75, width: 800, height: 450) &&
+    cropSurface.displayLayer.frame == CGRect(x: -400, y: -360, width: 1600, height: 900),
+    "visible cropped video must enlarge and translate the full source")
+cropWindow.setContentSize(NSSize(width: 400, height: 600))
+cropSurface.layoutSubtreeIfNeeded()
+RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+require(cropViewport.frame == CGRect(x: 0, y: 187.5, width: 400, height: 225) &&
+    cropSurface.displayLayer.frame == CGRect(x: -200, y: -180, width: 800, height: 450),
+    "visible window resizing must preserve video scale and crop translation")
+let editingPresentation = VideoPresentation(arguments: ["left": 0, "top": 0, "width": 1, "height": 1,
+    "sourceWidth": 1920, "sourceHeight": 1080, "viewportLeft": 0.1, "viewportTop": 0.2,
+    "viewportWidth": 0.8, "viewportHeight": 0.6])!
+cropSurface.setVideoPresentation(editingPresentation)
+RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+require(cropViewport.frame == CGRect(x: 40, y: 210, width: 320, height: 180),
+    "visible editor video must reserve the same area as Flutter controls")
+cropSurface.setVideoPresentation(VideoPresentation())
+RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+require(cropSurface.displayLayer.frame == cropViewport.bounds,
+    "restoring full video must remove crop translation")
+require(cropControls.frame == cropSurface.bounds,
+    "crop and window resize must not translate the Flutter controls")
+cropSurface.dispose()
+cropWindow.close()
+print("PASS: visible AppKit crop scales, translates, resizes and restores video independently of controls")
 let window = RecordingWindow(
   contentRect: NSRect(x: 200, y: 200, width: 440, height: 560),
   styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],

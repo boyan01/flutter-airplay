@@ -149,9 +149,18 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
     (NSApp.delegate as? AppDelegate)?.updates.install(on: controller.engine.binaryMessenger)
     updateReceiverDisplay()
     presentation = FlutterMethodChannel(name: "tech.soit.flutterairplay/window", binaryMessenger: controller.engine.binaryMessenger)
-    presentation?.setMethodCallHandler { [weak self] call, result in
+    presentation?.setMethodCallHandler { [weak self, weak surface] call, result in
       if let self = self {
         switch call.method {
+        case "setVideoPresentation":
+          guard let value = VideoPresentation(arguments: call.arguments) else {
+            result(FlutterError(code: "invalid_arguments", message: "setVideoPresentation requires a normalized crop rectangle and optional positive source dimensions", details: nil)); return
+          }
+          guard let surface = surface else {
+            result(FlutterError(code: "unavailable", message: "Native video surface is unavailable", details: nil)); return
+          }
+          surface.setVideoPresentation(value)
+          result(nil); return
         case "resizeWindow":
           guard let values = call.arguments as? [String: NSNumber],
                 let x = values["x"]?.doubleValue, let y = values["y"]?.doubleValue,

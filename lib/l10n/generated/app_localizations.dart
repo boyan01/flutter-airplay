@@ -350,6 +350,18 @@ abstract class AppLocalizations {
   /// **'Continue watching'**
   String get continueWatching;
 
+  /// No description provided for @playbackMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get playbackMore;
+
+  /// No description provided for @playbackFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Full screen'**
+  String get playbackFullscreen;
+
   /// No description provided for @fullscreen.
   ///
   /// In en, this message translates to:
@@ -1315,6 +1327,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Installing this update will interrupt the current AirPlay connection and close Flutter AirPlay.'**
   String get androidUpdateInterruptMessage;
+
+  /// No description provided for @cropVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Crop video'**
+  String get cropVideo;
+
+  /// No description provided for @cropResetOnResize.
+  ///
+  /// In en, this message translates to:
+  /// **'Video aspect ratio changed. Showing the full frame.'**
+  String get cropResetOnResize;
+
+  /// No description provided for @cropFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not adjust video crop'**
+  String get cropFailed;
+
+  /// No description provided for @cropSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Video crop selection'**
+  String get cropSelection;
+
+  /// No description provided for @cropKeyboardHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the frame to move; drag edges or corners to resize.'**
+  String get cropKeyboardHelp;
+
+  /// No description provided for @cropRatio16By9.
+  ///
+  /// In en, this message translates to:
+  /// **'16:9'**
+  String get cropRatio16By9;
+
+  /// No description provided for @cropRatioFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Free ratio'**
+  String get cropRatioFree;
+
+  /// No description provided for @cropMove.
+  ///
+  /// In en, this message translates to:
+  /// **'Move frame'**
+  String get cropMove;
+
+  /// No description provided for @cropResize.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize frame'**
+  String get cropResize;
+
+  /// No description provided for @cropRestoreFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore full frame'**
+  String get cropRestoreFull;
+
+  /// No description provided for @cropApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply crop'**
+  String get cropApply;
+
+  /// No description provided for @cropMoveActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Move · Arrow keys move · Confirm returns to tools'**
+  String get cropMoveActive;
+
+  /// No description provided for @cropResizeActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize · Left/up shrinks, right/down enlarges · Confirm returns to tools'**
+  String get cropResizeActive;
+
+  /// No description provided for @cropReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get cropReset;
+
+  /// No description provided for @cropRatio.
+  ///
+  /// In en, this message translates to:
+  /// **'Ratio'**
+  String get cropRatio;
+
+  /// No description provided for @cropPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get cropPreview;
+
+  /// No description provided for @cropPreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Crop video · Preview'**
+  String get cropPreviewTitle;
+
+  /// No description provided for @cropReturnToEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to editing'**
+  String get cropReturnToEdit;
+
+  /// No description provided for @cropTvHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose Move or Resize to adjust the frame.'**
+  String get cropTvHelp;
 }
 
 class _AppLocalizationsDelegate

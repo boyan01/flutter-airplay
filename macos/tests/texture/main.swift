@@ -66,6 +66,72 @@ func deadlineAfter(_ nanoseconds: Int64) -> Int64 {
     var now = timespec(); clock_gettime(CLOCK_MONOTONIC, &now)
     return Int64(now.tv_sec) * 1_000_000_000 + Int64(now.tv_nsec) + nanoseconds
 }
+let croppedSurface = VideoSurface(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+let controls = NSView(frame: croppedSurface.bounds)
+controls.autoresizingMask = [.width, .height]
+croppedSurface.addSubview(controls)
+let cropArguments: [String: Any] = ["left": 0.25, "top": 0.1, "width": 0.5, "height": 0.5,
+                                    "sourceWidth": 1920, "sourceHeight": 1080]
+require(VideoPresentation(arguments: cropArguments) != nil, "Normalized crop accepts optional source dimensions")
+let roundingArguments: [String: Any] = ["left": 0.25, "top": 0.1, "width": 0.75 + 5e-10, "height": 0.9 + 5e-10]
+require(VideoPresentation(arguments: roundingArguments)?.crop == CGRect(x: 0.25, y: 0.1, width: 0.75, height: 0.9),
+        "Boundary rounding within tolerance clamps crop to the video frame")
+for (key, value) in [("width", 0.75 + 2e-9), ("height", 0.9 + 2e-9), ("left", 1.0), ("top", 1.0)] {
+    var invalid = roundingArguments
+    invalid[key] = value
+    require(VideoPresentation(arguments: invalid) == nil, "Out-of-bounds crops beyond rounding tolerance remain invalid")
+}
+for invalid: [String: Any] in [
+    ["left": -0.1, "top": 0, "width": 1, "height": 1],
+    ["left": 0, "top": 0, "width": 0, "height": 1],
+    ["left": 0.5, "top": 0, "width": 0.6, "height": 1],
+    ["left": false, "top": 0, "width": 1, "height": 1],
+    ["left": 0, "top": 0, "width": Double.nan, "height": 1],
+    ["left": 0, "top": 0, "width": 1, "height": 1, "sourceWidth": 100],
+] {
+    require(VideoPresentation(arguments: invalid) == nil, "Invalid crop is rejected before changing layers")
+}
+croppedSurface.setVideoPresentation(VideoPresentation(arguments: cropArguments)!)
+let viewport = croppedSurface.displayLayer.superlayer!
+require(viewport.masksToBounds && viewport.frame == CGRect(x: 0, y: 75, width: 800, height: 450),
+        "Crop aspect fits inside a dedicated viewport")
+require(abs(croppedSurface.displayLayer.frame.minX + 400) < 0.001 &&
+        abs(croppedSurface.displayLayer.frame.minY + 360) < 0.001 &&
+        croppedSurface.displayLayer.frame.size == CGSize(width: 1600, height: 900),
+        "Full video expands proportionally with top-left crop converted to AppKit")
+require(controls.frame == croppedSurface.bounds && croppedSurface.layer?.masksToBounds == false,
+        "Video clipping does not clip Flutter controls")
+croppedSurface.setFrameSize(NSSize(width: 400, height: 600))
+croppedSurface.layout()
+require(viewport.frame.size == CGSize(width: 400, height: 225), "Window resize reapplies crop geometry")
+var portraitFallback = cropArguments
+portraitFallback["sourceWidth"] = 1080
+portraitFallback["sourceHeight"] = 1920
+croppedSurface.setVideoPresentation(VideoPresentation(arguments: portraitFallback)!)
+require(abs(viewport.frame.width - 337.5) < 0.001 && abs(viewport.frame.height - 600) < 0.001,
+        "Fallback source dimensions determine crop aspect before decoded frames arrive")
+try croppedSurface.begin()
+croppedSurface.receive(buffer!, deadline: deadlineAfter(120_000_000))
+croppedSurface.testDrain()
+require(viewport.frame.size == CGSize(width: 400, height: 225), "Native decoded frame dimensions override fallback dimensions")
+croppedSurface.setVideoPresentation(VideoPresentation())
+require(croppedSurface.displayLayer.frame == viewport.bounds, "Default crop restores the full video without restarting playback")
+var editingArguments = cropArguments
+editingArguments["viewportLeft"] = 0.1
+editingArguments["viewportTop"] = 0.2
+editingArguments["viewportWidth"] = 0.8
+editingArguments["viewportHeight"] = 0.6
+croppedSurface.setVideoPresentation(VideoPresentation(arguments: editingArguments)!)
+require(viewport.frame == CGRect(x: 40, y: 210, width: 320, height: 180),
+        "Editor viewport reserves top and bottom controls with a top-left origin")
+require(controls.frame == croppedSurface.bounds, "Editor viewport leaves Flutter controls in place")
+for (key, value) in [("viewportTop", -0.1), ("viewportHeight", 0.9), ("viewportWidth", 0.0)] {
+    var invalid = editingArguments
+    invalid[key] = value
+    require(VideoPresentation(arguments: invalid) == nil, "Invalid editor viewport is rejected")
+}
+croppedSurface.dispose()
+
 let surface = VideoSurface(frame: NSRect(x: 0, y: 0, width: 640, height: 360))
 require(surface.textureIdentifier == -1 && surface.displayLayer.controlTimebase != nil,
         "Native display uses a host timebase without a Flutter texture")

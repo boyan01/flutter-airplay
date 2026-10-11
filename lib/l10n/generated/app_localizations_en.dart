@@ -137,6 +137,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continueWatching => 'Continue watching';
 
   @override
+  String get playbackMore => 'More';
+
+  @override
+  String get playbackFullscreen => 'Full screen';
+
+  @override
   String get fullscreen => 'Toggle fullscreen (⌃⌘F)';
 
   @override
@@ -667,4 +673,65 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get androidUpdateInterruptMessage =>
       'Installing this update will interrupt the current AirPlay connection and close Flutter AirPlay.';
+
+  @override
+  String get cropVideo => 'Crop video';
+
+  @override
+  String get cropResetOnResize =>
+      'Video aspect ratio changed. Showing the full frame.';
+
+  @override
+  String get cropFailed => 'Could not adjust video crop';
+
+  @override
+  String get cropSelection => 'Video crop selection';
+
+  @override
+  String get cropKeyboardHelp =>
+      'Drag the frame to move; drag edges or corners to resize.';
+
+  @override
+  String get cropRatio16By9 => '16:9';
+
+  @override
+  String get cropRatioFree => 'Free ratio';
+
+  @override
+  String get cropMove => 'Move frame';
+
+  @override
+  String get cropResize => 'Resize frame';
+
+  @override
+  String get cropRestoreFull => 'Restore full frame';
+
+  @override
+  String get cropApply => 'Apply crop';
+
+  @override
+  String get cropMoveActive =>
+      'Move · Arrow keys move · Confirm returns to tools';
+
+  @override
+  String get cropResizeActive =>
+      'Resize · Left/up shrinks, right/down enlarges · Confirm returns to tools';
+
+  @override
+  String get cropReset => 'Reset';
+
+  @override
+  String get cropRatio => 'Ratio';
+
+  @override
+  String get cropPreview => 'Preview';
+
+  @override
+  String get cropPreviewTitle => 'Crop video · Preview';
+
+  @override
+  String get cropReturnToEdit => 'Back to editing';
+
+  @override
+  String get cropTvHelp => 'Choose Move or Resize to adjust the frame.';
 }

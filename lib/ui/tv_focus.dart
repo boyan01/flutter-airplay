@@ -94,6 +94,7 @@ class _TvFocusScopeState extends State<TvFocusScope> {
       final widget = element.widget;
       if (widget is ButtonStyleButton ||
           widget is IconButton ||
+          widget is PopupMenuItem ||
           widget is ListTile ||
           widget is TextField ||
           widget is TvFocus) {

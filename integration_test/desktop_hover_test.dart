@@ -140,7 +140,7 @@ void main() {
       reason: 'Hover must not activate the player',
     );
     expect(other.isFocused, isTrue);
-    moveTo(tester.getCenter(find.byKey(const Key('disconnect'))));
+    moveTo(tester.getCenter(find.byKey(const Key('cropVideo'))));
     await tester.pump(const Duration(seconds: 4));
     expect(find.byKey(const Key('playerControls')), findsOneWidget);
     moveTo(const Offset(250, 20));

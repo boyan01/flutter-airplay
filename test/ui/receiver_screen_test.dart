@@ -159,7 +159,7 @@ void main() {
       await mouse.moveTo(const Offset(301, 300));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('playerControls')), findsOneWidget);
-      await mouse.moveTo(tester.getCenter(find.byKey(const Key('disconnect'))));
+      await mouse.moveTo(tester.getCenter(find.byKey(const Key('cropVideo'))));
       await tester.pump(const Duration(seconds: 4));
       expect(find.byKey(const Key('playerControls')), findsOneWidget);
       await mouse.moveTo(const Offset(300, 20));
@@ -289,6 +289,90 @@ void main() {
     );
   }
 
+  for (final platform in ['macos', 'windows', 'linux', 'android', 'ios']) {
+    testWidgets(
+      '$platform More retains controls and Back returns to its entrance',
+      (tester) async {
+        final backend = await launch(
+          tester,
+          platform: platform,
+          size: const Size(600, 650),
+        );
+        frame(backend);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('disconnect')), findsNothing);
+        final more = find.byKey(const Key('playerWindowMenu'));
+        final semantics = tester.ensureSemantics();
+        expect(find.bySemanticsLabel('更多'), findsOneWidget);
+        semantics.dispose();
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(seconds: 10));
+        expect(find.byKey(const Key('playerControls')), findsOneWidget);
+        expect(find.byKey(const Key('disconnect')), findsOneWidget);
+        expect(backend.stops, 0);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('disconnect')), findsNothing);
+        expect(find.byKey(const Key('playerControls')), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('disconnect')), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('disconnect')), findsNothing);
+        expect(backend.stops, 0);
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('disconnect')));
+        await tester.pumpAndSettle();
+        expect(backend.stops, 1);
+      },
+    );
+  }
+
+  testWidgets(
+    'mouse dismissal starts a fresh hide delay while keyboard menu focus holds controls',
+    (tester) async {
+      final backend = await launch(tester, size: const Size(600, 650));
+      frame(backend);
+      await tester.pumpAndSettle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: const Offset(300, 300));
+      await mouse.moveTo(const Offset(301, 300));
+      await tester.pumpAndSettle();
+      final more = find.byKey(const Key('playerWindowMenu'));
+      await mouse.moveTo(tester.getCenter(more));
+      await mouse.down(tester.getCenter(more));
+      await mouse.up();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 6));
+      expect(find.byKey(const Key('disconnect')), findsOneWidget);
+      await mouse.moveTo(const Offset(300, 300));
+      await mouse.down(const Offset(300, 300));
+      await mouse.up();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('disconnect')), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 6));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      expect(backend.stops, 0);
+    },
+  );
+
   for (final width in [200.0, 280.0, 600.0]) {
     testWidgets('player controls align at width $width', (tester) async {
       final backend = await launch(tester, size: Size(width, 650));
@@ -296,18 +380,23 @@ void main() {
       await tester.pumpAndSettle();
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
       await tester.pump(const Duration(milliseconds: 200));
-      final disconnect = find.byKey(const Key('disconnect'));
-      final fullscreen = find.descendant(
-        of: find.byKey(const Key('playerControls')),
-        matching: find.widgetWithIcon(IconButton, Icons.fullscreen),
-      );
-      expect(
-        tester.getCenter(disconnect).dy,
-        closeTo(tester.getCenter(fullscreen).dy, 0.5),
-      );
+      final more = find.byKey(const Key('playerWindowMenu'));
+      final fullscreen = find.byKey(const Key('playerFullscreen'));
+      final crop = find.byKey(const Key('cropVideo'));
+      expect(crop, findsOneWidget);
+      for (final control in [more, crop, fullscreen]) {
+        expect(tester.getRect(control).left, greaterThanOrEqualTo(0));
+        expect(tester.getRect(control).right, lessThanOrEqualTo(width));
+      }
+      if (width >= 280) {
+        expect(
+          tester.getCenter(more).dy,
+          closeTo(tester.getCenter(fullscreen).dy, 0.5),
+        );
+      }
       if (width < 300) {
         expect(
-          find.descendant(of: disconnect, matching: find.byType(Text)),
+          find.descendant(of: more, matching: find.byType(Text)),
           findsNothing,
         );
       }
@@ -329,19 +418,26 @@ void main() {
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pump(const Duration(milliseconds: 200));
-    final disconnect = find.byKey(const Key('disconnect'));
-    expect(tester.widget(disconnect), isA<IconButton>());
+    final more = find.byKey(const Key('playerWindowMenu'));
+    expect(
+      tester.widget(find.byKey(const Key('cropVideo'))),
+      isA<IconButton>(),
+    );
     await tester.binding.setSurfaceSize(const Size(240, 650));
     await tester.pump();
-    expect(tester.widget(disconnect), isA<IconButton>());
-    final fullscreen = find.descendant(
-      of: find.byKey(const Key('playerControls')),
-      matching: find.widgetWithIcon(IconButton, Icons.fullscreen),
-    );
     expect(
-      tester.getCenter(disconnect).dy,
-      closeTo(tester.getCenter(fullscreen).dy, 0.5),
+      tester.widget(find.byKey(const Key('cropVideo'))),
+      isA<IconButton>(),
     );
+    final fullscreen = find.byKey(const Key('playerFullscreen'));
+    for (final control in [
+      more,
+      fullscreen,
+      find.byKey(const Key('cropVideo')),
+    ]) {
+      expect(tester.getRect(control).left, greaterThanOrEqualTo(0));
+      expect(tester.getRect(control).right, lessThanOrEqualTo(240));
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -478,6 +574,8 @@ void main() {
         expect(tester.takeException(), isNull);
         if (target == 'tv') {
           await tester.pump(const Duration(seconds: 6));
+          expect(find.byKey(const Key('playerControls')), findsOneWidget);
+          await tester.tap(find.byKey(const Key('continueWatching')));
         } else {
           await tester.tap(
             find.byKey(const Key('playbackStatsOverlay')),
@@ -493,6 +591,9 @@ void main() {
         expect(find.byKey(const Key('playerControls')), findsOneWidget);
         expect(find.byKey(const Key('playbackStatsOverlay')), findsOneWidget);
         await tester.pump(const Duration(seconds: 6));
+        if (target == 'tv') {
+          await tester.tap(find.byKey(const Key('continueWatching')));
+        }
         await tester.pumpAndSettle();
         expect(find.byKey(const Key('playerControls')), findsNothing);
         expect(find.byKey(const Key('playbackStatsOverlay')), findsNothing);
@@ -1013,6 +1114,8 @@ void main() {
       await tester.tap(find.byKey(const Key('playerPage')));
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('playerWindowMenu')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('disconnect')));
       await tester.pumpAndSettle();
       expect(find.byType(Texture), findsNothing);
@@ -1179,6 +1282,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('playerControls')), findsOneWidget);
     await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('playerControls')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('continueWatching')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('playerControls')), findsNothing);
     expect(backend.stops, 0);
@@ -1667,7 +1773,9 @@ void main() {
       });
     }
   }
-  testWidgets('TV D-pad can select disconnect explicitly', (tester) async {
+  testWidgets('TV D-pad can select disconnect explicitly from More', (
+    tester,
+  ) async {
     final backend = await launch(
       tester,
       platform: 'android',
@@ -1678,8 +1786,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.select);
     await tester.pumpAndSettle();
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    expect(find.byKey(const Key('disconnect')), findsNothing);
+    for (var i = 0; i < 2; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('disconnect')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.sendKeyEvent(LogicalKeyboardKey.select);
     await tester.pumpAndSettle();
     expect(backend.stops, 1);
@@ -1801,6 +1916,8 @@ void main() {
       await tester.pumpAndSettle();
       final disconnect = find.byKey(const Key('disconnect'));
       if (platform == 'android') {
+        await tester.tap(find.byKey(const Key('playerWindowMenu')));
+        await tester.pumpAndSettle();
         expect(disconnect, findsOneWidget);
         await tester.tap(disconnect);
       } else {
@@ -1939,7 +2056,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byKey(const Key('macWindowBar')), findsNothing);
       expect(find.byIcon(Icons.push_pin), findsNothing);
-      expect(find.byIcon(Icons.more_horiz), findsOneWidget);
+      expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
       expect(find.byKey(Key('${platform}WindowBar')), findsOneWidget);
       await tester.tap(find.byIcon(Icons.fullscreen));
       expect(calls, contains('fullscreen:true'));

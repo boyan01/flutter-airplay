@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../ui/widgets/system_fonts.dart';
 
+const _brandColor = Color(0xff23786e);
+
 ThemeData receiverTheme(
   Brightness brightness, {
   required bool television,
@@ -10,7 +12,7 @@ ThemeData receiverTheme(
   required SystemFonts systemFonts,
 }) {
   final scheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xff23786e),
+    seedColor: _brandColor,
     brightness: brightness,
   );
   final focusOverlay = television
@@ -27,7 +29,7 @@ ThemeData receiverTheme(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xff23786e),
+      seedColor: _brandColor,
       brightness: brightness,
     ),
     focusColor: television ? Colors.transparent : null,
@@ -74,5 +76,23 @@ ThemeData receiverTheme(
     textTheme: Typography.material2021().englishLike
         .merge(theme.textTheme)
         .apply(fontSizeFactor: television ? 1.25 : 1),
+  );
+}
+
+/// Video controls keep their contrast regardless of the system appearance.
+ThemeData playbackTheme(ThemeData base) {
+  final colors = ColorScheme.fromSeed(
+    seedColor: _brandColor,
+    brightness: Brightness.dark,
+  );
+  return base.copyWith(
+    colorScheme: colors,
+    textTheme: base.textTheme.apply(
+      bodyColor: colors.onSurface,
+      displayColor: colors.onSurface,
+    ),
+    iconTheme: base.iconTheme.copyWith(color: colors.onSurface),
+    splashColor: colors.primary.withValues(alpha: .12),
+    hoverColor: colors.onSurface.withValues(alpha: .06),
   );
 }

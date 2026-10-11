@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:ffi' as ffi;
 import 'dart:io';
-import 'dart:ui' show isRunningOnPlatformThread, runOnPlatformThread;
+import 'dart:ui' show Rect, isRunningOnPlatformThread, runOnPlatformThread;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
@@ -204,6 +204,27 @@ class WindowController {
     'playing': playing,
     'width': width,
     'height': height,
+  });
+
+  Future<void> setVideoPresentation({
+    required double left,
+    required double top,
+    required double width,
+    required double height,
+    required int sourceWidth,
+    required int sourceHeight,
+    Rect viewport = const Rect.fromLTWH(0, 0, 1, 1),
+  }) => _channel.invokeMethod<void>('setVideoPresentation', {
+    'left': left,
+    'top': top,
+    'width': width,
+    'height': height,
+    'sourceWidth': sourceWidth,
+    'sourceHeight': sourceHeight,
+    'viewportLeft': viewport.left,
+    'viewportTop': viewport.top,
+    'viewportWidth': viewport.width,
+    'viewportHeight': viewport.height,
   });
 
   Future<bool> initializeDesktop() async =>

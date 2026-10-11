@@ -38,6 +38,7 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 - **Windows Updates**: Configured Release builds installed with Setup check the shared appcast automatically. Download from the in-app update panel, then choose Install and restart. The app exits normally, Setup upgrades the existing installation and opens the new version. Updating interrupts the current connection. Signed metadata binds the version, architecture, size and SHA-256; the host rechecks the installer before launch. Existing builds require one manual upgrade to a configured build. Debug builds, portable copies and builds without an update public key keep manual updates. Setup is not Authenticode-signed.
 - **Android Updates**: Release builds check the same GitHub appcast automatically; use Settings → About to download an update and open Android’s installation confirmation. The first update may require allowing this app to install packages in system settings; return and tap Install update again. Dart checks APK size and SHA-256 after download; Android checks package, version and signing certificate when installation is requested. Installation interrupts reception and closes the app. Phone and TV use the same update panel; system installation screens depend on the device. Debug builds do not update to release APKs.
 - **Playback Buffer**: Settings → Advanced → Playback buffer offers the platform default (macOS: 120 ms; other platforms: 80 ms), or 40, 60, 80, 100, 120, 150, 200 and 300 ms. Lower values reduce receiver delay but can increase stuttering or audio dropouts. Audio and video use the same buffer; this value is not total mirroring latency. Changes apply while waiting or after the current connection ends.
+- **Video Crop**: Open Crop video in the playback controls. Drag the frame to move it and drag edges or corners to resize; choose 16:9 or Free ratio. Preview shows the enlarged result without saving. Reset restores the full frame in the draft; Apply crop saves it, and Cancel discards changes. Escape/Back returns from preview to editing, then cancels. Keyboard arrows move the focused frame; Shift speeds up movement. TV users choose Move or Resize and use arrow keys; confirm returns to the tools. Crop is kept for the current connection and resets when the source aspect ratio changes. Desktop window sizing follows the applied crop, and stays unchanged while editing or previewing.
 - **Playback Statistics**: Enable Settings → Advanced → Playback statistics overlay on any platform. The passive overlay shows codec, decoder backend, decoded size, one-second scheduler submission FPS, cumulative scheduler drops and queue depths. Drops count late, out-of-order and overflow pictures since the last playback reset; they exclude lifecycle cancellation and network loss. Submission does not measure actual screen presentation.
 
 ---
@@ -75,7 +76,7 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 4. **Playback & Controls**:
    - The app automatically switches to the player screen once video frames are received.
    - Tap the screen, move the mouse, or press any remote navigation button to reveal on-screen controls.
-   - Click **Disconnect** to end mirroring and return to standby.
+   - Open **More → Disconnect** in the playback controls to end mirroring and return to standby.
 
 ---
 
@@ -96,12 +97,12 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 | **Close Window** | `⌘ + W` | `Ctrl + W` |
 | **Quit Application** | `⌘ + Q` | `Ctrl + Q` |
 
-- **Mouse Interaction**: Double-click video to toggle fullscreen. On-screen controls automatically fade after 2.5 seconds of inactivity.
+- **Mouse Interaction**: Double-click video to toggle fullscreen. On-screen controls fade after 2.5 seconds of inactivity. Hovering over controls, keyboard focus, and open menus keep them visible.
 
 ### Mobile & TV Navigation
 
 - **Android Phone**: Controls fade after 3 seconds. The system `Back` button hides controls first. Pressing `Back` again within 2 seconds confirms disconnection.
-- **Android TV**: Press `OK`, `Direction keys`, or `Menu` to reveal controls. Initial focus rests on **"Continue watching"** to prevent accidental disconnections. Controls fade after 5 seconds. `Back` button toggles controls and never abruptly disconnects.
+- **Android TV**: Press `OK`, `Direction keys`, or `Menu` to reveal controls. Initial focus rests on **"Continue watching"** to prevent accidental disconnections. Controls stay visible while focused. Select **"Continue watching"** or press `Back` to hide them. When a menu is open, `Back` closes it first.
 
 ---
 
