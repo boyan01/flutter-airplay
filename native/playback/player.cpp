@@ -5,8 +5,13 @@ void AirplayPlayer::receive_video(const uint8_t* bytes, int size, int64_t local_
     auto *p = this;
     if (p->closing || size < 5 || size > 4 * 1024 * 1024) return;
     const auto now = monotonic_ns();
+    p->last_video_receive = now;
     const auto due = p->timeline.deadline(local_pts ? int64_t(local_pts) : realtime_ns(), now);
-    if (due > now + 2 * kSecond) { p->log("Rejected out-of-window video timestamp"); return; }
+    if (due > now + 2 * kSecond) {
+        if (p->video_timestamp_rejects.fetch_add(1) == 0)
+            p->log("Rejected out-of-window video timestamp; see Playback pipeline video_timestamp_rejects_total");
+        return;
+    }
     // Late compressed pictures can carry references needed by current input.
     // Decode them in receive order; VideoScheduler drops their expired output.
     std::lock_guard<std::mutex> guard(p->lock);
@@ -41,6 +46,7 @@ void AirplayPlayer::receive_audio(const uint8_t* bytes, int size, int ct, int64_
     if (p->closing || size <= 0 || size > 65536) return;
     ++p->audio_packets; p->audio_bytes.fetch_add(size);
     const auto now = monotonic_ns();
+    p->last_audio_receive = now;
     const auto due = p->timeline.deadline(p->audio_pts(int64_t(local_pts), rtp), now);
     p->audio_lead_ms.store((due - now) / 1000000);
     if (due < now - kSecond || due > now + 2 * kSecond) { ++p->audio_timestamp_rejects; return; }
@@ -124,7 +130,13 @@ void AirplayPlayer::format_audio(uint8_t ct, uint16_t spf) {
 void AirplayPlayer::resize_video(float width, float height) {
     auto *p = this;
     if (width < 1 || height < 1 || width > 4096 || height > 4096) return;
-    { std::lock_guard<std::mutex> guard(p->lock); p->width = int(width); p->height = int(height); }
+    { std::lock_guard<std::mutex> guard(p->lock);
+      if (p->width != int(width) || p->height != int(height)) {
+          char text[128];
+          std::snprintf(text, sizeof(text), "Video size changed: previous=%dx%d current=%dx%d", p->width, p->height, int(width), int(height));
+          p->log(text);
+      }
+      p->width = int(width); p->height = int(height); }
     p->event("size", "Video dimensions", int(width), int(height));
 }
 void AirplayPlayer::flush_audio() {
@@ -132,6 +144,7 @@ void AirplayPlayer::flush_audio() {
     std::lock_guard<std::mutex> guard(p->lock);
     p->audio_rtp_anchored = false;
     p->audio.flush();
+    p->log("Audio flush: PCM generation advanced; output remains open");
     if (p->audio_playing) { p->audio_playing = false; p->event("audio_stopped", "Audio paused"); }
 }
 void AirplayPlayer::stop_audio() {
@@ -141,6 +154,8 @@ void AirplayPlayer::stop_audio() {
     audio.flush();
     if (audio_playing) { audio_playing = false; event("audio_stopped", "Audio stopped"); }
     log("Audio output stopped: audio transport ended");
+    const auto report = output->diagnostics();
+    if (!report.empty()) log(report.c_str());
 }
 void AirplayPlayer::set_volume(float db) {
     auto *p = this; p->pcm->volume(db);

@@ -26,8 +26,27 @@ inline void check_audio_host_clock() {
     }
 }
 
+inline void check_audio_queue_diagnostics() {
+    using namespace airplay;
+    AudioBuffer buffer(4);
+    const int16_t silent[8]{};
+    int16_t output[8]{};
+    buffer.read(output, 2, kSecond); // No input, distinct from silent PCM.
+    buffer.write(silent, 4, 2 * kSecond, buffer.generation());
+    buffer.write(silent, 2, 2 * kSecond, buffer.generation()); // Full queue.
+    buffer.read(output, 2, kSecond); // Input exists but is not due yet.
+    buffer.read(output, 4, 2 * kSecond); // Decoded digital silence still plays.
+    const auto report = buffer.diagnostics();
+    for (const auto *field : {"queued_frames=0 ", "write_drop_total=2 ", "played_frames_total=4 ",
+             "empty_silence_frames_total=2 ", "future_silence_frames_total=2 ", "late_drop_total=0 "}) {
+        if (report.find(field) == std::string::npos)
+            throw std::runtime_error("audio diagnostics cannot distinguish PCM overflow, starvation, future time and silent content: " + report);
+    }
+}
+
 inline void check_audio_clock() {
     check_audio_host_clock();
+    check_audio_queue_diagnostics();
     using namespace airplay;
     constexpr int total = kSampleRate, callback = 192;
     constexpr int64_t start = kSecond;

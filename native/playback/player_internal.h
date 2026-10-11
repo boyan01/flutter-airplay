@@ -64,6 +64,8 @@ struct AirplayPlayer {
     int64_t video_no_output_started = 0;
     std::atomic<uint64_t> audio_packets{0}, audio_bytes{0}, audio_decode_errors{0}, audio_pcm_packets{0}, audio_timestamp_rejects{0}, audio_timestamp_fallbacks{0};
     std::atomic<int64_t> audio_lead_ms{0};
+    std::atomic<int64_t> last_audio_receive{0}, last_video_receive{0};
+    std::atomic<uint64_t> video_timestamp_rejects{0};
 
     AirplayPlayer(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback)
         : callbacks(cb), audio(pcm, [this](const char *text) { log(text); }) {
@@ -133,8 +135,12 @@ struct AirplayPlayer {
         audio_rtp_anchored = true; audio_rtp_anchor = rtp; audio_rtp_local_pts = local_pts;
         return local_pts;
     }
-    void reset() {
+    void reset(const char *reason = "protocol_video_flush") {
         { std::lock_guard<std::mutex> guard(lock);
+          char text[256];
+          std::snprintf(text, sizeof(text), "Playback reset: reason=%s generation=%llu queued=%zu queued_bytes=%zu audio_playing=%d",
+              reason, static_cast<unsigned long long>(video_generation), packets.size(), queued_bytes, int(audio_playing));
+          log(text);
           ++video_generation; packets.clear(); queued_bytes = 0; video_reset = true;
           video_paused = false;
           video_stats = {}; last_video_submit = last_video_due = video_stats_started = 0;
@@ -142,6 +148,7 @@ struct AirplayPlayer {
           video_no_output_started = 0;
           video_report_ns = video_arrival_ns = video_gap_ns = 0;
           video_received = 0; video_peak_queue = 0;
+          last_audio_receive = 0; last_video_receive = 0;
           audio_playing = false; audio_ct = 0; audio_rtp_anchored = false;
           timeline.reset(); audio.flush();
           event("reset", "Waiting for screen mirroring"); }
@@ -150,6 +157,7 @@ struct AirplayPlayer {
     void pause_video(bool paused) {
         { std::lock_guard<std::mutex> guard(lock);
           video_paused = paused;
+          log(paused ? "Video sender paused; decoder and audio retained" : "Video sender resumed; decoder and audio retained");
           // A sender pause can resume within the same H.264 GOP. Keep decoder
           // references, queued input, continuing audio and the shared clock.
           if (paused) event("paused", "Video paused; waiting for sender"); }
@@ -216,6 +224,22 @@ struct AirplayPlayer {
             if (now >= next_audio_report) {
                 next_audio_report = now + 5 * kSecond;
                 if (protocol->connections() > 0) {
+                    const auto scheduler = video->stats();
+                    std::string pipeline;
+                    {
+                        std::lock_guard<std::mutex> guard(lock);
+                        const auto audio_input = last_audio_receive.load(), video_input = last_video_receive.load();
+                        char state[1024];
+                        std::snprintf(state, sizeof(state),
+                            "Playback pipeline: generation=%llu connections=%d codec=%s decoder=%s video_paused=%d audio_playing=%d queued=%zu queued_bytes=%zu decoder_accepting=%d scheduler_pending=%zu video_timestamp_rejects_total=%llu last_video_receive_age_ms=%.1f last_decode_input_age_ms=%.1f last_video_output_age_ms=%.1f last_audio_receive_age_ms=%.1f",
+                            static_cast<unsigned long long>(video_generation), protocol->connections(), video_hevc ? "HEVC" : "H.264",
+                            video->decoder_name(), int(video_paused), int(audio_playing), packets.size(), queued_bytes,
+                            int(can_decode), scheduler.pending, static_cast<unsigned long long>(video_timestamp_rejects.load()),
+                            video_input ? (now - video_input) / 1e6 : -1, last_video_decode ? (now - last_video_decode) / 1e6 : -1,
+                            last_video_output ? (now - last_video_output) / 1e6 : -1, audio_input ? (now - audio_input) / 1e6 : -1);
+                        pipeline = state;
+                    }
+                    log((pipeline + " " + timeline.diagnostics()).c_str());
                     char message[512];
                     std::snprintf(message, sizeof(message),
                         "Audio receive totals: packets=%llu bytes=%llu decode_errors=%llu pcm_packets=%llu timestamp_rejects=%llu timestamp_fallbacks=%llu last_lead_ms=%lld",
@@ -224,6 +248,7 @@ struct AirplayPlayer {
                         static_cast<unsigned long long>(audio_timestamp_rejects.load()),
                         static_cast<unsigned long long>(audio_timestamp_fallbacks.load()), static_cast<long long>(audio_lead_ms.load()));
                     log(message);
+                    log(pcm->diagnostics().c_str());
                     const auto output_report = output->diagnostics();
                     if (!output_report.empty()) log(output_report.c_str());
                 }

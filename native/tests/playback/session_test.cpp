@@ -224,7 +224,7 @@ void check_video_stall_diagnostics() {
 void check_mac_video_interruption() {
     check_video_stall_diagnostics();
     struct Progress {
-        std::atomic<int> frames{0}, rejects{0}, stalls{0}, output_errors{0};
+        std::atomic<int> frames{0}, rejects{0}, stalls{0}, output_errors{0}, idle_reports{0}, pcm_reports{0};
         std::atomic<int> luma{0};
     } progress;
     AirplayCallbacks cb{}; cb.context = &progress;
@@ -232,6 +232,14 @@ void check_mac_video_interruption() {
         auto *state = static_cast<Progress *>(context);
         if (strstr(message, "Rejected out-of-window")) ++state->rejects;
         if (strstr(message, "Video output stalled:")) ++state->stalls;
+        if (strstr(message, "Playback pipeline:") && strstr(message, "connections=1 ")
+            && strstr(message, "last_video_output_age_ms=") && strstr(message, "timeline_anchored=1")) {
+            const auto *age = strstr(message, "last_video_receive_age_ms=");
+            if (age && std::strtod(age + strlen("last_video_receive_age_ms="), nullptr) > 1000)
+                ++state->idle_reports;
+        }
+        if (strstr(message, "PCM queue:") && strstr(message, "played_frames_total=")
+            && strstr(message, "future_silence_frames_total=")) ++state->pcm_reports;
         if (strstr(message, "VideoToolbox output missing:") && strstr(message, "status=")
             && strstr(message, "flags=") && strstr(message, "image=")) ++state->output_errors;
         std::puts(message);
@@ -248,6 +256,7 @@ void check_mac_video_interruption() {
         return;
     }
     const auto receive = receiver_callbacks(p.get());
+    receive.conn_init(receive.cls);
     if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H265)) throw std::runtime_error("HEVC selection failed");
     auto feed = [&](int index, int64_t pts) {
         const auto &packet = interruption_fixtures::packets[index];
@@ -285,6 +294,8 @@ void check_mac_video_interruption() {
     if (!progress.frames) throw std::runtime_error("HEVC interruption fixture has no initial picture");
     const auto generation = p->pcm->generation();
     wait_with_audio(std::chrono::seconds(6));
+    if (!progress.idle_reports || !progress.pcm_reports)
+        throw std::runtime_error("video input silence loses periodic pipeline or PCM diagnostics while audio continues");
     // Control: a long arrival gap alone must preserve the existing references.
     auto before = progress.frames.load();
     feed_range(6, 12);
@@ -326,6 +337,7 @@ void check_mac_video_interruption() {
     if (frozen && !progress.output_errors) throw std::runtime_error("VideoToolbox callback failure lacks status and flags");
     feed(30, realtime_ns() + 3 * kSecond);
     if (progress.rejects != 1) throw std::runtime_error("invalid future video timestamps are no longer rejected");
+    receive.conn_destroy(receive.cls);
     std::puts(frozen ? "PASS: diagnosed HEVC freeze after missing IDR, recovered on fresh IDR"
                      : "PASS: missing HEVC IDR was concealed; this synthetic stream did not reproduce the freeze");
 }

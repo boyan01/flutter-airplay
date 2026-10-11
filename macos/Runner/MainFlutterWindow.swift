@@ -307,16 +307,34 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
   private func installPresentationObservers() {
     let center = NotificationCenter.default
     presentationObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: NSApp, queue: .main) { [weak self] _ in
+      self?.logPresentation("application_active")
       self?.openFlutterPanel("updateCheckDue")
     })
+    presentationObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: NSApp, queue: .main) { [weak self] _ in
+      self?.logPresentation("application_inactive")
+    })
+    for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification,
+                 NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+                 NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.sessionDidResignActiveNotification] {
+      presentationObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+        self?.logPresentation(notification.name.rawValue)
+      })
+    }
     presentationObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
       self?.openFlutterPanel("updateCheckDue")
     })
     presentationObservers.append(center.addObserver(forName: NSWindow.didChangeScreenNotification, object: self, queue: .main) { [weak self] _ in
+      self?.logPresentation("screen_changed")
       self?.updateReceiverDisplay()
     })
+    for name in [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
+      presentationObservers.append(center.addObserver(forName: name, object: self, queue: .main) { [weak self] notification in
+        self?.logPresentation(notification.name.rawValue)
+      })
+    }
     for notification in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
       presentationObservers.append(center.addObserver(forName: notification, object: self, queue: .main) { [weak self] _ in
+        self?.logPresentation(notification.rawValue)
         self?.cancelWindowResize()
         self?.openFlutterPanel("windowTransitionStarted")
       })
@@ -324,9 +342,15 @@ class MainFlutterWindow: NSWindow, NSAnimationDelegate {
     for notification in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
       presentationObservers.append(center.addObserver(forName: notification, object: self, queue: .main) { [weak self] _ in
         guard let self = self else { return }
+        self.logPresentation(notification.rawValue)
         self.presentation?.invokeMethod("windowStateChanged", arguments: ["fullscreen": self.styleMask.contains(.fullScreen), "maximized": self.isZoomed])
       })
     }
+  }
+
+  private func logPresentation(_ event: String) {
+    let detail = "macOS presentation event: event=\(event) visible=\(isVisible) minimized=\(isMiniaturized) occluded=\(!occlusionState.contains(.visible)) fullscreen=\(styleMask.contains(.fullScreen)) size=\(Int(frame.width))x\(Int(frame.height)) uptime_s=\(ProcessInfo.processInfo.systemUptime)"
+    (NSApp.delegate as? AppDelegate)?.receiver.log(detail)
   }
 
   private func configureContentWindow() {

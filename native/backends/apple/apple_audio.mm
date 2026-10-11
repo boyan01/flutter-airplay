@@ -24,11 +24,13 @@ public:
 #endif
         AudioComponentDescription description{kAudioUnitType_Output, subtype, kAudioUnitManufacturer_Apple, 0, 0};
         auto component = AudioComponentFindNext(nullptr, &description);
-        if (!component || AudioComponentInstanceNew(component, &unit_)) { close(); return false; }
+        if (!component) return start_failed("find_component", kAudio_ParamError);
+        auto status = AudioComponentInstanceNew(component, &unit_);
+        if (status) return start_failed("create_instance", status);
 #if TARGET_OS_IPHONE
         UInt32 enabled = 1;
-        if (AudioUnitSetProperty(unit_, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0,
-                                &enabled, sizeof(enabled))) { close(); return false; }
+        status = AudioUnitSetProperty(unit_, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &enabled, sizeof(enabled));
+        if (status) return start_failed("enable_output", status);
 #endif
         AudioStreamBasicDescription format{};
         format.mSampleRate = kSampleRate; format.mFormatID = kAudioFormatLinearPCM;
@@ -36,9 +38,12 @@ public:
         format.mBytesPerPacket = format.mBytesPerFrame = 4; format.mFramesPerPacket = 1;
         format.mChannelsPerFrame = 2; format.mBitsPerChannel = 16;
         AURenderCallbackStruct callback{render, this};
-        if (AudioUnitSetProperty(unit_, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, sizeof(format)) ||
-            AudioUnitSetProperty(unit_, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback)) ||
-            AudioUnitInitialize(unit_)) { close(); return false; }
+        status = AudioUnitSetProperty(unit_, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, sizeof(format));
+        if (status) return start_failed("set_format", status);
+        status = AudioUnitSetProperty(unit_, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, sizeof(callback));
+        if (status) return start_failed("set_callback", status);
+        status = AudioUnitInitialize(unit_);
+        if (status) return start_failed("initialize", status);
         mach_timebase_info_data_t info{}; mach_timebase_info(&info);
         host_scale_ = double(info.numer) / info.denom;
 #if TARGET_OS_IPHONE
@@ -49,24 +54,30 @@ public:
         if (!AudioUnitGetProperty(unit_, kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0, &latency, &bytes))
             latency_ = int64_t(latency * kSecond);
 #endif
-        if (AudioOutputUnitStart(unit_)) { close(); return false; }
+        status = AudioOutputUnitStart(unit_);
+        if (status) return start_failed("start", status);
+        start_stage_ = "running"; start_status_ = noErr;
         return true;
     }
     void stop() override { std::lock_guard<std::mutex> guard(lock_); close(); }
     std::string diagnostics() override {
         std::lock_guard<std::mutex> guard(lock_);
-        char message[512];
+        char message[768];
         std::snprintf(message, sizeof(message),
-            "AudioUnit output: state=%s rate=%d callbacks_total=%llu frames_total=%llu nonzero_frames_total=%llu invalid_buffers_total=%llu pcm_late_drop_total=%llu pcm_stale_drop_total=%llu max_callback_gap_ms=%.1f max_timestamp_step_ms=%.1f last_callback_age_ms=%.1f gain=%.3f",
+            "AudioUnit output: state=%s rate=%d callbacks_total=%llu frames_total=%llu nonzero_frames_total=%llu invalid_buffers_total=%llu pcm_late_drop_total=%llu pcm_stale_drop_total=%llu max_callback_gap_ms=%.1f max_timestamp_step_ms=%.1f last_callback_age_ms=%.1f gain=%.3f latency_ms=%.1f host_epoch_offset_ms=%.1f missing_host_time_total=%llu start_stage=%s start_status=%d",
             unit_ ? "running" : "closed", kSampleRate,
             static_cast<unsigned long long>(callbacks_.load()), static_cast<unsigned long long>(frames_.load()),
             static_cast<unsigned long long>(nonzero_.load()), static_cast<unsigned long long>(invalid_buffers_.load()),
             static_cast<unsigned long long>(buffer_->late_drops()), static_cast<unsigned long long>(buffer_->stale_drops()),
             max_callback_gap_.exchange(0) / 1e6, max_timestamp_step_.exchange(0) / 1e6,
-            last_callback_.load() ? double(monotonic_ns() - last_callback_.load()) / 1e6 : -1, buffer_->gain());
+            last_callback_.load() ? double(monotonic_ns() - last_callback_.load()) / 1e6 : -1, buffer_->gain(),
+            latency_ / 1e6, host_epoch_offset_.load() / 1e6, static_cast<unsigned long long>(missing_host_time_.load()), start_stage_, int(start_status_));
         return message;
     }
 private:
+    bool start_failed(const char *stage, OSStatus status) {
+        start_stage_ = stage; start_status_ = status; close(); return false;
+    }
     void read(int16_t *pcm, UInt32 frames, int64_t time) {
         const auto now = monotonic_ns();
         if (last_callback_) record_max(max_callback_gap_, now - last_callback_);
@@ -93,6 +104,8 @@ private:
             if (list->mBuffers[i].mData) std::memset(list->mBuffers[i].mData, 0, list->mBuffers[i].mDataByteSize);
         const auto now = monotonic_ns();
         const auto host_now = mach_absolute_time();
+        self->host_epoch_offset_.store(now - int64_t(host_now * self->host_scale_), std::memory_order_relaxed);
+        if (!(timestamp->mFlags & kAudioTimeStampHostTimeValid)) ++self->missing_host_time_;
         const auto time = timestamp->mFlags & kAudioTimeStampHostTimeValid
             ? host_time_to_monotonic(int64_t(timestamp->mHostTime * self->host_scale_),
                                     int64_t(host_now * self->host_scale_), now) : now;
@@ -111,6 +124,10 @@ private:
     UInt32 last_frames_ = 0;
     std::atomic<uint64_t> callbacks_{0}, frames_{0}, nonzero_{0}, invalid_buffers_{0};
     std::atomic<int64_t> max_callback_gap_{0}, max_timestamp_step_{0};
+    std::atomic<int64_t> host_epoch_offset_{0};
+    std::atomic<uint64_t> missing_host_time_{0};
+    const char *start_stage_ = "none";
+    OSStatus start_status_ = noErr;
 };
 std::unique_ptr<AudioOutput> make_audio_output(std::shared_ptr<AudioBuffer> buffer) {
     return std::make_unique<AppleAudio>(std::move(buffer));

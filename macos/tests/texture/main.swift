@@ -39,6 +39,7 @@ extension VideoSurface {
     var testPending: [CMSampleBuffer] { pending }
     var testEnqueued: Int { submitted }
     var testDropped: Int { dropped }
+    var testRecoveries: Int { recoveries }
     var testRenderReady: Bool { renderReady }
     var testRenderFailed: Bool { renderStatus == .failed }
     var testRecoveryState: String {
@@ -46,7 +47,9 @@ extension VideoSurface {
     }
     var testMetricsEpoch: UInt64 { metricsEpoch }
     var testSystemMetrics: String? { systemMetrics }
-    func testDrain(at presentationTime: CMTime? = nil) { drain(at: presentationTime) }
+    func testDrain(at presentationTime: CMTime? = nil, ready: Bool? = nil) {
+        drain(at: presentationTime, readyOverride: ready)
+    }
     func testSetPresentationTimes(_ times: [CMTime]) {
         require(times.count == pending.count, "Recovery timeline covers every pending sample")
         pending = zip(pending, times).map { sample, pts in
@@ -137,6 +140,48 @@ if #available(macOS 14.4, *) {
     require(sample.contains("system_total_frames=") || sample.contains("system_metrics=unavailable"),
             "Asynchronous system sampling returns a snapshot or explicitly unavailable metrics")
 }
+// Reproduce a live renderer which keeps reporting backpressure after its
+// queue emptied. New decoded frames must not be discarded forever.
+require(surface.testRecoveries == 0, "Normal playback and main thread coalescing do not reset the renderer")
+try surface.begin(); surface.testDrain()
+let blockedTime = CMClockGetTime(CMClockGetHostTimeClock())
+var displayLogs: [String] = []
+surface.onLog = { displayLogs.append($0) }
+for step in 0...10 {
+    let now = CMTimeAdd(blockedTime, CMTime(value: Int64(step), timescale: 10))
+    surface.receive(buffer!, deadline: deadlineAfter(0))
+    surface.testSetPresentationTimes(Array(repeating: now, count: surface.testPending.count))
+    surface.testDrain(at: now, ready: false)
+    if step < 10 { require(surface.testEnqueued == 0, "Transient backpressure does not trigger recovery") }
+}
+require(surface.testEnqueued == 1, "Persistent display backpressure resumes bounded live submission")
+require(surface.testRecoveries == 1 && displayLogs.contains {
+    $0.contains("reason=backpressure") && $0.contains("blocked_ms=") && $0.contains("requires_flush=") && $0.contains("timebase_rate=")
+}, "Display recovery records its trigger and renderer/clock state")
+let cooldownTime = CMTimeAdd(blockedTime, CMTime(value: 11, timescale: 10))
+surface.receive(buffer!, deadline: deadlineAfter(0))
+surface.testSetPresentationTimes(Array(repeating: cooldownTime, count: surface.testPending.count))
+surface.testDrain(at: cooldownTime, ready: false)
+require(surface.testEnqueued == 1 && surface.testRecoveries == 1, "Persistent backpressure cannot flush on every frame")
+surface.clear(); surface.testDrain()
+let future = CMTimeAdd(blockedTime, CMTime(value: 3, timescale: 1))
+surface.receive(buffer!, deadline: deadlineAfter(0))
+surface.testSetPresentationTimes([future])
+surface.testDrain(at: blockedTime, ready: false)
+surface.testDrain(at: CMTimeAdd(blockedTime, CMTime(value: 2, timescale: 1)), ready: false)
+require(surface.testRecoveries == 1 && surface.testPending.count == 1,
+        "A future sample alone does not trigger a display reset")
+// Expiring the last pending sample means there is no live input to recover.
+surface.testDrain(at: CMTimeAdd(blockedTime, CMTime(value: 4, timescale: 1)), ready: false)
+surface.receive(buffer!, deadline: deadlineAfter(0))
+let resumed = CMTimeAdd(blockedTime, CMTime(value: 5, timescale: 1))
+surface.testSetPresentationTimes([resumed])
+surface.testDrain(at: resumed, ready: false)
+require(surface.testRecoveries == 1, "Input inactivity resets the blocked timer before new video arrives")
+let stalledReport = surface.diagnostics()!
+require(stalledReport.contains("last_enqueue_age_ms=") && stalledReport.contains("main_queue_wait_ms=") &&
+        stalledReport.contains("state_sample_age_ms=") && stalledReport.contains("expired_drop="),
+        "Frozen display diagnostics retain progress ages, main queue delay and drop reasons")
 surface.clear(); surface.testDrain()
 var yuv: CVPixelBuffer?
 require(CVPixelBufferCreate(nil, 128, 72, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,

@@ -506,6 +506,29 @@ adb shell am start -n tech.soit.flutterairplay/.MainActivity
 
 运行时诊断在各平台进入同一份接收器日志，可从应用日志页导出。接收、提交和调度统计
 由公共 C++ 播放层输出；解码后端保留自己的队列、耗时和恢复信息。
+诊断默认开启，不依赖性能浮层。关键状态变化立即记录，其余每约 5 秒汇总；音视频热路径
+不逐帧写日志。输入停止后，只要连接仍在，`Playback pipeline` 仍继续报告。
+排查时保留异常前后至少两个统计周期，先比较相邻记录的进度，再沿下表定位停滞位置：
+
+| 边界 | 日志及关键证据 |
+| --- | --- |
+| 连接与生命周期 | `Protocol connected/disconnected` 的连接数；`Playback reset` 的原因、generation 和被清理的队列；视频暂停／恢复、音频格式、FLUSH、输出启动／停止、音量与尺寸变化 |
+| 接收与时钟 | `Playback pipeline` 的最后音视频收包年龄、时间戳拒绝总数、暂停状态、共享 timeline 的锚定状态、延迟与时钟偏移；`Audio receive totals` 的解码失败和 RTP 时间戳回退量 |
+| 解码与调度 | pipeline 的输入队列包数／字节数、`decoder_accepting`、`scheduler_pending`、最后解码输入和输出年龄；后端错误码、VideoToolbox 的在途数量、最老在途年龄和 session 状态；scheduler 与 submit 的余量、迟到、丢帧和宿主调用耗时 |
+| 音频输出 | `PCM queue` 的积压时长、写满丢弃、实际消费、空队列静音、等待未来时间戳静音及过期／旧 generation 丢弃；AudioUnit 的启动失败阶段和 OSStatus、callback 年龄／间隔、设备延迟、host 时钟偏移、有效时间戳缺失量与非零 PCM |
+| macOS 显示 | `Apple native display stats` 的入队进度、最后收帧／入队／drain 年龄、背压时长、队首提前量、主队列等待／延迟、各类丢帧、renderer ready/status/error/requires_flush、timebase rate／host 偏差、窗口状态、屏幕及像素格式；系统显示进度与快照年龄 |
+| 其他平台显示 | Android 的 Surface 提交与系统渲染回调；iPad、Windows、Linux 的纹理通知与新帧消费进度。详见下文，不能把中间阶段计数当成屏幕呈现 |
+
+`*_age_ms=-1` 表示尚未发生，空队列的 `head_lead_ms=none` 表示无队首。
+`Playback pipeline` 的 generation 用于关联重置；最近收包／解码／输出年龄在会话重置时清空。
+接收 totals、PCM 的 `*_total` 和 AudioUnit totals 是播放器实例累计值，PCM generation
+在 FLUSH 时递增。PCM `played_frames_total` 包括合法的数字静音，不能由非零样本数反推缺包。
+计数由不同线程采样，单条日志不是事务快照，应结合连续周期判断。队列报告只读取原子元数据，
+不跨线程读取 PCM 槽位，也不在实时音频回调里写日志。队列满告警每 5 秒最多一条，
+所有丢弃仍计入 `write_drop_total`，避免持续故障挤掉前面的诊断记录。
+Apple 宿主启动时记录实际运行的版本、build、构建时间和 OS，区分已安装应用与新构建产物。
+macOS 另外记录系统／屏幕睡眠与唤醒、会话活跃状态、应用前后台、窗口最小化、遮挡、
+全屏与屏幕切换通知及当时的窗口状态；不记录每次鼠标移动或拖动尺寸的中间事件。
 `Video scheduler` 的 `release_slack` 和 `Video submit stats` 的 `submit_slack`
 记录截止时间减去提交时间的毫秒值：正值表示提前量，负值表示迟到。每约 5 秒输出
 样本数、平均值、最小值和最大值，避免把提前提交全部记成零而掩盖缓冲余量变化。
@@ -528,6 +551,14 @@ macOS 14.4+ 在同一个约 5 秒周期异步采集系统指标：`system_total_
 日志返回最近完成的快照，`system_sample_age_ms` 表示快照距今时长。首次采样或系统未提供
 数据时标记 `system_metrics=unavailable`，旧系统标记 `unsupported`。停止、清空或重连
 会使旧的异步结果失效。AppKit 主线程积压也只入队最新的已到期画面，未来画面仍按原时间入队。
+renderer 状态同样在主线程异步读取，`state_sample_age_ms` 表示缓存年龄；主线程卡住时
+不能把旧快照的 ready/status 当成即时状态。`main_queue_wait_ms` 与最后 drain 年龄可帮助区分
+主线程没有执行和 renderer 持续背压。显示层连续不接收达到 1 秒，并且仍有未过期、距显示
+不超过 100 ms 的帧时，局部 flush 系统显示队列，保留当前图像，再尝试入队一帧；最多每秒一次。
+`Apple native display recovery` 立即记录原因、次数、背压时长及恢复前的 renderer／timebase 状态，
+后续周期的入队数和系统呈现数用于判断是否恢复。单纯没有输入、只有远期帧或短暂背压不会触发。
+此恢复不清理压缩参考帧，不修改共享 timeline，也不停止音频。renderer 明确失败时保留原有
+错误上报路径，并记录错误 domain/code；这里不掩盖真正的显示失败，也不承诺所有系统故障均可恢复。
 Android 13 / API 33+ 尝试启用 MediaCodec 帧渲染回调，`Android display stats` 记录
 `rendered_callbacks`、`render_gap`、`render_slack` 和 `render_callback_delay`。
 间隔和截止时间余量使用回调携带的渲染时间戳，回调送达延迟单独计算。回调可能延后、合并，

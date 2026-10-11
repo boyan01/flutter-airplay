@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdint>
 #include <ctime>
+#include <cstdio>
+#include <string>
 #ifdef _WIN32
 #include <chrono>
 #endif
@@ -50,6 +52,13 @@ public:
         std::lock_guard<std::mutex> guard(lock_); delay_ = delay; anchored_ = false;
     }
     void reset() { std::lock_guard<std::mutex> guard(lock_); anchored_ = false; }
+    std::string diagnostics() {
+        std::lock_guard<std::mutex> guard(lock_);
+        char text[160];
+        std::snprintf(text, sizeof(text), "timeline_anchored=%d timeline_delay_ms=%.1f timeline_offset_ms=%.1f",
+            int(anchored_), delay_ / 1e6, anchored_ ? offset_ / 1e6 : 0);
+        return text;
+    }
 private:
     std::mutex lock_;
     int64_t delay_;
@@ -72,6 +81,25 @@ public:
     uint64_t late_drops() const { return late_drops_.load(std::memory_order_relaxed); }
     uint64_t stale_drops() const { return stale_drops_.load(std::memory_order_relaxed); }
     float gain() const { return gain_.load(std::memory_order_relaxed); }
+    std::string diagnostics() const {
+        // Never inspect ring frames from the reporting thread: only the SPSC
+        // reader/writer owns them. Atomic snapshots are approximate but bounded.
+        const auto read = read_.load(std::memory_order_acquire);
+        const auto write = write_.load(std::memory_order_acquire);
+        const auto queued = std::min<uint64_t>(write - read, capacity_);
+        const auto now = monotonic_ns(), written = last_write_.load(), pulled = last_pull_.load();
+        char text[768];
+        std::snprintf(text, sizeof(text),
+            "PCM queue: generation=%llu queued_frames=%llu queued_ms=%.1f capacity=%zu write_drop_total=%llu played_frames_total=%llu empty_silence_frames_total=%llu future_silence_frames_total=%llu late_drop_total=%llu stale_drop_total=%llu last_future_lead_ms=%.1f output_time_lead_ms=%.1f last_write_age_ms=%.1f last_pull_age_ms=%.1f gain=%.3f",
+            static_cast<unsigned long long>(generation()), static_cast<unsigned long long>(queued),
+            double(queued) * 1000 / kSampleRate, capacity_,
+            static_cast<unsigned long long>(write_drops_.load()), static_cast<unsigned long long>(played_.load()),
+            static_cast<unsigned long long>(empty_.load()), static_cast<unsigned long long>(future_.load()),
+            static_cast<unsigned long long>(late_drops()), static_cast<unsigned long long>(stale_drops()),
+            future_lead_.load() / 1e6, output_lead_.load() / 1e6,
+            written ? (now - written) / 1e6 : -1, pulled ? (now - pulled) / 1e6 : -1, gain());
+        return text;
+    }
     void flush() { generation_.fetch_add(1, std::memory_order_acq_rel); }
     void volume(float db) {
         gain_.store(db <= -144 ? 0.f : std::pow(10.f, std::clamp(db, -30.f, 0.f) / 20.f));
@@ -85,6 +113,8 @@ public:
             frame = {pcm[i * 2], pcm[i * 2 + 1], deadline + int64_t(i) * kSecond / kSampleRate, generation};
         }
         write_.store(write + copied, std::memory_order_release);
+        write_drops_.fetch_add(count - copied, std::memory_order_relaxed);
+        last_write_.store(monotonic_ns(), std::memory_order_relaxed);
         return copied;
     }
     void read(int16_t *pcm, size_t count, int64_t output_time) {
@@ -92,7 +122,8 @@ public:
         const auto write = write_.load(std::memory_order_acquire);
         const auto generation = this->generation();
         const float gain = gain_.load(std::memory_order_relaxed);
-        uint64_t late = 0, stale = 0;
+        uint64_t late = 0, stale = 0, played = 0, future = 0;
+        int64_t future_lead = 0;
         for (size_t i = 0; i < count; ++i) {
             pcm[i * 2] = pcm[i * 2 + 1] = 0;
             const auto due = output_time + int64_t(i) * kSecond / kSampleRate;
@@ -100,16 +131,26 @@ public:
                 const auto &frame = frames_[read % capacity_];
                 if (frame.generation != generation) { ++stale; ++read; continue; }
                 if (frame.deadline < due - 2000000) { ++late; ++read; continue; }
-                if (frame.deadline > due + kSecond / kSampleRate) break;
+                if (frame.deadline > due + kSecond / kSampleRate) {
+                    ++future; future_lead = frame.deadline - due; break;
+                }
                 pcm[i * 2] = int16_t(frame.left * gain);
                 pcm[i * 2 + 1] = int16_t(frame.right * gain);
                 ++read;
+                ++played;
                 break;
             }
         }
         read_.store(read, std::memory_order_release);
         late_drops_.fetch_add(late, std::memory_order_relaxed);
         stale_drops_.fetch_add(stale, std::memory_order_relaxed);
+        played_.fetch_add(played, std::memory_order_relaxed);
+        future_.fetch_add(future, std::memory_order_relaxed);
+        empty_.fetch_add(count - played - future, std::memory_order_relaxed);
+        if (future) future_lead_.store(future_lead, std::memory_order_relaxed);
+        const auto now = monotonic_ns();
+        output_lead_.store(output_time - now, std::memory_order_relaxed);
+        last_pull_.store(now, std::memory_order_relaxed);
     }
 private:
     struct Frame { int16_t left, right; int64_t deadline; uint64_t generation; };
@@ -119,6 +160,8 @@ private:
     std::atomic<uint64_t> generation_{1};
     std::atomic<float> gain_{1};
     std::atomic<uint64_t> late_drops_{0}, stale_drops_{0};
+    std::atomic<uint64_t> write_drops_{0}, played_{0}, empty_{0}, future_{0};
+    std::atomic<int64_t> last_write_{0}, last_pull_{0}, future_lead_{0}, output_lead_{0};
 };
 #ifdef _MSC_VER
 #pragma warning(pop)

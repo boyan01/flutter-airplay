@@ -42,7 +42,11 @@ private:
     void write_pcm(const int16_t *pcm, size_t frames, int64_t deadline, uint64_t generation, bool *produced) {
         const auto written = buffer_->write(pcm, frames, deadline, generation);
         if (produced && written) *produced = true;
-        if (written != frames) log_("Audio queue full; dropping stale backlog input");
+        const auto now = monotonic_ns();
+        if (written != frames && (!overflow_logged_at_ || now - overflow_logged_at_ >= 5 * kSecond)) {
+            overflow_logged_at_ = now;
+            log_("Audio queue full; dropping incoming PCM; see PCM queue write_drop_total (warning limited to once per 5 seconds)");
+        }
     }
     std::mutex lock_;
     std::shared_ptr<AudioBuffer> buffer_;
@@ -50,5 +54,6 @@ private:
     std::unique_ptr<Codec> codec_;
     int ct_ = 8, spf_ = 480;
     bool open_error_logged_ = false;
+    int64_t overflow_logged_at_ = 0;
 };
 } // namespace airplay

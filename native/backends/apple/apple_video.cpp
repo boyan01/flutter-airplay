@@ -210,10 +210,11 @@ private:
         }
         const bool accelerated = !queried && hardware && CFGetTypeID(hardware) == CFBooleanGetTypeID()
             && CFBooleanGetValue(static_cast<CFBooleanRef>(hardware));
-        char text[160];
-        std::snprintf(text, sizeof(text), "VideoToolbox %s decoder ready; direct CVPixelBuffer output; hardware=%s",
+        char text[224];
+        const auto dimensions = CMVideoFormatDescriptionGetDimensions(format_);
+        std::snprintf(text, sizeof(text), "VideoToolbox %s decoder ready; direct CVPixelBuffer output; hardware=%s size=%dx%d pixel_format=%u",
             hevc_ ? "HEVC" : "H.264",
-            queried ? "unknown" : accelerated ? "yes" : "no");
+            queried ? "unknown" : accelerated ? "yes" : "no", int(dimensions.width), int(dimensions.height), unsigned(pixel_format));
         if (hardware) CFRelease(hardware);
         callbacks_.log(text);
         return true;
@@ -229,15 +230,18 @@ private:
         const auto now = monotonic_ns();
         if (!stats_started_ || (!final && now - stats_started_ < 5 * kSecond)) return;
         std::lock_guard<std::mutex> guard(pending_lock_);
-        char text[640];
+        int64_t oldest = now;
+        for (const auto &entry : contexts_) oldest = std::min(oldest, entry.second->submitted);
+        char text[768];
         std::snprintf(text, sizeof(text),
-            "VideoToolbox video stats: interval_ms=%lld input=%llu decoded=%llu max_queue_ms=%.1f max_decode_observed_ms=%.1f input_mbps=%.2f callback_errors=%llu no_image=%llu dropped=%llu last_callback_status=%d last_callback_flags=%u%s",
+            "VideoToolbox video stats: interval_ms=%lld input=%llu decoded=%llu max_queue_ms=%.1f max_decode_observed_ms=%.1f input_mbps=%.2f callback_errors=%llu no_image=%llu dropped=%llu last_callback_status=%d last_callback_flags=%u inflight=%zu oldest_inflight_age_ms=%.1f session_open=%d%s",
             static_cast<long long>((now - stats_started_) / 1000000),
             static_cast<unsigned long long>(submitted_), static_cast<unsigned long long>(decoded_),
             max_queue_ns_ / 1e6, max_decode_ns_ / 1e6,
             double(encoded_bytes_) * 8 * 1000 / (now - stats_started_),
             static_cast<unsigned long long>(callback_errors_), static_cast<unsigned long long>(no_image_),
-            static_cast<unsigned long long>(dropped_), int(last_callback_status_), unsigned(last_callback_flags_), final ? " final" : "");
+            static_cast<unsigned long long>(dropped_), int(last_callback_status_), unsigned(last_callback_flags_),
+            contexts_.size(), contexts_.empty() ? -1 : (now - oldest) / 1e6, int(session_ != nullptr), final ? " final" : "");
         callbacks_.log(text);
         stats_started_ = now; submitted_ = decoded_ = encoded_bytes_ = 0;
         callback_errors_ = no_image_ = dropped_ = 0;

@@ -12,6 +12,7 @@ final class ReceiverBridge: NSObject {
         if video != nil { dispose() }
         video = output
         host.videoOutput = output
+        output.onLog = { [weak self] detail in self?.log(detail) }
         output.onError = { [weak self] detail in
             guard let self = self else { return }
             self.host.reportOutputError(detail)
@@ -43,6 +44,10 @@ final class ReceiverBridge: NSObject {
         host.queue.async {
             self.host.displayID = display
         }
+    }
+
+    func log(_ detail: String) {
+        host.queue.async { [weak self] in self?.host.log(detail) }
     }
 
     func nativeAction(_ action: @escaping (ReceiverHost) throws -> Void) {

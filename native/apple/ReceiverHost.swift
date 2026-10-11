@@ -169,6 +169,9 @@ final class ReceiverHost {
                 bytes.bindMemory(to: UInt8.self).baseAddress!, &error, error.count)
         }
         guard handle != 0 else { bootstrapError = String(cString: error); throw ReceiverFailure(message: bootstrapError!) }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        airplay_receiver_log(handle, "Apple host runtime: version=\(version) build=\(build) build_time=\(Self.buildTime) os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         return handle
     }
     private func perform(_ action: (UInt64, UnsafeMutablePointer<CChar>, Int) -> Bool) throws {

@@ -19,8 +19,14 @@ void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
 void audio_format(void *cls, unsigned char *ct, unsigned short *spf, bool *, bool *, uint64_t *) { player(cls)->format_audio(*ct, *spf); }
 void video_size(void *cls, float *sw, float *sh, float *, float *) { player(cls)->resize_video(*sw, *sh); }
 void reset(void *cls) { player(cls)->reset(); }
-void reset_type(void *cls, reset_type_t) { reset(cls); }
-void conn_reset(void *cls, int) { reset(cls); }
+void reset_type(void *cls, reset_type_t type) {
+    player(cls)->log(("Protocol video reset: type=" + std::to_string(int(type))).c_str());
+    player(cls)->reset("protocol_video_reset");
+}
+void conn_reset(void *cls, int timeouts) {
+    player(cls)->log(("Protocol connection reset: timeouts=" + std::to_string(timeouts)).c_str());
+    player(cls)->reset("protocol_connection_reset");
+}
 void audio_flush(void *cls) { player(cls)->flush_audio(); }
 void audio_stop(void *cls) { player(cls)->stop_audio(); }
 void video_pause(void *cls) { player(cls)->pause_video(true); }
@@ -78,12 +84,15 @@ bool ProtocolAdapter::started() const { return impl_->receiver != nullptr; }
 uint16_t ProtocolAdapter::port() const { return impl_->port; }
 int ProtocolAdapter::connections() const { return impl_->connections.load(); }
 void ProtocolAdapter::connected() {
-    std::lock_guard<std::mutex> guard(impl_->session_lock); ++impl_->connections;
+    std::lock_guard<std::mutex> guard(impl_->session_lock);
+    const auto count = ++impl_->connections;
+    impl_->playback.log(("Protocol connected: connections=" + std::to_string(count)).c_str());
 }
 void ProtocolAdapter::disconnected() {
     bool ended;
     { std::lock_guard<std::mutex> guard(impl_->session_lock); ended = impl_->connections.fetch_sub(1) == 1; }
-    if (ended) { impl_->playback.reset(); impl_->playback.event("waiting", "Waiting for iPhone"); }
+    impl_->playback.log(("Protocol disconnected: connections=" + std::to_string(connections())).c_str());
+    if (ended) { impl_->playback.reset("last_connection_ended"); impl_->playback.event("waiting", "Waiting for iPhone"); }
 }
 bool ProtocolAdapter::prepare_restart() {
     std::lock_guard<std::mutex> guard(impl_->session_lock);
