@@ -352,7 +352,10 @@ void main() {
         return geometry;
       }
 
-      Future<_WindowGeometry> expectBaseline(String reason) {
+      Future<_WindowGeometry> expectBaseline(
+        String reason, {
+        bool checkPosition = true,
+      }) {
         Rect rect(native.Rectangle value) =>
             Rect.fromLTWH(value.x, value.y, value.width, value.height);
         double overlap(native.Display display) {
@@ -382,8 +385,15 @@ void main() {
               value.aspectRatio == 0 &&
               (value.content.width - baseline.content.width).abs() <= 3 &&
               (value.content.height - baseline.content.height).abs() <= 3 &&
-              (value.frame.x - x).abs() <= 3 &&
-              (value.frame.y - y).abs() <= 3,
+              (checkPosition
+                  ? (value.frame.x - x).abs() <= 3 &&
+                        (value.frame.y - y).abs() <= 3
+                  : value.frame.x >= work.x - 3 &&
+                        value.frame.y >= work.y - 3 &&
+                        value.frame.x + value.frame.width <=
+                            work.x + work.width + 3 &&
+                        value.frame.y + value.frame.height <=
+                            work.y + work.height + 3),
           reason: reason,
         );
       }
@@ -473,6 +483,9 @@ void main() {
       backend.state('waiting');
       await expectBaseline(
         'disconnect exits fullscreen and restores idle size',
+        // AppKit restores its own windowed frame on leaving a fullscreen Space.
+        // Require the idle size on the same display, allowing that OS reposition.
+        checkPosition: !Platform.isMacOS,
       );
 
       frame(backend, 2048, 1536);

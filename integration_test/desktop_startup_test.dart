@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_airplay/l10n/generated/app_localizations_en.dart';
 import 'package:flutter_airplay/platform/desktop_presentation.dart';
@@ -38,47 +39,57 @@ void main() {
         if (action == WindowAction.closeRequested) await desktop.hide();
       });
       FfiReceiverControl? control;
-      addTearDown(() async {
+      Future<void> cleanUp() async {
+        // The live test binding needs a visible window to render its final
+        // frame. Restore visibility before it unwinds, after testing that the
+        // close-to-tray watchdog keeps the application hidden.
+        await window.withWindow((value) => value.show());
         window.listen(null);
-        desktop.dispose();
+        await desktop.dispose();
         control?.dispose();
         model.dispose();
         await backend.controller.close();
-      });
-      await tester.runAsync(() async {
-        final host = await const MethodChannel('org.airplayreceiver/platform')
-            .invokeMapMethod<String, dynamic>('bootstrap');
-        control = FfiReceiverControl(host!['handle'] as int);
-        await control!.request('snapshot');
-        await model.initialize();
-        await desktop
-            .update(AppLocalizationsEn())
-            .timeout(const Duration(seconds: 5));
-        expect(
-          desktop.canHide,
-          isTrue,
-          reason: 'The tray must be usable before startup completes',
-        );
-        await window.withWindow(
-          (value) => expect(
-            value.isVisible,
+        await window.releaseNativeWindow();
+      }
+
+      try {
+        await tester.runAsync(() async {
+          final host = await const MethodChannel('org.airplayreceiver/platform')
+              .invokeMapMethod<String, dynamic>('bootstrap');
+          control = FfiReceiverControl(host!['handle'] as int);
+          await control!.request('snapshot');
+          await model.initialize();
+          await desktop
+              .update(AppLocalizationsEn())
+              .timeout(const Duration(seconds: 5));
+          expect(
+            desktop.canHide,
             isTrue,
-            reason: 'Manual cold launch must show the main window',
-          ),
-        );
-        await window.execute(WindowCommand.closeWindow);
-        await Future<void>.delayed(const Duration(seconds: 11));
-        await window.withWindow(
-          (value) => expect(
-            value.isVisible,
-            isFalse,
-            reason:
-                'Closing to tray must remain hidden after the startup watchdog',
-          ),
-        );
-        // Exercise the live host after closing. A disposed receiver cannot answer.
-        await control!.request('snapshot');
-      });
+            reason: 'The tray must be usable before startup completes',
+          );
+          await window.withWindow(
+            (value) => expect(
+              value.isVisible,
+              isTrue,
+              reason: 'Manual cold launch must show the main window',
+            ),
+          );
+          await window.execute(WindowCommand.closeWindow);
+          await Future<void>.delayed(const Duration(seconds: 11));
+          await window.withWindow(
+            (value) => expect(
+              value.isVisible,
+              isFalse,
+              reason: 'Closing to tray must remain hidden after the startup watchdog',
+            ),
+          );
+          // Exercise the live host after closing. A disposed receiver cannot answer.
+          await control!.request('snapshot');
+        });
+      } finally {
+        await tester.runAsync(cleanUp);
+        await tester.pumpWidget(const SizedBox());
+      }
     },
     skip: !Platform.isMacOS,
   );
