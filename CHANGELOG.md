@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.6
+
+### 中文
+
+- Windows 新增应用内更新，可自动检查、查看说明、下载及安装重启；更新元数据使用 Ed25519 签名，安装前校验文件完整性。旧版需先手动安装一次本版；仅配置公钥的正式安装版启用，便携版仍需手动更新，安装包尚无 Authenticode 签名。
+- Android 手机和 TV 新增应用内更新，支持查看说明、下载、取消和系统安装确认；首次安装更新可能需要在系统设置中允许安装未知应用，安装会中断接收。
+- 各平台新增视频裁剪，支持自由比例、16:9、拖动、键盘及 TV 遥控器操作，可预览后应用；裁剪仅保留在当前连接内，来源宽高比变化时重置，桌面窗口随应用后的裁剪调整。
+- 改进播放控制和菜单：鼠标悬停、键盘焦点和打开菜单时保持控件可见；TV 返回键先关闭菜单，断开操作移至「更多」菜单。
+- 修复 Windows 窗口初始化死锁及设置、标题栏、托盘缺失更新入口的问题；桌面断开投屏后在当前屏幕恢复窗口尺寸，避免恢复到原屏幕位置，并修复 macOS 全屏结束后尺寸控制未恢复导致断开时无法退出全屏的问题。
+- 修复音频连接结束后的输出清理及 Apple 平台休眠后的音频时钟换算，并改进 macOS 视频显示停滞后的恢复。
+
+### English
+
+- Added in-app updates on Windows with automatic checks, release notes, downloads, and installation with restart. Ed25519-signed metadata and installer integrity checks protect updates. Older versions require one manual installation of this release. Updates require a configured installed Release build; portable copies remain manual, and Setup is not Authenticode-signed.
+- Added in-app updates on Android phones and TVs with release notes, downloads, cancellation, and system installation confirmation. The first update may require allowing installation from this app in system settings. Installation interrupts reception.
+- Added video cropping on all platforms with free and 16:9 ratios, dragging, keyboard and TV remote controls, and preview before applying. Crops last for the current connection and reset when the source aspect ratio changes. Desktop windows resize to the applied crop.
+- Improved playback controls and menus: hovering, keyboard focus, and open menus keep controls visible. TV Back closes an open menu first, and Disconnect is now in the More menu.
+- Fixed a Windows window initialization deadlock and missing update entries in Settings, the window bar, and the tray. Desktop windows restore their size on the current display after disconnection instead of returning to the previous display position. Fixed sizing remaining suspended after macOS fullscreen entry, which prevented a later disconnection from exiting fullscreen.
+- Fixed audio output cleanup when the audio connection ends and audio clock conversion after sleep on Apple platforms, and improved recovery from stalled video display on macOS.
+
 ## 0.1.5
 
 ### 中文

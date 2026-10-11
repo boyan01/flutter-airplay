@@ -356,9 +356,10 @@ class DesktopPresentation {
     });
     _transitioning = false;
     _expanded = expanded;
-    // A disconnect during fullscreen entry must request the exit after the
-    // entry animation completes, even though the window is still expanded.
-    if ((!expanded || model.status != 'streaming') && !_editingCrop) {
+    // Suspend only during the transition. Sizing already defers geometry while
+    // expanded; leaving it suspended after fullscreen entry would also block
+    // a later disconnect from requesting fullscreen exit.
+    if (!_editingCrop) {
       await _sizing.resume();
     }
     if (!_disposed) _updateMenu();
