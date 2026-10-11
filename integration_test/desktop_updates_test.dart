@@ -90,8 +90,7 @@ class _Service extends AppUpdateService {
 final _captureKey = GlobalKey();
 
 Future<void> _capture(String name) async {
-  if (!Platform.isMacOS ||
-      !const bool.fromEnvironment('AIRPLAY_UPDATE_SCREENSHOTS')) {
+  if (!const bool.fromEnvironment('AIRPLAY_UPDATE_SCREENSHOTS')) {
     return;
   }
   final directory = Directory('artifacts/updates-ui')
@@ -113,12 +112,11 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets(
-    'macOS update entry points share state without interrupting playback',
+    'desktop update entry points share state without interrupting playback',
     (tester) async {
-      if (!Platform.isMacOS) return;
       final window = const WindowController();
       final host = AppUpdates(preferences: _Preferences());
-      await host.initialize('macos');
+      await host.initialize(Platform.operatingSystem);
       expect(host.initialized, isTrue);
       expect(host.supported, isTrue);
       if (!host.enabled) expect(host.unavailableReason, isNotEmpty);
@@ -129,9 +127,16 @@ void main() {
       final updates = AppUpdates(service: service, preferences: preferences);
       final backend = FakeReceiver(
         buildVersion: '0.1.4 (5)',
-        capabilities: {'platform': 'macos', 'nativeVideoSurface': true},
+        capabilities: {
+          'platform': Platform.operatingSystem,
+          'nativeVideoSurface': Platform.isMacOS,
+        },
       );
       final model = ReceiverModel(backend);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        await backend.controller.close();
+      });
       await tester.pumpWidget(
         RepaintBoundary(
           key: _captureKey,
@@ -220,6 +225,7 @@ void main() {
         onAction: (_, _) async {},
         onError: (error) => fail(error.toString()),
       );
+      addTearDown(desktop.dispose);
       await desktop.update(AppLocalizationsEn());
       final menu = desktop.menuForTesting;
       expect(menu, isNotNull);
@@ -244,8 +250,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('closeSettings')), findsOneWidget);
       expect(backend.stops, 0);
-      await tester.pumpWidget(const SizedBox());
-      await backend.controller.close();
     },
+    skip: !Platform.isMacOS && !Platform.isWindows,
   );
 }

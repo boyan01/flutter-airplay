@@ -486,7 +486,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 : Text('${l10n(context).buildTime}: $_localBuildTime'),
           ),
         if (widget.updates != null &&
-            (model.platform == 'macos' || model.platform == 'android'))
+            {'macos', 'android', 'windows'}.contains(model.platform))
           AppUpdateSettings(
             updates: widget.updates!,
             onOpenUpdate: widget.onOpenUpdate,

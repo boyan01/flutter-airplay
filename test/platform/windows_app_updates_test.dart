@@ -20,6 +20,8 @@ void main() {
       final generated = await Process.run(
         Platform.isWindows ? 'python' : 'python3',
         [
+          '-X',
+          'utf8',
           '-c',
           r'''
 import sys
@@ -37,6 +39,8 @@ finally:
     case.doCleanups()
 ''',
         ],
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
       );
       expect(generated.exitCode, 0, reason: generated.stderr.toString());
       final source = generated.stdout as String;

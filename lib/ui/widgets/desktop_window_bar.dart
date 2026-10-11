@@ -189,6 +189,7 @@ class DesktopWindowBar extends StatelessWidget {
       child: Row(
         children: [
           titleArea,
+          ?trailing,
           _windowsButton(
             'windowMinimize',
             l10n(context).minimize,

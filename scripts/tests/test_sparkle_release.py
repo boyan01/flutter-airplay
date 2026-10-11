@@ -27,8 +27,8 @@ class SparkleTests(unittest.TestCase):
         self.root = Path(directory.name)
         self.app = self.root / 'Flutter AirPlay.app'
         (self.app / 'Contents').mkdir(parents=True)
-        (self.root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
-        (self.root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
+        (self.root / 'pubspec.yaml').write_text('version: 1.2.3+4\n', encoding='utf-8')
+        (self.root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n', encoding='utf-8')
         self.dmg = self.root / 'Flutter-AirPlay-1.2.3-macos-arm64.dmg'
         self.dmg.write_bytes(b'archive fixture')
         self.info = {'SUPublicEDKey': PUBLIC, 'SUFeedURL': release.FEED_URL,
@@ -110,7 +110,7 @@ class SparkleTests(unittest.TestCase):
 
     def test_appcast_embeds_bilingual_notes_with_safe_text_and_line_breaks(self):
         (self.root / 'CHANGELOG.md').write_text(
-            '## 1.2.3\n### 中文\n- 修复 <script> 与 A&B。\n### English\n- Fix <script> and A&B. Keep "sender\'s" name.\n')
+            '## 1.2.3\n### 中文\n- 修复 <script> 与 A&B。\n### English\n- Fix <script> and A&B. Keep "sender\'s" name.\n', encoding='utf-8')
         feed = self.make_feed()
         item, _, _, _ = release.read_appcast(feed.read_bytes())
         description = item.findtext('description')
@@ -192,8 +192,8 @@ class SparkleTests(unittest.TestCase):
                 patch.object(release, 'verify_signature'):
             release.appcast(self.app, self.dmg)
         calls = command.call_args_list
-        self.assertEqual(calls[0].args[0], ['/tool/generate_keys', '--account', 'flutter-airplay', '-p'])
-        self.assertEqual(calls[1].args[0], ['/tool/sign_update', '--account', 'flutter-airplay', '-p', str(self.dmg)])
+        self.assertEqual(calls[0].args[0], [str(Path('/tool/generate_keys')), '--account', 'flutter-airplay', '-p'])
+        self.assertEqual(calls[1].args[0], [str(Path('/tool/sign_update')), '--account', 'flutter-airplay', '-p', str(self.dmg)])
         self.assertIsNone(calls[1].kwargs['input'])
         self.assertIsNone(calls[2].kwargs['input'])
         self.assertTrue((self.root / 'appcast.xml').exists())
@@ -219,7 +219,7 @@ class SparkleTests(unittest.TestCase):
         self.assertNotIn('SPARKLE_PRIVATE_KEY', run.call_args.kwargs['env'])
 
     def test_previous_feed_requires_strict_build_and_semver_increase(self):
-        feed = self.make_feed().read_text()
+        feed = self.make_feed().read_text(encoding='utf-8')
         previous = {'draft':False, 'prerelease':False, 'tag_name':'v1.2.3',
                     'assets':[{'name':'appcast.xml', 'id':1}]}
         for short, build, succeeds in (('1.2.4', 5, True), ('1.2.4', 4, False), ('1.2.4', 3, False),

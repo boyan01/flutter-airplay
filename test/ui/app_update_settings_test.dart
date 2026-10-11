@@ -286,9 +286,11 @@ void main() {
       await open(tester, updates, model: model);
       expect(
         find.byType(AppUpdateSettings),
-        ['macos', 'android'].contains(platform) ? findsOneWidget : findsNothing,
+        ['macos', 'android', 'windows'].contains(platform)
+            ? findsOneWidget
+            : findsNothing,
       );
-      if (['macos', 'android'].contains(platform)) {
+      if (['macos', 'android', 'windows'].contains(platform)) {
         await tester.ensureVisible(find.byType(AppUpdateSettings));
         await tester.pump();
         expect(automatic(tester).onChanged, isNotNull);

@@ -493,7 +493,8 @@ class DesktopPresentation {
         if (model.hasVideo) ...[6, 7, 8],
         9,
         10,
-        if (model.platform == 'macos' && updates != null) 14,
+        if ({'macos', 'windows'}.contains(model.platform) && updates != null)
+          14,
         11,
         12,
         13,

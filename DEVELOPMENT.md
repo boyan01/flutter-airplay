@@ -444,7 +444,7 @@ macOS 标题栏双击遵循 Zoom、Minimize、None 偏好；新 Fill 偏好暂�
 链路，读取真实 OS 窗口，覆盖投屏前尺寸/位置恢复、iPad 后立即连接 iPhone、连续旋转、
 暂停/解码重置，以及全屏期间更新后退出。Dart 单元测试另覆盖手动缩放、减少动态效果、
 取消动画、DPI 与多屏边界。三端 CI 都运行桌面集成测试；Linux 使用隔离 Xvfb/Openbox/D-Bus。
-`integration_test/desktop_updates_test.dart` 在 macOS 运行真实窗口和托盘，以模拟更新结果验证
+`integration_test/desktop_updates_test.dart` 在 macOS / Windows 运行真实窗口和托盘，以模拟更新结果验证
 默认开关、设置中的单一入口、窗口栏图标、托盘菜单和连接中的 Flutter 更新面板，覆盖下载、关闭后继续下载、取消及等待安装；同时调用真实宿主初始化验证配置状态。
 该用例不安装更新；可追加 `--dart-define=AIRPLAY_UPDATE_SCREENSHOTS=true` 导出应用自身渲染截图到
 `artifacts/updates-ui/`，不依赖系统屏幕录制权限。
@@ -810,6 +810,11 @@ Inno Setup 等待旧 PID 退出，最多 60 秒，然后覆盖原安装目录，
 `flutter test test/platform/windows_app_updates_test.dart` 覆盖实际 Python feed 生成到 Dart 验签、
 篡改拒绝、下载完整性及启动安装失败后的重试；共享下载回归也覆盖 Android。
 现有 `scripts/test_native.sh windows installer <setup.exe>` 增加等待旧进程退出和更新后启动检查。
+`integration_test/desktop_windows_updates_test.dart` 通过本地 HTTP fixture 和测试密钥，
+在真实 Windows 窗口中运行生产更新服务，验证定时检查不自动下载、下载进度、关闭面板后继续下载、
+取消、损坏文件拒绝及重试。仅替换 Debug/安装目录启用检查；真实宿主拒绝未注册测试应用安装时，
+验证错误展示、保留已验证下载和再次安装无需重新下载。它不执行安装包或修改已有安装，
+与安装器套件共同覆盖更新流程；以上桌面用例由统一 `windows desktop` 入口自动发现。
 真实验收仍需两个版本递增的安装包，验证应用内交接、路径带空格、设置与配对保留及更新后重新投屏。
 macOS 上的 Dart／Python 测试不能证明 Windows 宿主编译、安装或设备行为。
 
