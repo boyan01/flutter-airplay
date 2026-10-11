@@ -161,6 +161,9 @@ void main() {
         reason: 'Desktop FFI window calls require the platform thread',
       );
       late int hostHandle;
+      // Exercise hide/show before presentation registers its first listener.
+      // On Windows this previously re-entered nativeapi's manager constructor
+      // while seeding changed occlusion state and blocked the platform thread.
       await const WindowController().withWindow((window) {
         hostHandle = window.nativeObject.address;
         expect(hostHandle, greaterThan(0));
@@ -298,7 +301,8 @@ void main() {
       );
 
       // Simulate a user-resized and moved idle window before any sender connects.
-      // The restored frame must be this one, not the launch default of 440x560.
+      // Restore this size, not the launch default of 440x560. Disconnect keeps
+      // the current position/display rather than returning to this idle origin.
       await controller.withWindow((value) {
         value.aspectRatio = 0;
         value.contentSize = const native.Size(width: 520, height: 600);
@@ -312,6 +316,7 @@ void main() {
             value.aspectRatio == 0,
         reason: 'nondefault idle frame',
       );
+      var restoreReference = baseline.frame;
       Future<_WindowGeometry> expectVideo(
         int width,
         int height,
@@ -343,17 +348,45 @@ void main() {
           closeTo(viewportSize.height, 2),
           reason: reason,
         );
+        restoreReference = geometry.frame;
         return geometry;
       }
 
-      Future<_WindowGeometry> expectBaseline(String reason) => _waitForWindow(
-        tester,
-        (value) =>
-            !value.fullscreen &&
-            value.aspectRatio == 0 &&
-            value.sameFrame(baseline),
-        reason: reason,
-      );
+      Future<_WindowGeometry> expectBaseline(String reason) {
+        Rect rect(native.Rectangle value) =>
+            Rect.fromLTWH(value.x, value.y, value.width, value.height);
+        double overlap(native.Display display) {
+          final intersection = rect(restoreReference)
+              .intersect(rect(display.workArea));
+          return intersection.isEmpty
+              ? 0
+              : intersection.width * intersection.height;
+        }
+
+        final work = controller
+            .getDisplays()
+            .reduce((a, b) => overlap(a) >= overlap(b) ? a : b)
+            .workArea;
+        final x = restoreReference.x.clamp(
+          work.x,
+          work.x + work.width - baseline.frame.width,
+        );
+        final y = restoreReference.y.clamp(
+          work.y,
+          work.y + work.height - baseline.frame.height,
+        );
+        return _waitForWindow(
+          tester,
+          (value) =>
+              !value.fullscreen &&
+              value.aspectRatio == 0 &&
+              (value.content.width - baseline.content.width).abs() <= 3 &&
+              (value.content.height - baseline.content.height).abs() <= 3 &&
+              (value.frame.x - x).abs() <= 3 &&
+              (value.frame.y - y).abs() <= 3,
+          reason: reason,
+        );
+      }
 
       backend.state('streaming');
       await _waitForWindow(
@@ -366,7 +399,9 @@ void main() {
       frame(backend, 2048, 1536);
       await expectVideo(2048, 1536, 'iPad landscape');
       backend.state('waiting');
-      await expectBaseline('iPad disconnect restores the complete idle frame');
+      await expectBaseline(
+        'iPad disconnect restores idle size at the current position',
+      );
 
       frame(backend, 2048, 1536);
       await expectVideo(2048, 1536, 'iPad reconnect');
@@ -423,26 +458,22 @@ void main() {
       );
       backend.state('waiting');
       await expectBaseline(
-        'iPhone disconnect restores the original idle frame',
+        'iPhone disconnect restores idle size at the current position',
       );
 
       frame(backend, 1536, 2048);
       await expectVideo(1536, 2048, 'video before fullscreen disconnect');
       await _executeWindow(tester, controller, WindowCommand.enterFullscreen);
-      final fullscreen = await _waitForWindow(
+      await _waitForWindow(
         tester,
         (value) => value.fullscreen,
         reason: 'enter fullscreen before disconnect',
         stableFor: const Duration(seconds: 1),
       );
       backend.state('waiting');
-      await _waitForWindow(
-        tester,
-        (value) => value.fullscreen && value.sameFrame(fullscreen),
-        reason: 'disconnect defers idle-frame restoration while fullscreen',
+      await expectBaseline(
+        'disconnect exits fullscreen and restores idle size',
       );
-      await _executeWindow(tester, controller, WindowCommand.exitFullscreen);
-      await expectBaseline('fullscreen exit applies the deferred idle frame');
 
       frame(backend, 2048, 1536);
       await expectVideo(2048, 1536, 'video before fullscreen rotation');
@@ -468,7 +499,9 @@ void main() {
         'fullscreen exit applies the latest rotation',
       );
       backend.state('waiting');
-      await expectBaseline('final disconnect restores the saved idle frame');
+      await expectBaseline(
+        'final disconnect restores idle size at the current position',
+      );
     } finally {
       await cleanUp();
     }

@@ -159,6 +159,15 @@ class WindowController {
       return;
     }
     void apply() {
+      if (Platform.isWindows && _applicationWindow == null) {
+        // nativeapi 0.5.2 seeds occlusion state while constructing its window
+        // manager. If an earlier wrapper has since been hidden/shown, seeding
+        // emits a change and recursively enters the unfinished singleton.
+        // Initialize the manager before wrapping or changing the host window.
+        // Release this temporary handle; the fixed host handle below remains
+        // the source of truth, including when no window is active.
+        native.WindowManager.instance.getCurrent()?.dispose();
+      }
       final window = _applicationWindow ??=
           native.Window.createWithNativeWindow(
             ffi.Pointer<ffi.Void>.fromAddress(handle),
