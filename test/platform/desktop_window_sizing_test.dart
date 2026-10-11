@@ -92,7 +92,6 @@ void main() {
   void expectBaseline() {
     expect(window.contentSize.width, 620);
     expect(window.contentSize.height, 740);
-    expect(window.position, const native.Point(x: 100, y: 100));
     expect(window.aspectRatio, 0);
   }
 
@@ -290,20 +289,17 @@ void main() {
       expectBaseline();
     },
   );
-  test(
-    'iPad rotation and disconnect restore original size and position',
-    () async {
-      await video(1536, 2048);
-      expect(
-        window.contentSize.width / window.contentSize.height,
-        closeTo(.75, .001),
-      );
-      await video(2048, 1536);
-      expect(window.aspectRatio, closeTo(4 / 3, .001));
-      await disconnect();
-      expectBaseline();
-    },
-  );
+  test('iPad rotation and disconnect restore original size', () async {
+    await video(1536, 2048);
+    expect(
+      window.contentSize.width / window.contentSize.height,
+      closeTo(.75, .001),
+    );
+    await video(2048, 1536);
+    expect(window.aspectRatio, closeTo(4 / 3, .001));
+    await disconnect();
+    expectBaseline();
+  });
   test(
     'same-tick disconnect and iPhone cannot inherit iPad geometry',
     () async {
@@ -371,15 +367,95 @@ void main() {
       );
     },
   );
-  test('fullscreen disconnect is deferred until returning to normal', () async {
+  test('fullscreen disconnect exits fullscreen and restores size', () async {
     await video(2048, 1536);
-    final before = window.bounds;
     window.fullscreen = true;
     await disconnect();
-    expect(window.bounds, before);
-    window.fullscreen = false;
-    await sizing.resume();
+    expect(window.fullscreen, isFalse);
     expectBaseline();
+  });
+  test(
+    'disconnect during fullscreen entry waits for transition completion',
+    () async {
+      await video(2048, 1536);
+      sizing.suspend();
+      window.fullscreen = true;
+      await disconnect();
+      expect(window.fullscreen, isTrue);
+      await sizing.resume();
+      expect(window.fullscreen, isFalse);
+      expectBaseline();
+    },
+  );
+  test(
+    'asynchronous fullscreen exit restores size only after completion',
+    () async {
+      window = DeferredFullscreenWindow()
+        ..contentSize = const native.Size(width: 620, height: 740);
+      await video(2048, 1536);
+      final before = window.bounds;
+      window.fullscreen = true;
+      await disconnect();
+      expect(
+        window.calls.where((call) => call == 'fullscreen:false'),
+        hasLength(1),
+      );
+      expect(window.bounds, before);
+      window.fullscreen = false;
+      await sizing.resume();
+      expectBaseline();
+    },
+  );
+  test('reconnect cancels a deferred fullscreen exit', () async {
+    await video(2048, 1536);
+    sizing.suspend();
+    window.fullscreen = true;
+    await disconnect();
+    await video(1170, 2532);
+    await sizing.resume();
+    expect(window.fullscreen, isTrue);
+    expect(window.calls, isNot(contains('fullscreen:false')));
+  });
+  test(
+    'fullscreen disconnect before the first frame still exits fullscreen',
+    () async {
+      window.fullscreen = true;
+      await video(0, 0);
+      await disconnect();
+      expect(window.fullscreen, isFalse);
+      expectBaseline();
+    },
+  );
+  test('video interruption does not exit fullscreen', () async {
+    await video(2048, 1536);
+    window.fullscreen = true;
+    await video(0, 0);
+    expect(window.fullscreen, isTrue);
+  });
+  test('idle updates preserve user fullscreen', () async {
+    window.fullscreen = true;
+    await disconnect();
+    expect(window.fullscreen, isTrue);
+  });
+  test('disconnect restores size on the current monitor', () async {
+    displays = [
+      Display(),
+      Display(
+        area: const native.Rectangle(x: -1600, y: 0, width: 1600, height: 1000),
+      ),
+    ];
+    await video(2048, 1536);
+    window.position = const native.Point(x: -1200, y: 100);
+    await disconnect();
+    expectBaseline();
+    expect(window.position, const native.Point(x: -1200, y: 100));
+  });
+  test('restored size is clamped within the current monitor', () async {
+    await video(2048, 1536);
+    window.position = const native.Point(x: 1450, y: 900);
+    await disconnect();
+    expectBaseline();
+    expect(window.position, const native.Point(x: 980, y: 260));
   });
   test(
     'transition, maximize and minimize retain the latest desired ratio',
@@ -628,4 +704,10 @@ class LateConfigureWindow extends FakeWindow {
 
   void _configure(native.Rectangle value) => super.bounds = value;
   void cancel() => _lateConfigure?.cancel();
+}
+
+/// AppKit keeps the fullscreen state until its transition completes.
+class DeferredFullscreenWindow extends FakeWindow {
+  @override
+  set isFullScreen(bool value) => calls.add('fullscreen:$value');
 }

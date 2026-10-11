@@ -356,7 +356,11 @@ class DesktopPresentation {
     });
     _transitioning = false;
     _expanded = expanded;
-    if (!expanded && !_editingCrop) await _sizing.resume();
+    // A disconnect during fullscreen entry must request the exit after the
+    // entry animation completes, even though the window is still expanded.
+    if ((!expanded || model.status != 'streaming') && !_editingCrop) {
+      await _sizing.resume();
+    }
     if (!_disposed) _updateMenu();
     return expanded;
   }

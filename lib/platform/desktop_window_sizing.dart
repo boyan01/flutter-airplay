@@ -24,6 +24,7 @@ class DesktopWindowSizing {
   bool _reduceMotion = false, _applying = false, _actualSize = false;
   bool _dirty = false;
   bool _nativeResizing = false;
+  bool _restoreFullscreen = false;
   bool _enabled;
   int _width = 0, _height = 0, _revision = 0, _scheduled = 0;
   int _correctedRevision = -1;
@@ -45,6 +46,7 @@ class DesktopWindowSizing {
     _reduceMotion = reduceMotion;
     if (boundary) {
       _connected = connected;
+      _restoreFullscreen = !connected;
       _width = _height = 0;
       _manualArea = null;
       _appliedRatio = null;
@@ -147,11 +149,17 @@ class DesktopWindowSizing {
     }
     if (_disposed || revision != _revision || _suspended) return;
     await window.withWindow((value) {
-      if (_disposed ||
-          revision != _revision ||
-          _suspended ||
-          _expanded(value) ||
-          !value.isVisible) {
+      if (_disposed || revision != _revision || _suspended) {
+        return;
+      }
+      if (_restoreFullscreen) {
+        if (value.isFullScreen) value.isFullScreen = false;
+        // AppKit completes this asynchronously. Resume from its completion
+        // event; synchronous hosts can restore geometry immediately.
+        if (value.isFullScreen) return;
+        _restoreFullscreen = false;
+      }
+      if (_expanded(value) || !value.isVisible) {
         return; // Deferred, never recorded as successfully applied.
       }
       if (!hasCurrentVideo && _baseline == null) {
@@ -167,7 +175,7 @@ class DesktopWindowSizing {
           );
         }
         final current = value.bounds;
-        final reference = !hasCurrentVideo ? _baseline! : current;
+        final reference = current;
         final display = displays.reduce(
           (a, b) =>
               _overlap(reference, a.workArea) >= _overlap(reference, b.workArea)
@@ -178,7 +186,15 @@ class DesktopWindowSizing {
         from = current;
         if (!hasCurrentVideo) {
           restore = true;
-          target = _clamp(_baseline!, work);
+          target = _clamp(
+            native.Rectangle(
+              x: current.x,
+              y: current.y,
+              width: _baseline!.width,
+              height: _baseline!.height,
+            ),
+            work,
+          );
           minimum = native.Size(
             width: math.min(_baselineMinimum!.width, work.width),
             height: math.min(_baselineMinimum!.height, work.height),
