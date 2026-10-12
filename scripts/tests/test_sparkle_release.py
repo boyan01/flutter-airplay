@@ -29,6 +29,9 @@ class SparkleTests(unittest.TestCase):
         (self.app / 'Contents').mkdir(parents=True)
         (self.root / 'pubspec.yaml').write_text('version: 1.2.3+4\n', encoding='utf-8')
         (self.root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n', encoding='utf-8')
+        config = self.root / 'macos/Runner/Configs/Updates.xcconfig'
+        config.parent.mkdir(parents=True)
+        config.write_text('AIRPLAY_UPDATE_PUBLIC_KEY = ' + PUBLIC + '\n')
         self.dmg = self.root / 'Flutter-AirPlay-1.2.3-macos-arm64.dmg'
         self.dmg.write_bytes(b'archive fixture')
         self.info = {'SUPublicEDKey': PUBLIC, 'SUFeedURL': release.FEED_URL,
@@ -49,6 +52,34 @@ class SparkleTests(unittest.TestCase):
                 patch.object(release, 'verify_signature'):
             release.appcast(self.app, self.dmg)
         return self.root / 'appcast.xml'
+
+    def test_build_public_key_does_not_require_or_inspect_private_key(self):
+        with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY': 'invalid private key',
+                                     'SPARKLE_PUBLIC_KEY': 'invalid override',
+                                     'AIRPLAY_SPARKLE_ACCOUNT': 'unavailable'}), \
+                patch.object(release, 'derive_public_key') as derive, \
+                patch.object(release, 'sparkle_tool') as tool:
+            self.assertEqual(release.update_public_key(), PUBLIC)
+        derive.assert_not_called()
+        tool.assert_not_called()
+
+    def test_client_config_command_works_without_signing_credentials(self):
+        root = Path(__file__).resolve().parents[2]
+        env = dict(os.environ)
+        for name in ('SPARKLE_PRIVATE_KEY', 'SPARKLE_PUBLIC_KEY', 'AIRPLAY_SPARKLE_ACCOUNT'):
+            env.pop(name, None)
+        result = subprocess.run(
+            [release.sys.executable, '-I', str(root / 'scripts/release_assets.py'), 'updates-config'],
+            env=env, capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout.strip(), '3pNUvlqX6gUtmX2MazGLCGUfmmuu2yIs8dNq3PreG1c=')
+
+    def test_repository_clients_share_the_published_public_key(self):
+        root = Path(__file__).resolve().parents[2]
+        with patch.object(release, 'ROOT', root):
+            public = release.update_public_key()
+        self.assertEqual(public, '3pNUvlqX6gUtmX2MazGLCGUfmmuu2yIs8dNq3PreG1c=')
+        self.assertIn("const updatePublicKey = '" + public + "';",
+                      (root / 'lib/platform/update_public_key.dart').read_text())
 
     def test_android_extension_preserves_macos_metadata_and_shared_notes(self):
         feed = self.make_feed()
@@ -173,13 +204,12 @@ class SparkleTests(unittest.TestCase):
         release.validate_bundle_updates(self.app, '')
 
     def test_signing_config_missing_invalid_or_mismatched_keys(self):
-        for private, public in (('', ''), (PRIVATE, ''), ('', PUBLIC)):
-            with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY':private, 'SPARKLE_PUBLIC_KEY':public}):
-                self.assertEqual(release.signing_config(), '')
-                with self.assertRaisesRegex(ValueError, 'require'):
-                    release.signing_config(required=True)
-        for private, public in (('not a key', PUBLIC), (PRIVATE, 'not a key'), (PRIVATE + '\n', PUBLIC)):
-            with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY':private, 'SPARKLE_PUBLIC_KEY':public}), self.assertRaises(ValueError):
+        with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY': '', 'SPARKLE_PUBLIC_KEY': ''}):
+            self.assertEqual(release.signing_config(), '')
+            with self.assertRaisesRegex(ValueError, 'requires'):
+                release.signing_config(required=True)
+        for private in ('not a key', PRIVATE + '\n'):
+            with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY': private}), self.assertRaises(ValueError):
                 release.signing_config(required=True)
         with patch.object(release, 'derive_public_key', return_value='wrong'), self.assertRaisesRegex(ValueError, 'does not match'):
             release.signing_config(required=True)
@@ -244,13 +274,14 @@ class SparkleTests(unittest.TestCase):
         release.previous_version_check('1.2.3', 4, [])
         release.previous_version_check('1.2.3', 4, [{'draft':True}])
 
-    def test_tag_metadata_fails_before_output_when_signing_missing(self):
+    def test_tag_metadata_does_not_require_private_signing_key(self):
         output = self.root / 'output'
-        with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY':'', 'SPARKLE_PUBLIC_KEY':'',
-                                    'RELEASE_EVENT':'push', 'RELEASE_REF_TYPE':'tag', 'RELEASE_TAG':'v1.2.3',
-                                    'GITHUB_OUTPUT':str(output)}), self.assertRaisesRegex(ValueError, 'require'):
+        with patch.dict(os.environ, {'SPARKLE_PRIVATE_KEY': '',
+                                    'RELEASE_EVENT': 'push', 'RELEASE_REF_TYPE': 'tag', 'RELEASE_TAG': 'v1.2.3',
+                                    'GITHUB_OUTPUT': str(output)}), \
+                patch.object(release, 'previous_version_check'):
             release.metadata()
-        self.assertFalse(output.exists())
+        self.assertIn('version=1.2.3', output.read_text())
 
     def test_publication_cannot_omit_feed(self):
         assets = self.root / 'release-assets'

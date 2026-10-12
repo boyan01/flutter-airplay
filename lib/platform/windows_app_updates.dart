@@ -6,12 +6,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'download_app_updates.dart';
+import 'update_public_key.dart';
 
 class WindowsAppUpdateService extends DownloadAppUpdateService {
   WindowsAppUpdateService({
     super.clientFactory,
     super.temporaryDirectory,
-    this.publicKey = const String.fromEnvironment('AIRPLAY_UPDATE_PUBLIC_KEY'),
+    this.publicKey = updatePublicKey,
   }) : super(
          platform: 'windows',
          extension: 'exe',

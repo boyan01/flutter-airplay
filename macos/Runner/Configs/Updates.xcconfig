@@ -1,3 +1,2 @@
-// Inject the real release Ed25519 public key through XCODE_XCCONFIG_FILE.
-// An empty key deliberately disables updates in unsigned development builds.
-AIRPLAY_UPDATE_PUBLIC_KEY =
+// Public trust anchor from the published v0.1.6 application.
+AIRPLAY_UPDATE_PUBLIC_KEY = 3pNUvlqX6gUtmX2MazGLCGUfmmuu2yIs8dNq3PreG1c=

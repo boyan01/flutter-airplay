@@ -69,7 +69,7 @@ class ReleaseTests(unittest.TestCase):
             (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
             (root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
             output = root / 'output'
-            with patch.object(release, 'ROOT', root), patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'signing_config'), patch.object(release, 'previous_version_check'):
+            with patch.object(release, 'ROOT', root), patch.object(release, 'version', return_value='1.2.3'), patch.object(release, 'update_public_key'), patch.object(release, 'previous_version_check'):
                 for event, ref_type, tag, succeeds in (
                     ('pull_request', 'branch', '2/merge', True),
                     ('workflow_dispatch', 'branch', 'feat/release', True),
@@ -143,6 +143,9 @@ class ReleaseTests(unittest.TestCase):
     def publish_fixture(self, root):
         self.fill(root, False)
         (root / 'pubspec.yaml').write_text('version: 1.2.3+4\n')
+        config = root / 'macos/Runner/Configs/Updates.xcconfig'
+        config.parent.mkdir(parents=True)
+        config.write_text('AIRPLAY_UPDATE_PUBLIC_KEY = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n')
         (root / 'CHANGELOG.md').write_text('## 1.2.3\n### 中文\n- 改进投屏。\n### English\n- Improve mirroring.\n')
         return patch.dict(os.environ, {'RELEASE_TAG': 'v1.2.3', 'RELEASE_SHA': 'a' * 40,
                                       'ANDROID_SIGNED': 'false', 'GITHUB_STEP_SUMMARY': str(root / 'summary'),

@@ -152,9 +152,19 @@ def derive_public_key(private_key):
     return base64.b64encode(public_der[-32:]).decode()
 
 
+def update_public_key():
+    config = (ROOT / 'macos/Runner/Configs/Updates.xcconfig').read_text()
+    match = re.search(r'^AIRPLAY_UPDATE_PUBLIC_KEY = (\S+)$', config, re.MULTILINE)
+    if not match:
+        raise ValueError('Repository update public key is missing.')
+    public = match.group(1)
+    decode_key(public, 'Repository update public key', 32)
+    return public
+
+
 def signing_config(required=False):
     private = os.environ.get('SPARKLE_PRIVATE_KEY', '')
-    public = os.environ.get('SPARKLE_PUBLIC_KEY', '')
+    public = update_public_key()
     account = os.environ.get('AIRPLAY_SPARKLE_ACCOUNT', '')
     if account:
         if sys.platform != 'darwin':
@@ -164,15 +174,15 @@ def signing_config(required=False):
         keychain_public = crypto_command([str(sparkle_tool('generate_keys')), '--account', account, '-p']).decode().strip()
         decode_key(keychain_public, 'Keychain public key', 32)
         if public and public != keychain_public:
-            raise ValueError('Keychain public key does not match SPARKLE_PUBLIC_KEY.')
+            raise ValueError('Keychain public key does not match the repository update public key.')
         return keychain_public
-    if (not private or not public) and not required:
+    if not private and not required:
         return ''
-    if not private or not public:
-        raise ValueError('macOS updates require SPARKLE_PRIVATE_KEY and SPARKLE_PUBLIC_KEY; tag releases cannot omit signing configuration.')
-    decode_key(public, 'SPARKLE_PUBLIC_KEY', 32)
+    if not private:
+        raise ValueError('Publishing updates requires SPARKLE_PRIVATE_KEY or AIRPLAY_SPARKLE_ACCOUNT.')
+    decode_key(public, 'Repository update public key', 32)
     if derive_public_key(private) != public:
-        raise ValueError('SPARKLE_PRIVATE_KEY does not match SPARKLE_PUBLIC_KEY.')
+        raise ValueError('SPARKLE_PRIVATE_KEY does not match the repository update public key.')
     return public
 
 
@@ -234,7 +244,7 @@ def metadata():
         validate_tag(os.environ.get('RELEASE_TAG', ''), current)
     if required:
         changelog_entry(current)
-        signing_config(required=True)
+        update_public_key()
         previous_version_check(current, build_number())
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write(f'version={current}\nbuild={build_number()}\n')
@@ -270,7 +280,7 @@ def sparkle_tool(name='sign_update'):
 
 
 def verify_signature(archive, signature, public):
-    public_bytes = decode_key(public, 'SPARKLE_PUBLIC_KEY', 32)
+    public_bytes = decode_key(public, 'Repository update public key', 32)
     signature_bytes = decode_key(signature, 'sparkle:edSignature', 64)
     if sys.platform == 'darwin':
         crypto_command(['swift', '-e', SWIFT_CRYPTO, 'verify', str(archive), public, signature])
@@ -465,8 +475,8 @@ def publish():
     signed_text = os.environ.get('ANDROID_SIGNED')
     if signed_text not in ('true', 'false'):
         raise ValueError('Android job must explicitly report signed=true or signed=false.')
-    public = os.environ.get('SPARKLE_PUBLIC_KEY', '')
-    decode_key(public, 'SPARKLE_PUBLIC_KEY', 32)
+    public = update_public_key()
+    decode_key(public, 'Repository update public key', 32)
     signed = signed_text == 'true'
     directory = ROOT / 'build/release-assets'
     if signed:
@@ -526,11 +536,11 @@ if __name__ == '__main__':
     try:
         args = parser.parse_args()
         if args.command == 'updates-config':
-            print(signing_config(args.required))
+            print(signing_config(required=True) if args.required else update_public_key())
         elif args.command == 'updates-bundle':
             if not args.app:
                 raise ValueError('updates-bundle requires --app.')
-            validate_bundle_updates(args.app, signing_config(args.required))
+            validate_bundle_updates(args.app, update_public_key())
         elif args.command == 'appcast':
             if not args.app or not args.dmg:
                 raise ValueError('appcast requires --app and --dmg.')

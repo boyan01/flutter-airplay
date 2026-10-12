@@ -789,10 +789,11 @@ Dart 从 `package_info_plus` 读取当前版本，复用更新检查调度和面
 ### Windows 应用内更新
 
 Windows 正式安装版复用 Flutter 更新面板和检查计划，默认自动检查，下载与安装均由用户触发。
-`package_windows.ps1` 通过 `SPARKLE_PUBLIC_KEY` 环境变量读取共用公钥，构建时传入
-`--dart-define=AIRPLAY_UPDATE_PUBLIC_KEY=...`；未配置公钥、Debug 构建或非当前用户注册的
-Inno Setup 安装目录禁用更新。已有旧版需先手动安装一次配置公钥的新版本。
-本地使用 `-SkipBuild` 时保留原构建的公钥配置，改变公钥后必须重新构建。
+macOS、Windows 和发布脚本使用仓库内的同一正式 Ed25519 公钥，普通构建无需密钥环境变量。
+macOS 公钥保存在 `macos/Runner/Configs/Updates.xcconfig`；Windows 使用
+`lib/platform/update_public_key.dart` 中的同值常量，发布回归测试检查两者一致。
+Debug 构建或非当前用户注册的 Inno Setup 安装目录禁用 Windows 更新。
+已有缺少公钥的旧版需先手动安装一次新版本。更改公钥后必须重新构建，不能使用 `-SkipBuild`。
 
 发布端在 `appcast.xml` 中添加 `airplay:windows`，包含 `version`、`build`、`arch=x64`、
 `url`、`length`、`sha256` 和 `edSignature`。签名消息使用 UTF-8，依次为
@@ -829,13 +830,13 @@ release notes 链接到同一 Release。Linux 和 iPad 没有此安装流程。A
 `SPUUserDriver`，不显示 Sparkle 标准窗口。关闭面板只关闭展示，取消下载需明确点击取消；
 下载和解压完成后等待“安装并重启”，投屏中的最后退出确认及正常资源清理仍保留。
 
-仓库管理员应配置以下两项，不能在每次 CI 中重新生成密钥：
+仓库管理员应配置发布私钥，不能在每次 CI 中重新生成密钥：
 
 | 配置 | 内容 |
 | --- | --- |
 | GitHub Actions secret `SPARKLE_PRIVATE_KEY` | Sparkle 2.10.0 官方 `generate_keys -x` 导出的 Base64 文本；新版格式解码后是 32 字节私钥 seed |
-| Repository variable `SPARKLE_PUBLIC_KEY` | 同一密钥的 canonical Base64 公钥（32 字节）；也支持同名 secret 回退 |
 
+现有发布必须继续使用与仓库公钥对应的原始私钥，不要重新生成。以下命令仅供首次初始化新项目参考。
 用 [Sparkle 2.10.0 官方分发](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.0) 中的
 `bin/generate_keys --account flutter-airplay` 创建一次长期密钥；用
 `bin/generate_keys --account flutter-airplay -p` 读取公钥，
@@ -847,23 +848,25 @@ issue 或聊天，不要写入 checkout、缓存或 artifacts。脚本只接受�
 本地已有钥匙串账户时，可运行 `AIRPLAY_SPARKLE_ACCOUNT=flutter-airplay ./scripts/package_macos.sh`。
 脚本通过官方 `generate_keys -p` 获取公钥，并由 `sign_update --account` 直接读取钥匙串签名；
 不导出私钥，也不将私钥传给构建进程。首次读取可能需要 macOS 钥匙串授权；账户必须已经存在。
-若同时设置 `SPARKLE_PUBLIC_KEY`，它必须与账户公钥匹配；此模式不能同时设置 `SPARKLE_PRIVATE_KEY`。
-CI 继续使用 Secrets，普通本地打包不设置账户或密钥时仍禁用更新。
+钥匙串账户的公钥必须与仓库公钥匹配；此模式不能同时设置 `SPARKLE_PRIVATE_KEY`。
+CI 继续使用私钥 Secret。`SPARKLE_PUBLIC_KEY` 环境变量不再使用。
 
-`macos/Runner/Configs/Updates.xcconfig` 的公钥默认留空。打包脚本在仓库外创建临时
-`XCODE_XCCONFIG_FILE`，只覆盖公开的 `AIRPLAY_UPDATE_PUBLIC_KEY`；私钥通过 stdin 传给官方
-`sign_update`，不作为命令行参数、日志或文件保存，也不传给 Flutter/Xcode 构建进程。
+公钥来自正式发布的 v0.1.6 安装包，并已验证该版本 DMG 的更新签名。
+普通本地打包直接使用仓库公钥，不读取私钥或钥匙串，安装后的应用可以检查正式更新。
+有发布私钥或显式指定钥匙串账户时，打包完成后才生成签名 appcast。
+私钥通过 stdin 传给官方 `sign_update`，不作为命令行参数、日志或文件保存，
+也不传给 Flutter/Xcode 构建进程。
 签名工具从固定版本归档下载，并校验 SHA-256
 `c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c`，缓存到
 `~/Library/Caches/FlutterAirPlay/Sparkle/2.10.0/`，可用 `AIRPLAY_SPARKLE_CACHE` 指定独立缓存根目录。
 脚本验证私钥对应公钥、最终 app 内嵌公钥/feed/版本一致、官方工具验签，最后用 CryptoKit
 对公钥再次验签；Linux publish job 使用 OpenSSL 3 对同一公钥验签。
 
-推送 tag 时缺任一配置、密钥不匹配、历史版本/build 未递增或 appcast 校验失败，均使发布失败，
-不能产生缺少 feed 的 latest Release。手动 macOS 打包缺任一 key 时仍生成普通 DMG，公钥覆盖
-为空，更新入口明确不可用，不生成 appcast；两项都设置时生成签名 feed，但本地实验不检查远程
-历史递增。`AIRPLAY_REQUIRE_UPDATES=true ./scripts/package_macos.sh` 可启用与 tag 相同的必要配置
-和历史检查。使用历史检查需要 `gh`、可读 Release/tag 元数据的 `GH_TOKEN` 和正确的 `GH_REPO`。
+推送 tag 时缺少私钥、密钥不匹配、历史版本/build 未递增或 appcast 校验失败，均使发布失败，
+不能产生缺少 feed 的 latest Release。手动 macOS 打包没有私钥时仍生成带正式公钥的 DMG，
+保留客户端更新能力，但不生成 appcast。配置私钥时生成签名 feed，本地实验不检查远程历史递增。
+`AIRPLAY_REQUIRE_UPDATES=true ./scripts/package_macos.sh` 可要求签名配置和历史检查。
+使用历史检查需要 `gh`、可读 Release/tag 元数据的 `GH_TOKEN` 和正确的 `GH_REPO`。
 GitHub 手动运行永远只上传 artifacts，不发布。
 
 `./scripts/test_native.sh build` 包括 Python 发布回归：appcast XML/版本/长度/具体版本 URL、
