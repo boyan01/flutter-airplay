@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "../../playback/platform.h"
+#include "../../backends/apple/apple_video.h"
 #include "video_scheduler_test.h"
 #include "../../playback/audio_decoder.h"
 #include "audio_clock_tests.h"
@@ -97,29 +98,45 @@ int main() {
             using namespace reorder_fixtures;
             const auto start = monotonic_ns(), first_due = start + 80000000;
             constexpr int64_t period = kSecond / 60;
-            int sent = 0, presented = 0, early = 0, backwards = 0;
-            int64_t previous = 0;
-            auto reordered = make_video_output(nullptr, nullptr, nullptr, {
-                [&](void *, int, int, int64_t pts, uint64_t) {
-                    if (pts < first_due + 16 * period || pts >= first_due + 76 * period) return;
+            int64_t clock = start;
+            int presented = 0;
+            auto reordered = make_apple_video_output({
+                [&](void *frame, int, int, int64_t pts, uint64_t generation) {
+                    check(frame && generation == 9, "B-frame output retains decoded pixels and generation");
+                    check(pts == first_due + presented * period, "every B-frame is submitted in timestamp order");
+                    check(pts <= clock + 50000000, "B-frame handoff respects the native surface lead");
                     ++presented;
-                    early += pts > monotonic_ns() + 50000000;
-                    backwards += previous && pts <= previous;
-                    previous = pts;
-                }, [](const char *) {}
-            });
-            while (monotonic_ns() < start + 96 * period + 300000000) {
-                const auto now = monotonic_ns();
-                if (sent < 96 && now >= start + sent * period) {
-                    const auto &packet = bframes_packets[sent++];
-                    check(reordered->decode({{bframes_data + packet[0], bframes_data + packet[0] + packet[1]},
-                        first_due + packet[2] * period, 9}), "decode reordered H.264 stream");
+                }, [](const char *message) { std::printf("%s\n", message); }
+            }, [&] { return clock; });
+            for (size_t sent = 0; sent < std::size(bframes_packets); ++sent) {
+                clock = start + int64_t(sent) * period;
+                const auto &packet = bframes_packets[sent];
+                check(reordered->can_decode(), "B-frame input stays within the decoder watermark");
+                check(reordered->decode({{bframes_data + packet[0], bframes_data + packet[0] + packet[1]},
+                    first_due + packet[2] * period, 9}), "decode reordered H.264 stream");
+                // Wait for real asynchronous decoding without advancing playback
+                // time. A slow CI worker must not turn this into a throughput test.
+                const auto until = monotonic_ns() + 5 * kSecond;
+                for (;;) {
+                    const auto stats = reordered->stats();
+                    if (stats.submitted + stats.dropped + stats.pending == sent + 1) break;
+                    check(monotonic_ns() < until, "VideoToolbox produces every B-frame before timeout");
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
+                // Reproduce a host scheduling pause longer than the late budget.
+                // The controlled playback clock must keep ordering deterministic.
+                if (sent == 40) std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 reordered->drain();
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-            std::printf("Mac B-frame output: presented=%d/60 early=%d backwards=%d\n", presented, early, backwards);
-            check(presented >= 58 && !early && !backwards, "Mac presents B-frames by timestamp without early or backwards output");
+            while (reordered->stats().pending) {
+                clock = reordered->next_deadline();
+                reordered->drain();
+            }
+            const auto stats = reordered->stats();
+            std::printf("Mac B-frame output: presented=%d/%zu dropped=%llu pending=%zu\n",
+                presented, std::size(bframes_packets), static_cast<unsigned long long>(stats.dropped), stats.pending);
+            check(presented == std::size(bframes_packets) && !stats.dropped,
+                "Mac submits every B-frame despite host scheduling pauses");
         }
         {
             auto bounded = make_video_output(nullptr, nullptr, nullptr, {{}, [](const char *) {}});

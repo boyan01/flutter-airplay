@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "../../playback/platform.h"
+#include "apple_video.h"
 #include "../../playback/video_scheduler.h"
 #include <VideoToolbox/VideoToolbox.h>
 #include <CoreVideo/CoreVideo.h>
@@ -10,7 +10,8 @@
 namespace airplay {
 class MacVideo final : public VideoOutput {
 public:
-    explicit MacVideo(VideoCallbacks callbacks) : callbacks_(std::move(callbacks)) {}
+    explicit MacVideo(VideoCallbacks callbacks, std::function<int64_t()> clock)
+        : callbacks_(std::move(callbacks)), clock_(std::move(clock)) {}
     ~MacVideo() override { reset(); }
     bool supports_hevc() const override {
         return VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC);
@@ -24,7 +25,7 @@ public:
     }
     int64_t next_deadline() const override { return scheduler_.next_deadline(); }
     void drain() override {
-        scheduler_.drain();
+        scheduler_.drain(clock_ ? clock_() : 0);
         const auto schedule = scheduler_.diagnostics();
         if (!schedule.empty() && callbacks_.log) callbacks_.log(schedule.c_str());
         report_stats(false);
@@ -264,12 +265,16 @@ private:
     OSStatus last_callback_status_ = noErr;
     VTDecodeInfoFlags last_callback_flags_ = 0;
     VideoCallbacks callbacks_;
+    std::function<int64_t()> clock_;
     bool hevc_ = false;
     std::vector<uint8_t> vps_, sps_, pps_;
     VTDecompressionSessionRef session_ = nullptr;
     CMVideoFormatDescriptionRef format_ = nullptr;
 };
+std::unique_ptr<VideoOutput> make_apple_video_output(VideoCallbacks cb, std::function<int64_t()> clock) {
+    return std::make_unique<MacVideo>(std::move(cb), std::move(clock));
+}
 std::unique_ptr<VideoOutput> make_video_output(void *, const char *, const char *, VideoCallbacks cb) {
-    return std::make_unique<MacVideo>(std::move(cb));
+    return make_apple_video_output(std::move(cb));
 }
 } // namespace airplay
