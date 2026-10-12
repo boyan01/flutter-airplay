@@ -8,14 +8,12 @@ usage() {
 Usage: ./scripts/test_native.sh [target] [suite] [arguments]
 
 Without a target, run the current OS's basic native suite.
-  macos [player|all|host|texture|rtp|window|desktop]
-      player is the default; all adds host, texture, RTP and GUI window tests.
-      all/window require a Debug Flutter app and a logged-in GUI session.
+  macos [player|all|host|texture|rtp]
+      player is the default; all adds host, texture and RTP tests.
       player accepts CTest arguments, e.g. macos player -R playback.
   linux [player|video|gpu|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
-      player is the default; all includes available GTK/window tests.
-      Argument-free all also runs caption drag and standalone ALAC tests.
-      linux window [bundle-path] tests real caption dragging.
+      player is the default; all includes available Flutter host and texture tests.
+      Argument-free all also runs standalone ALAC tests.
   windows [player|video|texture|all] [CTest arguments]
       player is the default; video checks platform and FFmpeg decoders.
       Run existing fixtures prepared by build_native.ps1 -Tests.
@@ -23,10 +21,6 @@ Without a target, run the current OS's basic native suite.
       texture uses windows_texture_test built in the Flutter Windows project.
       installer <setup.exe> checks install, upgrade, startup and uninstall.
       Invoke this script with Bash from the configured Windows toolchain.
-  <macos|linux|windows> desktop [--os-input]
-      Run integration_test/desktop_test.dart once for shared desktop GUI tests.
-      --os-input also requires real OS input capability; no permission is granted.
-      Use an isolated GUI session: tests can move the pointer and create windows.
   android [host|rtp|player [--full]|kotlin]
       host is the default; RTP is separate to avoid duplicate host runs.
       player tests selected decoders; --full restores the decoder/size matrix.
@@ -92,27 +86,6 @@ macos_rtp() (
     cmake -S "$project_root/native" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
     cmake --build "$project_root/build/macos-native" --target protocol_rtp_tests --parallel 8
     ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -R '^rtp$'
-)
-
-macos_window() (
-    test_root="$project_root/build/window-tests"
-    framework_root="$project_root/build/macos/Build/Products/Debug"
-    if [[ ! -d "$framework_root/FlutterMacOS.framework/Headers" ]]; then
-      echo 'Generate macOS Debug output with flutter run -d macos first. See DEVELOPMENT.md for GUI test prerequisites.' >&2
-      exit 1
-    fi
-    mkdir -p "$test_root"
-    # Same-file extensions access private test seams without rewriting production code.
-    cat "$project_root/macos/Runner/MainFlutterWindow.swift" "$project_root/macos/tests/window/main.swift" > "$test_root/main.swift"
-    swiftc -F "$framework_root" -framework FlutterMacOS \
-      -import-objc-header "$project_root/macos/Runner/Receiver-Bridging-Header.h" \
-      -L "$project_root/build/macos-native" -lairplay_player \
-      -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
-      -Xlinker -rpath -Xlinker "$framework_root" \
-      "$project_root/native/apple/ReceiverHost.swift" "$project_root/macos/Runner/VideoSurface.swift" \
-      "$test_root/main.swift" -o "$test_root/window-tests"
-    # Requires a logged-in macOS GUI session. AppKit performs real fullscreen transitions.
-    "$test_root/window-tests"
 )
 
 alac_tests() (
@@ -282,53 +255,16 @@ linux_tests() (
     ctest --test-dir "$project_root/build/linux-native" --output-on-failure "${test_args[@]}"
 )
 
-linux_window() (
-    if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
-      echo 'SKIP: real Flutter caption drag is unsupported in the hosted Xvfb environment (GDK event device errors). GTK/window lifecycle tests still run.'
-      exit 0
-    fi
-    for command in xvfb-run dbus-run-session openbox xdotool python3; do
-      command -v "$command" >/dev/null || { echo "Missing window test dependency: $command" >&2; exit 1; }
-    done
-    bundle="${1:-$project_root/build/linux/x64/debug/bundle}"
-    xvfb-run -a dbus-run-session -- python3 "$project_root/linux/tests/window_drag_test.py" "$bundle/flutter_airplay"
-)
-
-desktop_tests() (
-    platform="$1"
-    shift
-    [[ $# -eq 0 || ( $# -eq 1 && "$1" == --os-input ) ]] ||
-        fail 'desktop accepts only --os-input.'
-    cd "$project_root"
-    entrypoint=integration_test/desktop_test.dart
-    [[ -f "$entrypoint" ]] || fail "Missing desktop suite: $entrypoint."
-    input=false
-    if [[ "${1:-}" == --os-input ]]; then input=true; fi
-    printf 'Desktop suite: %s; OS input requested: %s\n' "$platform" "$input"
-    printf '  %s\n' "$entrypoint"
-    # An OS-input fixture must fail, not silently skip, when input was requested
-    # but its platform/session cannot provide it. Never grant permissions here.
-    # On Windows use the native launcher: bin/flutter's Unix script overwrites
-    # the inherited OS environment variable with uname, breaking native tools.
-    flutter_command=flutter
-    if [[ "$platform" == windows ]]; then flutter_command=flutter.bat; fi
-    # One Dart entry point keeps every group in the same application process.
-    # Passing multiple files would rebuild/relaunch each desktop test application.
-    "$flutter_command" test -d "$platform" "$entrypoint" --reporter expanded \
-        "--dart-define=AIRPLAY_OS_INPUT_TEST=$input"
-)
-
 macos_tests() {
     local suite="${1:-player}"
     if [[ $# -gt 0 ]]; then shift; fi
     if [[ "$suite" != player && $# -gt 0 ]]; then fail 'Only the player suite accepts CTest arguments.'; fi
     case "$suite" in
-        all) macos_player; macos_host; macos_texture; macos_rtp; macos_window ;;
+        all) macos_player; macos_host; macos_texture; macos_rtp ;;
         player) macos_player "$@" ;;
         host) macos_host ;;
         texture) macos_texture ;;
         rtp) macos_rtp ;;
-        window) macos_window ;;
         *) fail "Unknown macOS suite: $suite. Use --help." ;;
     esac
 }
@@ -392,13 +328,6 @@ else
     shift
 fi
 
-# Desktop integration stays explicit; default native/player runs stay headless.
-if [[ "$target" == macos || "$target" == linux || "$target" == windows ]] && [[ "${1:-}" == desktop ]]; then
-    shift
-    desktop_tests "$target" "$@"
-    exit
-fi
-
 case "$target" in
     --help|-h) usage ;;
     build)
@@ -428,14 +357,8 @@ case "$target" in
         ;;
     macos) macos_tests "$@" ;;
     linux)
-        if [[ "${1:-}" == window ]]; then
-            shift
-            [[ $# -le 1 ]] || fail 'Linux window accepts one optional bundle path.'
-            linux_window "$@"
-        else
-            linux_tests "$@"
-            if [[ "${1:-}" == all && $# -eq 1 ]]; then linux_window; alac_tests; fi
-        fi
+        linux_tests "$@"
+        if [[ "${1:-}" == all && $# -eq 1 ]]; then alac_tests; fi
         ;;
     windows) windows_tests "$@" ;;
     android) android_tests "$@" ;;

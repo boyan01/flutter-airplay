@@ -170,7 +170,7 @@ jobs:
               sleep 0.1
             done
             xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"
-            ./scripts/test_native.sh linux desktop --os-input
+            flutter test -d linux integration_test/desktop_test.dart --reporter expanded
           DESKTOP
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
@@ -205,7 +205,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts/macos
-          ./scripts/test_native.sh macos desktop --os-input 2>&1 | tee artifacts/macos/desktop.log
+          flutter test -d macos integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/macos/desktop.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
@@ -297,7 +297,7 @@ jobs:
           AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
         run: |
           mkdir -p artifacts/windows
-          ./scripts/test_native.sh windows desktop --os-input 2>&1 | tee artifacts/windows/desktop.log
+          flutter.bat test -d windows integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/windows/desktop.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:

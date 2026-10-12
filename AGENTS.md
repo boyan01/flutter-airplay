@@ -53,6 +53,9 @@ upstream changes in `vendor/UxPlay/UPSTREAM.md`.
 
 Use the `flutter run` loop and tests scoped to the change, reusing passing results while their inputs remain valid.
 Dart tests use `flutter test`; native tests use `scripts/test_native.sh`.
+Keep desktop integration coverage to one main-flow test per platform, running in one application instance.
+Extend that shared flow only for essential end-to-end behavior. Prefer Flutter unit and widget tests for
+UI layout, interactions, timers, edge cases and state combinations; these checks should run without real windows.
 Keep the default native suite small and select device/codec matrices explicitly.
 Add fixtures to the relevant suite, with generators beside their test sources.
 Shared native tests live in `native/tests/`; real host, window and device tests live in platform projects.
