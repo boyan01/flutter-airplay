@@ -715,6 +715,7 @@ class _PlayerPageState extends State<PlayerPage> {
     },
     child: Focus(
       focusNode: _surfaceFocus,
+      skipTraversal: true,
       autofocus: true,
       onKeyEvent: (_, event) {
         if (event is KeyUpEvent || widget.dialogOpen || _editingCrop) {

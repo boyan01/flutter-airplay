@@ -711,11 +711,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cropMoveActive =>
-      'Move · Arrow keys move · Confirm returns to tools';
+      'Move · Tap arrows to fine-tune, hold to move faster · Confirm returns to tools';
 
   @override
   String get cropResizeActive =>
-      'Resize · Left/up shrinks, right/down enlarges · Confirm returns to tools';
+      'Resize · Tap to fine-tune, hold for larger steps · Left/up shrinks, right/down enlarges · Confirm returns to tools';
 
   @override
   String get cropReset => 'Reset';

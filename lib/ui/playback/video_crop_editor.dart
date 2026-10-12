@@ -201,18 +201,24 @@ class _VideoCropEditorState extends State<VideoCropEditor> {
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.space) {
+      if (event is KeyRepeatEvent) return KeyEventResult.handled;
       (widget.television
               ? (_resizing ? _resizeFocus : _moveFocus)
               : _previewFocus)
           .requestFocus();
       return KeyEventResult.handled;
     }
+    // TV remotes have no modifier keys. Tap for source-pixel precision and
+    // use the platform's key-repeat delay before taking larger held steps.
+    final pixels = event is KeyRepeatEvent ? 8.0 : 1.0;
     final step = HardwareKeyboard.instance.isShiftPressed ? .05 : .01;
+    final horizontal = widget.television ? pixels / widget.sourceWidth : step;
+    final vertical = widget.television ? pixels / widget.sourceHeight : step;
     final delta = switch (key) {
-      LogicalKeyboardKey.arrowLeft => Offset(-step, 0),
-      LogicalKeyboardKey.arrowRight => Offset(step, 0),
-      LogicalKeyboardKey.arrowUp => Offset(0, -step),
-      LogicalKeyboardKey.arrowDown => Offset(0, step),
+      LogicalKeyboardKey.arrowLeft => Offset(-horizontal, 0),
+      LogicalKeyboardKey.arrowRight => Offset(horizontal, 0),
+      LogicalKeyboardKey.arrowUp => Offset(0, -vertical),
+      LogicalKeyboardKey.arrowDown => Offset(0, vertical),
       _ => null,
     };
     if (delta == null) return KeyEventResult.ignored;
@@ -259,8 +265,18 @@ class _VideoCropEditorState extends State<VideoCropEditor> {
     final strings = l10n(context);
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    return Focus(
+    return FocusScope(
       onKeyEvent: (_, event) {
+        // A held confirm must not reactivate the tool we just returned to.
+        if (widget.television &&
+            event is KeyRepeatEvent &&
+            {
+              LogicalKeyboardKey.enter,
+              LogicalKeyboardKey.select,
+              LogicalKeyboardKey.space,
+            }.contains(event.logicalKey)) {
+          return KeyEventResult.handled;
+        }
         if (event is KeyDownEvent &&
             (event.logicalKey == LogicalKeyboardKey.escape ||
                 event.logicalKey == LogicalKeyboardKey.goBack)) {

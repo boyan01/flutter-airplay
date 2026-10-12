@@ -684,10 +684,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get cropApply => '应用裁剪';
 
   @override
-  String get cropMoveActive => '移动 · 方向键移动 · 确认返回工具';
+  String get cropMoveActive => '移动 · 点按微调，长按快移 · 确认返回工具';
 
   @override
-  String get cropResizeActive => '调整大小 · 左上缩小，右下放大 · 确认返回工具';
+  String get cropResizeActive => '调整大小 · 点按微调，长按快调 · 左上缩小，右下放大 · 确认返回工具';
 
   @override
   String get cropReset => '重置';

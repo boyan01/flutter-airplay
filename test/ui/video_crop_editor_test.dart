@@ -261,6 +261,93 @@ void main() {
     },
   );
 
+  testWidgets('TV taps adjust one source pixel and held arrows move faster', (
+    tester,
+  ) async {
+    await mount(tester, initial: existing, television: true);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(
+      (await apply(tester)).left,
+      closeTo(existing.left + 1 / 1920, .000001),
+    );
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(
+      (await apply(tester)).top,
+      closeTo(existing.top + 9 / 1080, .000001),
+    );
+  });
+
+  for (final source in [const Size(3840, 2160), const Size(1080, 1920)]) {
+    testWidgets(
+      'TV fine movement uses source pixels at $source and clamps at edges',
+      (tester) async {
+        await mount(
+          tester,
+          initial: existing,
+          television: true,
+          width: source.width.toInt(),
+          height: source.height.toInt(),
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+        await tester.pumpAndSettle();
+        final adjusted = await apply(tester);
+        expect(
+          adjusted.left,
+          closeTo(existing.left - 1 / source.width, .000001),
+        );
+        expect(
+          adjusted.top,
+          closeTo(existing.top - 1 / source.height, .000001),
+        );
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+        for (var repeat = 0; repeat < 120; repeat++) {
+          await tester.sendKeyRepeatEvent(LogicalKeyboardKey.arrowLeft);
+        }
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
+        await tester.pumpAndSettle();
+        final bounded = await apply(tester);
+        expect(bounded.left, 0);
+        expect(bounded.width, closeTo(adjusted.width, .000001));
+        expect(bounded.height, closeTo(adjusted.height, .000001));
+      },
+    );
+  }
+
+  testWidgets('TV resize is precise and repeating confirm keeps tool focus', (
+    tester,
+  ) async {
+    await mount(tester, initial: existing, television: true);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    final resized = await apply(tester);
+    expect(resized.width, closeTo(existing.width - 1 / 1920, .000001));
+    expect(resized.height, closeTo(existing.height, .000001));
+    expect(resized.center.dx, closeTo(existing.center.dx, .000001));
+    expect(resized.center.dy, closeTo(existing.center.dy, .000001));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.select);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    final resize = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Resize frame'),
+    );
+    expect(resize.focusNode!.hasPrimaryFocus, isTrue);
+  });
+
   testWidgets('narrow layout with large text wraps and scrolls all actions', (
     tester,
   ) async {

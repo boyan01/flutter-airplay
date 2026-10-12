@@ -97,6 +97,77 @@ void main() {
     expect(find.byType(VideoCropEditor), findsOneWidget);
   }
 
+  testWidgets('TV remote opens crop from player and edits the selection', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      platform: 'android',
+      native: true,
+      television: true,
+      initialCrop: crop,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoCropEditor), findsOneWidget);
+    final move = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Move frame'),
+    );
+    expect(move.focusNode!.hasPrimaryFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    final selection = find.byKey(const Key('cropSelection'));
+    final before = tester.getRect(selection);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(selection).left, greaterThan(before.left));
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(move.focusNode!.hasPrimaryFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    final resize = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Resize frame'),
+    );
+    expect(resize.focusNode!.hasPrimaryFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    final moved = tester.getRect(selection);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(selection).width, lessThan(moved.width));
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoCropEditor), findsNothing);
+    expect(model.videoCrop, crop);
+    expect(escapes, 0);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const Key('cropVideo')))
+          .focusNode!
+          .hasPrimaryFocus,
+      isTrue,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Move frame'),
+          )
+          .focusNode!
+          .hasPrimaryFocus,
+      isTrue,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+  });
+
   VideoCropEditor editor(WidgetTester tester) =>
       tester.widget<VideoCropEditor>(find.byType(VideoCropEditor));
 

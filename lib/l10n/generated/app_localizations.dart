@@ -1397,13 +1397,13 @@ abstract class AppLocalizations {
   /// No description provided for @cropMoveActive.
   ///
   /// In en, this message translates to:
-  /// **'Move · Arrow keys move · Confirm returns to tools'**
+  /// **'Move · Tap arrows to fine-tune, hold to move faster · Confirm returns to tools'**
   String get cropMoveActive;
 
   /// No description provided for @cropResizeActive.
   ///
   /// In en, this message translates to:
-  /// **'Resize · Left/up shrinks, right/down enlarges · Confirm returns to tools'**
+  /// **'Resize · Tap to fine-tune, hold for larger steps · Left/up shrinks, right/down enlarges · Confirm returns to tools'**
   String get cropResizeActive;
 
   /// No description provided for @cropReset.
