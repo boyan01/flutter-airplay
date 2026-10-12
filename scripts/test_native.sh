@@ -24,7 +24,7 @@ Without a target, run the current OS's basic native suite.
       installer <setup.exe> checks install, upgrade, startup and uninstall.
       Invoke this script with Bash from the configured Windows toolchain.
   <macos|linux|windows> desktop [--os-input]
-      Discover integration_test/desktop_*_test.dart and run real GUI tests.
+      Run integration_test/desktop_test.dart once for shared desktop GUI tests.
       --os-input also requires real OS input capability; no permission is granted.
       Use an isolated GUI session: tests can move the pointer and create windows.
   android [host|rtp|player [--full]|kotlin]
@@ -300,32 +300,22 @@ desktop_tests() (
     [[ $# -eq 0 || ( $# -eq 1 && "$1" == --os-input ) ]] ||
         fail 'desktop accepts only --os-input.'
     cd "$project_root"
-    shopt -s nullglob
-    tests=(integration_test/desktop_*_test.dart)
-    [[ ${#tests[@]} -gt 0 ]] || fail 'No desktop integration tests discovered.'
+    entrypoint=integration_test/desktop_test.dart
+    [[ -f "$entrypoint" ]] || fail "Missing desktop suite: $entrypoint."
     input=false
     if [[ "${1:-}" == --os-input ]]; then input=true; fi
     printf 'Desktop suite: %s; OS input requested: %s\n' "$platform" "$input"
-    printf '  %s\n' "${tests[@]}"
+    printf '  %s\n' "$entrypoint"
     # An OS-input fixture must fail, not silently skip, when input was requested
     # but its platform/session cannot provide it. Never grant permissions here.
     # On Windows use the native launcher: bin/flutter's Unix script overwrites
     # the inherited OS environment variable with uname, breaking native tools.
     flutter_command=flutter
     if [[ "$platform" == windows ]]; then flutter_command=flutter.bat; fi
-    # The pinned Flutter SDK closes its desktop log reader after the first app.
-    # A fresh invocation per file isolates that state and still uses build caches.
-    status=0
-    for test in "${tests[@]}"; do
-        if "$flutter_command" test -d "$platform" "$test" --reporter expanded \
-            "--dart-define=AIRPLAY_OS_INPUT_TEST=$input"; then
-            printf 'PASS: %s\n' "$test"
-        else
-            status=$?
-            printf 'FAIL: %s (exit %s)\n' "$test" "$status" >&2
-        fi
-    done
-    exit "$status"
+    # One Dart entry point keeps every group in the same application process.
+    # Passing multiple files would rebuild/relaunch each desktop test application.
+    "$flutter_command" test -d "$platform" "$entrypoint" --reporter expanded \
+        "--dart-define=AIRPLAY_OS_INPUT_TEST=$input"
 )
 
 macos_tests() {

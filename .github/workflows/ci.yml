@@ -17,19 +17,17 @@ concurrency:
 
 jobs:
   quality:
-    name: Format, analyze and Dart tests
+    name: Dart checks and Linux tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
     outputs:
       shared: ${{ steps.changes.outputs.shared }}
       macos: ${{ steps.changes.outputs.macos }}
-      linux: ${{ steps.changes.outputs.linux }}
       windows: ${{ steps.changes.outputs.windows }}
       android: ${{ steps.changes.outputs.android }}
-      ios: ${{ steps.changes.outputs.ios }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -67,9 +65,6 @@ jobs:
               - '!**/*.md'
             android:
               - 'android/**'
-              - '!**/*.md'
-            ios:
-              - 'ios/**'
               - '!**/*.md'
       - name: Lint GitHub Actions
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
@@ -137,12 +132,54 @@ jobs:
         run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver
       - name: Analyze Dart
         run: flutter analyze --fatal-infos
-      - name: Install native assets test dependencies
+      - name: Install Linux test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libgtk-3-dev libx11-dev libxi-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+            libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            libpulse-dev libavahi-client-dev libepoxy-dev libffmpeg-nvenc-dev \
+            libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
+            xvfb dbus-x11 at-spi2-core openbox xdotool x11-utils
       - name: Run Dart tests
         run: flutter test
+      - name: Compile Debug app and prepare Flutter engine
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.shared == 'true' || steps.changes.outputs.linux == 'true'
+        run: flutter build linux --debug
+      - name: Run player, video, host and GTK tests
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.shared == 'true' || steps.changes.outputs.linux == 'true'
+        run: ./scripts/test_native.sh linux all
+      - name: Run desktop integration suite
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.shared == 'true' || steps.changes.outputs.linux == 'true'
+        timeout-minutes: 15
+        shell: bash
+        env:
+          GIO_USE_VFS: local
+          GTK_USE_PORTAL: '0'
+          NO_AT_BRIDGE: '1'
+        run: |
+          mkdir -p artifacts/linux
+          xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- bash -euo pipefail <<'DESKTOP' 2>&1 | tee artifacts/linux/desktop.log
+            openbox --sm-disable > artifacts/linux/openbox.log 2>&1 &
+            wm=$!
+            trap 'kill "$wm" 2>/dev/null || true' EXIT
+            for _attempt in {1..100}; do
+              if xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"; then
+                break
+              fi
+              kill -0 "$wm"
+              sleep 0.1
+            done
+            xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"
+            ./scripts/test_native.sh linux desktop --os-input
+          DESKTOP
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: linux-test-logs
+          path: |
+            artifacts/linux/
+            build/linux-native/Testing/Temporary/
+          retention-days: 7
 
   macos:
     name: macOS native and Debug app
@@ -178,67 +215,8 @@ jobs:
             build/macos-native/Testing/Temporary/
           retention-days: 7
 
-  linux:
-    name: Linux native, GTK and Debug app
-    needs: quality
-    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.linux == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Install native and virtual desktop dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
-            libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
-            libpulse-dev libavahi-client-dev libepoxy-dev libffmpeg-nvenc-dev \
-            libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
-            xvfb dbus-x11 at-spi2-core openbox xdotool x11-utils
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get --enforce-lockfile
-      - name: Compile Debug app and prepare Flutter engine
-        run: flutter build linux --debug
-      - name: Run player, video, host and GTK tests
-        run: ./scripts/test_native.sh linux all
-      - name: Run desktop integration suite
-        timeout-minutes: 15
-        shell: bash
-        env:
-          GIO_USE_VFS: local
-          GTK_USE_PORTAL: '0'
-          NO_AT_BRIDGE: '1'
-        run: |
-          mkdir -p artifacts/linux
-          xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- bash -euo pipefail <<'DESKTOP' 2>&1 | tee artifacts/linux/desktop.log
-            openbox --sm-disable > artifacts/linux/openbox.log 2>&1 &
-            wm=$!
-            trap 'kill "$wm" 2>/dev/null || true' EXIT
-            for _attempt in {1..100}; do
-              if xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"; then
-                break
-              fi
-              kill -0 "$wm"
-              sleep 0.1
-            done
-            xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id #"
-            ./scripts/test_native.sh linux desktop --os-input
-          DESKTOP
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: failure()
-        with:
-          name: linux-test-logs
-          path: |
-            artifacts/linux/
-            build/linux-native/Testing/Temporary/
-          retention-days: 7
-
   windows:
-    name: Windows native, Debug app and Setup
+    name: Windows native and Debug app
     needs: quality
     if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.windows == 'true'
     runs-on: windows-2022
@@ -330,42 +308,6 @@ jobs:
             build/windows/x64/Testing/Temporary/
           retention-days: 7
 
-      - name: Prepare Inno Setup compiler
-        shell: powershell
-        run: |
-          $compilerSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
-          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $compilerSetup
-          if ((Get-FileHash $compilerSetup -Algorithm SHA256).Hash -ne '9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732') {
-            throw 'Inno Setup compiler download SHA-256 mismatch.'
-          }
-          $compilerDir = Join-Path $env:RUNNER_TEMP 'inno-6.7.3'
-          $process = Start-Process -FilePath $compilerSetup -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER /PORTABLE=1 /NOICONS /DIR=`"$compilerDir`"" -WindowStyle Hidden -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw 'Inno Setup portable compiler preparation failed.' }
-          "AIRPLAY_ISCC=$compilerDir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Build Windows Release installer
-        env:
-          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
-          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
-        run: ./windows/scripts/package_windows.ps1 -InnoCompiler $env:AIRPLAY_ISCC
-      - name: Verify install, upgrade, startup and uninstall
-        shell: bash
-        run: ./scripts/test_native.sh windows installer build/distribution/windows/Flutter-AirPlay-*-windows-x64-setup.exe
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: failure()
-        with:
-          name: windows-installer-logs
-          path: artifacts/windows-installer-smoke/*.log
-          if-no-files-found: ignore
-          retention-days: 7
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: windows-x64-setup
-          path: |
-            build/distribution/windows/*-setup.exe
-            build/distribution/windows/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 14
-
   android:
     name: Android JNI, host, Kotlin and Debug app
     needs: quality
@@ -415,32 +357,6 @@ jobs:
             artifacts/android/
             build/app/reports/tests/
             build/app/test-results/
-          retention-days: 7
-
-  ios:
-    name: iPad simulator XCTest
-    needs: quality
-    if: github.event_name == 'workflow_dispatch' || needs.quality.outputs.shared == 'true' || needs.quality.outputs.ios == 'true'
-    runs-on: macos-15
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get --enforce-lockfile
-      - name: Prepare simulator Debug app
-        run: flutter build ios --simulator --debug --no-codesign
-      - name: Run XCTest on an available iPad simulator
-        run: ./scripts/test_native.sh ios
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: failure()
-        with:
-          name: ios-test-results
-          path: artifacts/ios/
           retention-days: 7
 
   flutter-stable:

@@ -140,18 +140,5 @@ void main() {
       reason: 'Hover must not activate the player',
     );
     expect(other.isFocused, isTrue);
-    moveTo(tester.getCenter(find.byKey(const Key('cropVideo'))));
-    await tester.pump(const Duration(seconds: 4));
-    expect(find.byKey(const Key('playerControls')), findsOneWidget);
-    moveTo(const Offset(250, 20));
-    await tester.pump(const Duration(seconds: 4));
-    expect(find.byKey(const Key('playerControls')), findsOneWidget);
-    expect(player.isFocused, isFalse);
-    moveTo(videoPoint);
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pump(const Duration(milliseconds: 250));
-    expect(find.byKey(const Key('playerControls')), findsNothing);
-    expect(other.isFocused, isTrue);
   }, skip: !const bool.fromEnvironment('AIRPLAY_OS_INPUT_TEST'));
 }

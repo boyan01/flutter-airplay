@@ -40,10 +40,9 @@ void main() {
       });
       FfiReceiverControl? control;
       Future<void> cleanUp() async {
-        // The live test binding needs a visible window to render its final
-        // frame. Restore visibility before it unwinds, after testing that the
-        // close-to-tray watchdog keeps the application hidden.
-        await window.withWindow((value) => value.show());
+        // Restore both window visibility and Dock activation for the next test.
+        // A close-to-tray launch leaves AppKit in accessory activation mode.
+        await desktop.show();
         window.listen(null);
         await desktop.dispose();
         control?.dispose();

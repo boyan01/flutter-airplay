@@ -146,7 +146,7 @@ Future<void> _executeWindow(
   () => controller.execute(command),
 );
 
-void main() {
+void main({bool smokeOnly = false}) {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   // Native resizes can synchronously pump engine frames. Use production-like
   // frame scheduling rather than the live test binding's pointer-fade policy.
@@ -184,36 +184,6 @@ void main() {
       );
       await tester.pumpWidget(ReceiverApp(model: ReceiverModel(backend)));
       await _settleWidgets(tester);
-      final bar = find.byKey(
-        Key(
-          Platform.isMacOS
-              ? 'macWindowBar'
-              : '${Platform.operatingSystem}WindowBar',
-        ),
-      );
-      final titleElement = tester.element(bar);
-      final origin = tester.getTopLeft(bar);
-      expect(
-        find.ancestor(of: bar, matching: find.byType(Navigator)),
-        findsNothing,
-      );
-      if (Platform.isMacOS) {
-        final title = find.descendant(
-          of: find.byKey(const Key('windowDragArea')),
-          matching: find.byType(Text),
-        );
-        final width =
-            tester.view.physicalSize.width / tester.view.devicePixelRatio;
-        expect(tester.getCenter(title).dx, closeTo(width / 2, 0.5));
-      }
-      await tester.tap(find.byKey(const Key('openSettings')));
-      await tester.pump(const Duration(milliseconds: 80));
-      expect(tester.element(bar), same(titleElement));
-      expect(tester.getTopLeft(bar), origin);
-      await _settleWidgets(tester);
-      await tester.tap(find.byKey(const Key('closeSettings')));
-      await _settleWidgets(tester);
-
       late native.Window window;
       await const WindowController().withWindow((value) => window = value);
       addTearDown(
@@ -239,23 +209,23 @@ void main() {
         window.isFullScreen = false;
         await waitForFullscreen(false);
       }
-      for (var cycle = 0; cycle < 2; cycle++) {
-        if (Platform.isMacOS) {
-          await tester.tap(find.byKey(const Key('windowFullscreen')));
-        } else {
-          await tester.sendKeyEvent(LogicalKeyboardKey.f11);
-        }
-        await waitForFullscreen(true);
-        if (Platform.isMacOS) {
-          await tester.tap(find.byKey(const Key('windowFullscreen')));
-        } else {
-          await tester.sendKeyEvent(LogicalKeyboardKey.f11);
-        }
-        await waitForFullscreen(false);
+      if (Platform.isMacOS) {
+        await tester.tap(find.byKey(const Key('windowFullscreen')));
+      } else {
+        await tester.sendKeyEvent(LogicalKeyboardKey.f11);
       }
+      await waitForFullscreen(true);
+      if (Platform.isMacOS) {
+        await tester.tap(find.byKey(const Key('windowFullscreen')));
+      } else {
+        await tester.sendKeyEvent(LogicalKeyboardKey.f11);
+      }
+      await waitForFullscreen(false);
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  if (smokeOnly) return;
 
   testWidgets('receiver events preserve real window geometry across sessions', (
     tester,

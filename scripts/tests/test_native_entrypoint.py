@@ -37,7 +37,7 @@ class MacOSSuiteDispatchTest(unittest.TestCase):
         self.assertEqual(result.stdout, '')
 
 
-class DesktopSuiteDiscoveryTest(unittest.TestCase):
+class DesktopSuiteEntrypointTest(unittest.TestCase):
     """Run the real shell entry point against a temporary project and fake Flutter."""
 
     def setUp(self):
@@ -69,10 +69,10 @@ class DesktopSuiteDiscoveryTest(unittest.TestCase):
     def fixture(self, name):
         (self.root / 'integration_test' / name).write_text('void main() {}\n')
 
-    def test_new_files_are_discovered_without_a_manifest_or_workflow_change(self):
-        self.fixture('desktop_window_test.dart')
-        self.fixture('android_receiver_test.dart')
-        self.fixture('desktop_helper.dart')
+    def test_desktop_suite_runs_once_without_update_tests(self):
+        self.fixture('desktop_test.dart')
+        self.fixture('desktop_updates_test.dart')
+        self.fixture('desktop_windows_updates_test.dart')
         for platform in ('macos', 'linux', 'windows'):
             with self.subTest(platform=platform):
                 result = self.run_suite(platform, '--os-input')
@@ -81,32 +81,24 @@ class DesktopSuiteDiscoveryTest(unittest.TestCase):
                 launcher = 'flutter.bat' if platform == 'windows' else 'flutter'
                 self.assertEqual(pathlib.Path((self.root / 'call.log.launcher').read_text().strip()).name, launcher)
                 self.assertEqual(args, ['test', '-d', platform,
-                    'integration_test/desktop_window_test.dart', '--reporter', 'expanded',
+                    'integration_test/desktop_test.dart', '--reporter', 'expanded',
                     '--dart-define=AIRPLAY_OS_INPUT_TEST=true'])
-        self.fixture('desktop_future_feature_test.dart')
-        result = self.run_suite('linux', '--os-input')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        args = (self.root / 'call.log').read_text().splitlines()
-        self.assertEqual(args.count('integration_test/desktop_future_feature_test.dart'), 1)
-        self.assertEqual(args.count('integration_test/desktop_window_test.dart'), 1)
-        self.assertEqual(args.count('test'), 2)
 
     def test_input_is_explicit_and_failure_propagates(self):
-        self.fixture('desktop_window_test.dart')
+        self.fixture('desktop_test.dart')
         result = self.run_suite()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('AIRPLAY_OS_INPUT_TEST=false', (self.root / 'call.log').read_text())
-        self.fixture('desktop_second_test.dart')
         self.env['FLUTTER_EXIT'] = '23'
         result = self.run_suite('linux', '--os-input')
         self.assertEqual(result.returncode, 23)
         args = (self.root / 'call.log').read_text().splitlines()
-        self.assertEqual(args.count('test'), 2)
-        self.assertEqual(result.stderr.count('FAIL:'), 2)
+        self.assertEqual(args.count('test'), 1)
 
-    def test_empty_suite_and_unknown_arguments_fail_before_flutter(self):
+    def test_missing_entrypoint_and_unknown_arguments_fail_before_flutter(self):
+        self.fixture('desktop_updates_test.dart')
         self.assertNotEqual(self.run_suite().returncode, 0)
-        self.fixture('desktop_window_test.dart')
+        self.fixture('desktop_test.dart')
         self.assertNotEqual(self.run_suite('linux', '--typo').returncode, 0)
         self.assertNotEqual(self.run_suite('linux', '--os-input', '--typo').returncode, 0)
         self.assertFalse((self.root / 'call.log').exists())

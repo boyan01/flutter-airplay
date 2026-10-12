@@ -148,7 +148,8 @@ bash scripts/test_native.sh windows all
 
 ### 应用集成测试
 
-桌面用例按 `integration_test/desktop_*_test.dart` 自动发现：
+桌面基础套件通过 `integration_test/desktop_test.dart` 统一运行启动、裁剪、悬停和窗口冒烟用例，
+只构建并启动一次测试应用：
 
 ```sh
 ./scripts/test_native.sh macos desktop --os-input
@@ -156,7 +157,15 @@ bash scripts/test_native.sh windows all
 
 将 `macos` 换为 `windows` 或 `linux` 选择目标。使用隔离的 GUI 会话和已有 OS 输入权限；
 用例会移动鼠标、创建窗口。Linux 使用 X11、Xvfb、Openbox 和 session D-Bus。
-省略 `--os-input` 可运行其余桌面用例。
+省略 `--os-input` 可运行其余桌面用例。窗口冒烟仅验证真实窗口隐藏/显示和全屏进出，
+悬停仅验证真实鼠标事件能在不抢焦点时显示控件。布局、隐藏计时与状态组合由 Dart 测试覆盖。
+完整窗口专项和更新测试不包含在基础套件中，需要时单独运行：
+
+```sh
+flutter test -d macos integration_test/desktop_window_test.dart
+flutter test -d macos integration_test/desktop_updates_test.dart
+flutter test -d windows integration_test/desktop_windows_updates_test.dart
+```
 
 Android 用例通过已启动的应用附加 driver，保留设备数据与权限：
 
@@ -175,8 +184,11 @@ flutter drive --driver=test_driver/integration_test.dart \
 清晰度验证使用 `integration_test/android_video_quality_test.dart`。
 结束后用 `flutter run -d <device-id> --target lib/main.dart` 恢复普通入口。
 
-[CI](.github/workflows/ci.yml) 执行格式、静态检查、生成文件比对、Dart 测试和按改动选择的平台回归。
-手动触发可覆盖全部平台。播放和生命周期改动还应在对应设备上确认发现、画面、声音及重连。
+[CI](.github/workflows/ci.yml) 先执行格式、静态检查、生成文件比对和 Dart 测试，
+通过后在同一个 Ubuntu job 中按改动继续运行 Linux 回归，复用 Flutter 和构建环境。
+该 job 成功后再按改动运行 macOS、Windows 和 Android 回归。手动触发可覆盖这四个平台。
+iPad 测试、桌面更新集成测试、Release 打包和安装升级验证不在 CI 中执行，相关入口仍可手动使用。
+播放和生命周期改动还应在对应设备上确认发现、画面、声音及重连。
 
 ## 调试
 
