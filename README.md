@@ -1,184 +1,105 @@
-# Flutter AirPlay
+<p align="center">
+  <img src="macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png" alt="Flutter AirPlay icon" width="96" height="96">
+</p>
+
+<h1 align="center">Flutter AirPlay</h1>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License: GPL v3"></a>
-  <img src="https://img.shields.io/badge/Platform-macOS%20|%20Android%20|%20Windows%20|%20Linux%20|%20iPad-lightgrey.svg" alt="Platform Support">
-  <img src="https://img.shields.io/badge/Flutter-3.x-02569B.svg?logo=flutter" alt="Flutter">
-  <img src="https://img.shields.io/badge/Version-0.1.4%2B5-brightgreen.svg" alt="Version">
+  An open-source AirPlay receiver for mirroring your iPhone, iPad or Mac, with audio.<br>
+  Built with Flutter, C++ and <a href="vendor/UxPlay/UPSTREAM.md">UxPlay</a>.
 </p>
 
 <p align="center">
-  <a href="README.md"><b>English</b></a> | <a href="README_ZH.md"><b>简体中文</b></a>
+  <a href="https://github.com/boyan01/flutter-airplay/releases/latest"><img src="https://img.shields.io/github/v/release/boyan01/flutter-airplay?style=flat&amp;color=23786e&amp;label=release" alt="Latest release"></a>
+  <a href="https://github.com/boyan01/flutter-airplay/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/boyan01/flutter-airplay/ci.yml?branch=main&amp;style=flat&amp;label=build" alt="CI status"></a>
+  <a href="https://github.com/boyan01/flutter-airplay/releases"><img src="https://img.shields.io/github/downloads/boyan01/flutter-airplay/total?style=flat&amp;color=23786e" alt="Release downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/boyan01/flutter-airplay?style=flat&amp;color=23786e" alt="GPLv3 license"></a>
 </p>
 
-An open-source AirPlay mirroring receiver built with Flutter and C++. It enables devices on the same local network to receive screen mirroring and audio from iPhones, iPads, and Macs.
+<p align="center">
+  <a href="#platforms"><img src="https://img.shields.io/badge/macOS-333333?style=flat&amp;logo=apple&amp;logoColor=white" alt="macOS"></a>
+  <a href="#platforms"><img src="https://img.shields.io/badge/Windows-0078D4?style=flat&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xIDFoMTB2MTBIMXptMTIgMGgxMHYxMEgxM3pNMSAxM2gxMHYxMEgxem0xMiAwaDEwdjEwSDEzeiIvPjwvc3ZnPg%3D%3D&amp;logoColor=white" alt="Windows"></a>
+  <a href="#platforms"><img src="https://img.shields.io/badge/Linux-8A6500?style=flat&amp;logo=linux&amp;logoColor=white" alt="Linux"></a>
+  <a href="#platforms"><img src="https://img.shields.io/badge/Android-287B45?style=flat&amp;logo=android&amp;logoColor=white" alt="Android"></a>
+</p>
 
-Powered by a shared C++ playback core and [UxPlay](vendor/UxPlay/UPSTREAM.md) protocol implementation, Flutter AirPlay delivers high-performance streaming with native hardware acceleration across mobile, TV, and desktop platforms.
+<p align="center">
+  <a href="https://github.com/boyan01/flutter-airplay/releases/latest"><strong>Download</strong></a> ·
+  <a href="README_ZH.md">简体中文</a> ·
+  <a href="DEVELOPMENT.md">Development</a>
+</p>
 
----
-
-## 📸 Preview
-
-AirPlay screen mirroring demo.
+<table align="center">
+  <tr><th>Demo</th><th>Desktop</th><th>Android TV</th></tr>
+  <tr>
+  <td width="220">
 
 https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 
----
+  </td>
+  <td><img src="assets/screenshots/desktop-en.png" alt="Desktop receiver" width="220"></td>
+  <td><img src="assets/screenshots/tv-en.png" alt="Android TV receiver" width="280"></td>
+  </tr>
+</table>
 
-## ✨ Features
+## Get started
 
-- **⚡ Native Hardware Acceleration**: Hardware-accelerated video decoding via Apple VideoToolbox (macOS/iPad) and Android NDK MediaCodec.
-- **📱 Phone, Tablet, TV & Desktop**: Unified Flutter interface adapting seamlessly to handheld screens, desktop window managers, and large TV displays.
-- **📺 Android TV Optimized**: Dedicated 10-foot UI with remote D-pad navigation with one animated white focus ring, dark mode by default, and screen stay-awake support.
-- **🪟 Desktop-Friendly Integration**: Window aspect ratio automatically tracks video stream; supports always-on-top, fullscreen, system tray / menu bar persistence, and launch at login.
-- **🔄 Background Reception**: Android runs as a foreground service with notification controls, continuing reception when switched to the background or screen-off.
-- **🎯 Dynamic Resolution & Auto-negotiation**: Supports "Match Native" (up to 4K 2160p), 1440p, 1080p, and 720p with real-time stream dimension monitoring.
-- **🔒 Zero Bloat & Bundled Dependencies**: No need to install Homebrew packages or GStreamer runtime on macOS.
-- **macOS Updates**: Configured builds check for updates automatically by default; turn this off or check manually in Settings → About. New versions appear in the window bar and tray menu without interrupting playback. Open the in-app update panel to view the version and release notes, download, or cancel a download. Closing the panel keeps the download running; once ready, choose Install and Restart. Installing during a connection asks before interrupting it. Updates use a Sparkle feed and Ed25519-signed DMG hosted on GitHub Releases. Existing releases through 0.1.4 require a manual upgrade to a configured build first. Builds without an embedded update public key show updates as unavailable. Linux and iPad updates remain manual. Sparkle signatures do not replace Developer ID signing or Apple notarization.
-- **Windows Updates**: Configured Release builds installed with Setup check the shared appcast automatically. Download from the in-app update panel, then choose Install and restart. The app exits normally, Setup upgrades the existing installation and opens the new version. Updating interrupts the current connection. Signed metadata binds the version, architecture, size and SHA-256; the host rechecks the installer before launch. Existing builds require one manual upgrade to a configured build. Debug builds, portable copies and builds without an update public key keep manual updates. Setup is not Authenticode-signed.
-- **Android Updates**: Release builds check the same GitHub appcast automatically; use Settings → About to download an update and open Android’s installation confirmation. The first update may require allowing this app to install packages in system settings; return and tap Install update again. Dart checks APK size and SHA-256 after download; Android checks package, version and signing certificate when installation is requested. Installation interrupts reception and closes the app. Phone and TV use the same update panel; system installation screens depend on the device. Debug builds do not update to release APKs.
-- **Playback Buffer**: Settings → Advanced → Playback buffer offers the platform default (macOS: 120 ms; other platforms: 80 ms), or 40, 60, 80, 100, 120, 150, 200 and 300 ms. Lower values reduce receiver delay but can increase stuttering or audio dropouts. Audio and video use the same buffer; this value is not total mirroring latency. Changes apply while waiting or after the current connection ends.
-- **Video Crop**: Open Crop video in the playback controls. Drag the frame to move it and drag edges or corners to resize; choose 16:9 or Free ratio. Preview shows the enlarged result without saving. Reset restores the full frame in the draft; Apply crop saves it, and Cancel discards changes. Escape/Back returns from preview to editing, then cancels. Keyboard arrows move the focused frame; Shift speeds up movement. TV users choose Move or Resize and use arrow keys; confirm returns to the tools. Crop is kept for the current connection and resets when the source aspect ratio changes. Desktop window sizing follows the applied crop, and stays unchanged while editing or previewing.
-- **Playback Statistics**: Enable Settings → Advanced → Playback statistics overlay on any platform. The passive overlay shows codec, decoder backend, decoded size, one-second scheduler submission FPS, cumulative scheduler drops and queue depths. Drops count late, out-of-order and overflow pictures since the last playback reset; they exclude lifecycle cancellation and network loss. Submission does not measure actual screen presentation.
+1. Download and install the package for your platform.
+2. Connect the sender and receiver to the same local network.
+3. Open Flutter AirPlay and allow local network access. Reception starts automatically by default.
+4. On your iPhone, iPad or Mac, open **Control Center → Screen Mirroring** and select the receiver name shown in the app.
 
----
+Tap the picture, move the mouse or use the TV remote to show playback controls.
+Use **More → Disconnect** to end mirroring.
 
-## 🖥️ Platform Support Matrix
+## Features
 
-### Production Platforms
+- **Video and audio:** H.264 / HEVC playback, with native hardware decoding on Apple and Android devices.
+- **Picture controls:** choose resolution up to 4K, crop the picture and adjust playback buffering.
+- **Desktop:** fullscreen, always on top, video-sized windows, system tray and open at login.
+- **Android phone and TV:** background reception, notification controls and TV remote navigation.
+- **Updates and diagnostics:** check for updates in Settings → About on macOS, installed Windows builds and Android release builds. View and export logs in the app.
 
-| Platform | Tier | Video Decoder | Audio Decoder | Remarks |
-| :--- | :---: | :--- | :--- | :--- |
-| **macOS** | ✅ Supported | VideoToolbox (H.264 / HEVC), native timed video display | AudioConverter / CoreAudio (AAC-LC, ALAC) | macOS 12+ (Apple Silicon). Bundled native libraries; menu bar tray & launch at login support. |
-| **Android Phone** | ✅ Supported | MediaCodec (H.264 / HEVC) | MediaCodec (AAC, AAC-ELD), Built-in ALAC | Android 8.0+ (API 26+), `arm64-v8a`. Foreground service for background standby; SurfaceView rendering. |
-| **Android TV** | ✅ Supported | MediaCodec (H.264 / HEVC) | MediaCodec (AAC, AAC-ELD), Built-in ALAC | `arm64-v8a`. Full TV remote / D-pad focus handling, enforced dark theme, screen kept awake. |
+## Platforms
 
-### Experimental Platforms
+| Platform | Status | Requirements / package |
+| --- | --- | --- |
+| macOS | Supported | macOS 12+, Apple Silicon. Drag the app from the DMG to Applications. Open at login requires macOS 13+. |
+| Android phone / TV | Supported | Android 8.0+, arm64. Install the APK. |
+| Windows | Experimental | Windows 10+, x64. Run Setup; Windows N also needs the Media Feature Pack. |
+| Linux | Experimental | x64 desktop with GTK 3, FFmpeg 6+, Avahi and PulseAudio/PipeWire. Install the `.deb` or use the bundle. |
+| iPad | Experimental | iPadOS 15+. [Build from source](DEVELOPMENT.md#ipad); reception runs while the app is in the foreground. |
 
-| Platform | Tier | Video Decoder | Audio Decoder | Limitations & Notes |
-| :--- | :---: | :--- | :--- | :--- |
-| **iPad** | 🧪 Experimental | VideoToolbox (H.264 / HEVC) | AudioConverter (AAC-LC, AAC-ELD, ALAC) | iPadOS 15+. Foreground reception only; stops when switched to background. |
-| **Windows** | 🧪 Experimental | Media Foundation (H.264 / HEVC), FFmpeg fallback | Wasapi / Bundled decoders | Windows 10+ x64. Windows N requires Media Feature Pack. System tray and shortcuts supported. |
-| **Linux Desktop** | 🧪 Experimental | System FFmpeg 6+ (NVDEC / VAAPI, software fallback) | PulseAudio / PipeWire, ALAC | Requires GTK 3, OpenGL 3.2+ / OpenGL ES 3+, Avahi mDNS, PulseAudio/PipeWire. NVIDIA CUDA/OpenGL interop keeps supported YUV frames on GPU; other hardware paths may download YUV before GPU conversion. System tray uses StatusNotifierItem over the session D-Bus. |
+Linux requires OpenGL 3.2+ or OpenGL ES 3+. The `.deb` is built on Ubuntu 24.04;
+the bundle uses system libraries. macOS packages use ad-hoc signing and are not
+notarized; Windows installers are unsigned.
 
-> [!NOTE]
-> **DRM Notice**: Screen mirroring protected by FairPlay DRM (such as Netflix, Apple TV+, Disney+) is **not supported** due to hardware DRM chain restrictions. Peer-to-peer (Wi-Fi Direct / Ad-hoc) connection is not supported; both devices must be on the same local network.
+FairPlay / DRM-protected video is unsupported.
 
----
+## Everyday use
 
-## 🚀 Quick Start
+Open **Settings** to change the receiver name, resolution, playback buffer and desktop behavior.
+Lower buffering reduces receiver delay but can make playback less stable.
+Android uses a foreground service for background reception; grant notification permission
+and allow display over other apps if you want playback to open from the background.
 
-1. **Connect to Same Network**: Ensure your iPhone/iPad/Mac and the receiver device are connected to the same local Wi-Fi or subnet.
-2. **Launch Application**: Open Flutter AirPlay. The receiver starts automatically upon launch. (Grant local network permission if prompted).
-3. **Start Mirroring**:
-   - On iOS / iPadOS: Swipe to open **Control Center**, tap **Screen Mirroring**, and select the device name displayed on the screen.
-   - On macOS: Open **Control Center** > **Screen Mirroring** > select the receiver name.
-4. **Playback & Controls**:
-   - The app automatically switches to the player screen once video frames are received.
-   - Tap the screen, move the mouse, or press any remote navigation button to reveal on-screen controls.
-   - Open **More → Disconnect** in the playback controls to end mirroring and return to standby.
+On desktop, double-click the picture to toggle fullscreen and press **Esc** to leave it.
+Use **⌘ ,** / **Ctrl ,** for settings and **⌘ .** / **Ctrl .** to disconnect.
+On TV, use the direction keys and **OK** to operate controls; **Back** closes the menu or hides controls.
 
----
+## Troubleshooting
 
-## ⌨️ Controls & Shortcuts
+- **Receiver missing:** check local network permission and the firewall. Use a network that allows devices to discover each other; guest networks often isolate them. On Linux, check that `avahi-daemon` is running.
+- **Black video:** try mirroring the home screen to check whether the source is DRM-protected.
+- **Stuttering:** lower the requested resolution or increase the playback buffer in Settings.
+- **Other issues:** export logs from the app and include the receiver platform, sender device and reproduction steps in an [issue](https://github.com/boyan01/flutter-airplay/issues).
 
-### Desktop Shortcuts
+## Contributing
 
-| Action | macOS | Windows / Linux |
-| :--- | :---: | :---: |
-| **Toggle Receiver** | `⌘ + R` | `Ctrl + R` |
-| **Settings** | `⌘ + ,` | `Ctrl + ,` |
-| **Logs** | `⌘ + L` | `Ctrl + L` |
-| **Disconnect Session** | `⌘ + .` | `Ctrl + .` |
-| **Toggle Fullscreen** | `⌃ + ⌘ + F` | `F11` |
-| **Actual Size** | `⌘ + 0` | `Ctrl + 0` |
-| **Fit to Screen** | `⌘ + 9` | `Ctrl + 9` |
-| **Exit Fullscreen** | `Esc` | `Esc` |
-| **Close Window** | `⌘ + W` | `Ctrl + W` |
-| **Quit Application** | `⌘ + Q` | `Ctrl + Q` |
+See [DEVELOPMENT.md](DEVELOPMENT.md) for setup, tests and packaging,
+[AGENTS.md](AGENTS.md) for code conventions, and [CHANGELOG.md](CHANGELOG.md) for version history.
 
-- **Mouse Interaction**: Double-click video to toggle fullscreen. On-screen controls fade after 2.5 seconds of inactivity. Hovering over controls, keyboard focus, and open menus keep them visible.
+## License
 
-### Mobile & TV Navigation
-
-- **Android Phone**: Controls fade after 3 seconds. The system `Back` button hides controls first. Pressing `Back` again within 2 seconds confirms disconnection.
-- **Android TV**: Press `OK`, `Direction keys`, or `Menu` to reveal controls. Initial focus rests on **"Continue watching"** to prevent accidental disconnections. Controls stay visible while focused. Select **"Continue watching"** or press `Back` to hide them. When a menu is open, `Back` closes it first.
-
----
-
-## ⚙️ Settings & Configuration
-
-- **Device Name**: Customize the receiver name visible via mDNS/Bonjour. Supports auto-saving, random name generation, and one-click reset to device default.
-- **Fast pairing (Advanced)**: Available on every platform and on by default. Existing saved preferences are preserved. It disables the legacy pairing advertisement to try to reduce connection time. Changes apply automatically while waiting, or after the current session ends. Turn it off if a sender cannot connect.
-- **Video Quality Preference**: Choose from **Match Native**, **720p**, **1080p**, **1440p**, or **4K (2160p)**.
-  - "Match Native" queries your display resolution and decoder limits to request optimal dimensions.
-  - Resolution changes take effect immediately during standby, or seamlessly after the active streaming session ends.
-- **Desktop Preferences (macOS, Windows & Linux)**:
-  - **Video-sized Window**: The first video frame fits the current display. Rotation keeps the window centered with a short transition (disabled by Reduce Motion); manual resizing preserves your chosen display scale. Disconnecting restores the pre-session window size and position. Pauses do not reset the window, and fullscreen, maximized, minimized, or hidden windows apply pending sizing when restored.
-  - **Always on Top**: Keeps player window pinned above other desktop applications.
-  - **Show / Fullscreen on Connect**: Automatically brings window to front or enters fullscreen upon stream arrival.
-  - **System Tray / Menu Bar**: Manual launches open the main window; opening the app again brings its existing window forward. Login startup stays in the tray without opening a window. The tray menu shows the active receiver name, connection status and sender when available. Use it to show the window, start/stop reception, disconnect the current connection, open settings/logs, or quit. Fullscreen and always-on-top actions appear during video playback; window sizing is available from the player controls. Disconnecting resumes reception after a brief receiver restart; stopping reception keeps it off. If the tray is unavailable or initialization fails, the window opens instead. With close-to-tray enabled, closing the window only hides it; reception and audio/video playback continue. Use Disconnect, Stop receiving or Quit to end playback. Without a usable tray or with close-to-tray disabled, closing the window exits the app.
-  - **Open at Login**: Off by default. Opens the application after desktop sign-in, not a pre-login boot service. “Receive automatically on launch” controls whether reception starts. The switch reads system registration; opening the app or saving other settings never re-enables it. macOS requires 13+ and may require approval in System Settings → General → Login Items. Windows uses the installed executable; keep portable bundles at a fixed path. Linux requires an XDG-autostart-compatible desktop session, honors `XDG_CONFIG_HOME`, and registers the permanent AppImage path when applicable. Moving/deleting a bundle breaks registration; toggle off before moving it and on again afterward. Use Refresh startup status after changing system settings. Existing app-owned Windows/Linux login entries are upgraded to mark login launches without enabling disabled entries. An old unmarked entry may show the window on the first launch after upgrading; subsequent logins stay quiet.
-- **Android Background Reception**:
-  - Requires **Notification Permission** (Android 13+) to post the persistent foreground service notice.
-  - Enable **"Display over other apps"** in system settings to allow Flutter AirPlay to automatically open when mirroring starts from the background.
-
----
-
-## 🔍 Troubleshooting & FAQ
-
-<details>
-<summary><b>1. Device not found in Screen Mirroring list</b></summary>
-
-- **Network Isolation**: Ensure your Wi-Fi router does not have "AP Isolation" or "Guest Mode" enabled, which blocks mDNS discovery between devices.
-- **Firewall & Permissions**: Allow local network access for Flutter AirPlay on macOS / iOS / Windows.
-- **mDNS Service**: On Linux, ensure the `avahi-daemon` service is running (`systemctl status avahi-daemon`).
-- **Receiver State**: Verify that the homepage status indicator displays **"Ready to connect"** / **"Discoverable"** and is not in an error state.
-</details>
-
-<details>
-<summary><b>2. Connected but black screen or audio only</b></summary>
-
-- **DRM Content**: AirPlay mirroring does not support copyright-protected media (e.g. Netflix, Disney+, Apple TV+). The sender device will output a black screen by design.
-- **Codec Negotiation**: Ensure your device supports the requested codec. The sender decides the final stream format based on receiver negotiation.
-</details>
-
-<details>
-<summary><b>3. Where are the diagnostic logs saved?</b></summary>
-
-Logs are written using `mixin_logger` (retaining up to 10 files, 5 MiB each) and contain Flutter, protocol core, and decoder diagnostics:
-- **macOS**: `~/Library/Application Support/tech.soit.flutterairplay/logs/`
-- **Android**: `Android/data/tech.soit.flutterairplay/files/logs/`
-- **In-App**: Open the **Logs** screen from the homepage or settings to view and export recent events.
-</details>
-
----
-
-## 🏗️ Technical Architecture
-
-```text
-Flutter UI / ReceiverModel
-          |
-ReceiverRepository (settings persistence / native actions)
-          |
-lib/receiver/native + native/ffi (C ABI / Dart port)
-          |
-native/receiver (state / desired and active settings / lifecycle)
-          |                          |
-native/protocol                native/playback
-          |                          |
-     vendor/UxPlay             native/backends
-                               Apple / Android / Windows / Linux / FFmpeg
-```
-
-Common settings are persisted by Dart. Native hosts supply video surfaces, discovery and OS lifecycle hooks. MethodChannel is used for host bootstrap and OS integration, including Android foreground-service preparation.
-
-For environment setup, local compilation, tests, and CI packaging, please refer to the [Development Guide (DEVELOPMENT.md)](DEVELOPMENT.md). Codebase architecture and coding standards are documented in [AGENTS.md](AGENTS.md).
-
----
-
-## 📄 License & Upstream
-
-- This project is licensed under the [GNU General Public License v3.0 (GPLv3)](LICENSE).
-- Incorporates code from [UxPlay](vendor/UxPlay/UPSTREAM.md); upstream details and commits are tracked in `vendor/UxPlay/UPSTREAM.md`.
-- Third-party licenses and notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[GPLv3](LICENSE). See [UxPlay upstream](vendor/UxPlay/UPSTREAM.md) and
+[third-party notices](THIRD_PARTY_NOTICES.md) for dependency sources and licenses.
