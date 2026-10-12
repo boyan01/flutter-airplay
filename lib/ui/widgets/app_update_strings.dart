@@ -59,3 +59,28 @@ String updateStatusLabel(AppLocalizations strings, AppUpdates updates) {
       updates.hasUpdate ? strings.updateFailed : strings.updateCheckFailed,
   };
 }
+
+/// Select the changelog section after hosts have converted feed HTML to text.
+/// Older feeds without language headings retain their original content.
+String localizedUpdateNotes(String? notes, String languageCode) {
+  final text = notes?.trim() ?? '';
+  final headings = RegExp(
+    r'^[ \t]*(?:###[ \t]+)?(中文|English)[ \t]*\r?$',
+    multiLine: true,
+  ).allMatches(text).toList();
+  if (headings.isEmpty) return text;
+
+  final sections = <String, String>{};
+  for (var index = 0; index < headings.length; index++) {
+    final heading = headings[index];
+    final end = index + 1 < headings.length
+        ? headings[index + 1].start
+        : text.length;
+    final content = text.substring(heading.end, end).trim();
+    if (content.isNotEmpty) sections[heading.group(1)!] = content;
+  }
+  return sections[languageCode == 'zh' ? '中文' : 'English'] ??
+      sections['English'] ??
+      sections['中文'] ??
+      text;
+}

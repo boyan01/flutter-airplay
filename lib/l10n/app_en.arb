@@ -231,7 +231,6 @@
       }
     }
   },
-  "updateReleaseNotes": "What’s new",
   "updateFailed": "Unable to complete the update",
   "updateToVersion": "Update to {version}…",
   "@updateToVersion": {

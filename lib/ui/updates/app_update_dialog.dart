@@ -51,7 +51,16 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
           : null;
       final downloading = updates.status == UpdateStatus.downloading;
       final ready = updates.status == UpdateStatus.ready;
-      final notes = updates.releaseNotes?.trim();
+      final notes = localizedUpdateNotes(
+        updates.releaseNotes,
+        Localizations.localeOf(context).languageCode,
+      );
+      final statusLabel = updateStatusLabel(strings, updates);
+      final title = updates.version?.isNotEmpty == true
+          ? strings.updateAvailable(updates.version!)
+          : updates.status == UpdateStatus.available
+          ? strings.updateAvailableUnknownVersion
+          : strings.appUpdates;
       final diagnostic = updates.error ?? updates.unavailableReason;
       final primaryLabel = switch (updates.status) {
         UpdateStatus.available => strings.downloadUpdate,
@@ -86,149 +95,165 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Column(
+            Flexible(
+              child: SingleChildScrollView(
+                controller: _scroll,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
+                      child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            strings.appUpdates,
-                            style: theme.textTheme.titleLarge,
-                          ),
-                          if (currentVersion.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              strings.updateCurrentVersion(currentVersion),
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Semantics(
+                                    header: true,
+                                    liveRegion: true,
+                                    child: Text(
+                                      title,
+                                      style: theme.textTheme.titleLarge,
+                                    ),
+                                  ),
+                                  if (currentVersion.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      strings.updateCurrentVersion(
+                                        currentVersion,
+                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
-                          ],
+                          ),
+                          IconButton(
+                            key: const Key('closeAppUpdate'),
+                            tooltip: strings.close,
+                            autofocus: television,
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close, size: 20),
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                  IconButton(
-                    key: const Key('closeAppUpdate'),
-                    tooltip: strings.close,
-                    autofocus: television,
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, size: 20),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: TvFocus(
-                child: Focus(
-                  key: const Key('appUpdateContentFocus'),
-                  canRequestFocus: television,
-                  onKeyEvent: (node, event) {
-                    if (!television || event is KeyUpEvent) {
-                      return KeyEventResult.ignored;
-                    }
-                    final direction =
-                        event.logicalKey == LogicalKeyboardKey.arrowDown
-                        ? 1
-                        : event.logicalKey == LogicalKeyboardKey.arrowUp
-                        ? -1
-                        : 0;
-                    if (direction == 0) return KeyEventResult.ignored;
-                    final position = _scroll.position;
-                    final offset =
-                        (position.pixels +
-                                direction * position.viewportDimension * 0.6)
-                            .clamp(
-                              position.minScrollExtent,
-                              position.maxScrollExtent,
-                            );
-                    if (offset == position.pixels) {
-                      return KeyEventResult.ignored;
-                    }
-                    position.jumpTo(offset);
-                    return KeyEventResult.handled;
-                  },
-                  child: SingleChildScrollView(
-                    controller: _scroll,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Semantics(
-                            liveRegion: true,
-                            child: Text(
-                              updateStatusLabel(strings, updates),
-                              key: const Key('appUpdateStatus'),
-                              style: theme.textTheme.titleMedium,
-                            ),
-                          ),
-                          if (downloading) ...[
-                            const SizedBox(height: 16),
-                            LinearProgressIndicator(
-                              key: const Key('appUpdateProgress'),
-                              value: progress,
-                              semanticsLabel: strings.updateDownloading,
-                              semanticsValue: progress == null
-                                  ? null
-                                  : '${(progress * 100).round()}%',
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              strings.updateBackgroundDownload,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                          if (ready) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              updates.requiresSystemInstall
-                                  ? strings.androidUpdateInstallHelp
-                                  : strings.updateRestartHelp,
-                            ),
-                            if (connected) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                updates.requiresSystemInstall
-                                    ? strings.androidUpdateInterruptMessage
-                                    : strings.updateInterruptMessage,
-                                key: const Key('updateInterruptWarning'),
-                                style: TextStyle(
-                                  color: theme.colorScheme.error,
+                    TvFocus(
+                      child: Focus(
+                        key: const Key('appUpdateContentFocus'),
+                        canRequestFocus: television,
+                        onKeyEvent: (node, event) {
+                          if (!television || event is KeyUpEvent) {
+                            return KeyEventResult.ignored;
+                          }
+                          final direction =
+                              event.logicalKey == LogicalKeyboardKey.arrowDown
+                              ? 1
+                              : event.logicalKey == LogicalKeyboardKey.arrowUp
+                              ? -1
+                              : 0;
+                          if (direction == 0) return KeyEventResult.ignored;
+                          final position = _scroll.position;
+                          final offset =
+                              (position.pixels +
+                                      direction *
+                                          position.viewportDimension *
+                                          0.6)
+                                  .clamp(
+                                    position.minScrollExtent,
+                                    position.maxScrollExtent,
+                                  );
+                          if (offset == position.pixels) {
+                            return KeyEventResult.ignored;
+                          }
+                          position.jumpTo(offset);
+                          return KeyEventResult.handled;
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (statusLabel != title)
+                                Semantics(
+                                  liveRegion: true,
+                                  child: Text(
+                                    statusLabel,
+                                    key: const Key('appUpdateStatus'),
+                                    style: theme.textTheme.titleMedium,
+                                  ),
                                 ),
-                              ),
+                              if (downloading) ...[
+                                const SizedBox(height: 16),
+                                LinearProgressIndicator(
+                                  key: const Key('appUpdateProgress'),
+                                  value: progress,
+                                  semanticsLabel: strings.updateDownloading,
+                                  semanticsValue: progress == null
+                                      ? null
+                                      : '${(progress * 100).round()}%',
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  strings.updateBackgroundDownload,
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              ],
+                              if (ready) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  updates.requiresSystemInstall
+                                      ? strings.androidUpdateInstallHelp
+                                      : strings.updateRestartHelp,
+                                ),
+                                if (connected) ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    updates.requiresSystemInstall
+                                        ? strings.androidUpdateInterruptMessage
+                                        : strings.updateInterruptMessage,
+                                    key: const Key('updateInterruptWarning'),
+                                    style: TextStyle(
+                                      color: theme.colorScheme.error,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                              if (diagnostic?.isNotEmpty == true) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  diagnostic!,
+                                  key: const Key('appUpdateDiagnostic'),
+                                  style: TextStyle(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ],
+                              if (notes.isNotEmpty) ...[
+                                if (statusLabel != title ||
+                                    diagnostic?.isNotEmpty == true)
+                                  const SizedBox(height: 20),
+                                Text(
+                                  notes,
+                                  key: const Key('appUpdateReleaseNotes'),
+                                ),
+                              ],
                             ],
-                          ],
-                          if (diagnostic?.isNotEmpty == true) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              diagnostic!,
-                              key: const Key('appUpdateDiagnostic'),
-                              style: TextStyle(color: theme.colorScheme.error),
-                            ),
-                          ],
-                          if (notes?.isNotEmpty == true) ...[
-                            const SizedBox(height: 20),
-                            Text(
-                              strings.updateReleaseNotes,
-                              style: theme.textTheme.titleSmall,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              notes!,
-                              key: const Key('appUpdateReleaseNotes'),
-                            ),
-                          ],
-                        ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),

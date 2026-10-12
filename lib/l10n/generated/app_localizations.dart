@@ -1190,12 +1190,6 @@ abstract class AppLocalizations {
   /// **'Current version {version}'**
   String updateCurrentVersion(String version);
 
-  /// No description provided for @updateReleaseNotes.
-  ///
-  /// In en, this message translates to:
-  /// **'What’s new'**
-  String get updateReleaseNotes;
-
   /// No description provided for @updateFailed.
   ///
   /// In en, this message translates to:

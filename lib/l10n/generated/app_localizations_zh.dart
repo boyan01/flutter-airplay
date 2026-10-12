@@ -573,9 +573,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get updateReleaseNotes => '更新内容';
-
-  @override
   String get updateFailed => '无法完成更新';
 
   @override

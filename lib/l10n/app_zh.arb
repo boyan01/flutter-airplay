@@ -224,7 +224,6 @@
       }
     }
   },
-  "updateReleaseNotes": "更新内容",
   "updateFailed": "无法完成更新",
   "updateToVersion": "更新到 {version}…",
   "@updateToVersion": {

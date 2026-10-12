@@ -122,7 +122,8 @@ Use [DEVELOPMENT.md](DEVELOPMENT.md) for release commands and prerequisites.
   the in-app update feed. Keep generated installation/platform notices separate
   from the changelog. Use simple text bullets with optional indented continuation
   lines; avoid nested lists, raw HTML and additional subheadings. Both languages
-  are embedded in the feed and shown together in the current update panel.
+  are embedded in the feed; the update panel selects Chinese for a Chinese UI
+  and English for other UI languages.
   Formal releases require a matching, unique entry with both languages.
 - Before publishing, verify the version, changelog, tag and relevant checks.
   Report actual coverage and any unavailable checks. Preparing notes or a

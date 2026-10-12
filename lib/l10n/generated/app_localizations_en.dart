@@ -594,9 +594,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get updateReleaseNotes => 'What’s new';
-
-  @override
   String get updateFailed => 'Unable to complete the update';
 
   @override

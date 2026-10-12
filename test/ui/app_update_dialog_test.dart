@@ -217,7 +217,9 @@ void main() {
       ..version = '2.1.0'
       ..releaseNotes = '<b>Faster playback</b>\nBug fixes';
     await open(tester, updates);
-    expect(find.text('App updates'), findsOneWidget);
+    expect(find.text('App updates'), findsNothing);
+    expect(find.text('What’s new'), findsNothing);
+    expect(find.byKey(const Key('appUpdateStatus')), findsNothing);
     expect(find.text('Current version 1.0.0'), findsOneWidget);
     expect(find.text('Version 2.1.0 is available'), findsOneWidget);
     expect(find.text('<b>Faster playback</b>\nBug fixes'), findsOneWidget);
@@ -232,6 +234,63 @@ void main() {
     expect(updates.installs, 1);
     expect(updates.status, UpdateStatus.downloading);
     expect(find.byType(FilledButton), findsNothing);
+  });
+
+  for (final language in ['zh', 'en', 'fr']) {
+    testWidgets('release notes follow the $language UI locale', (tester) async {
+      final updates = _FakeUpdates()
+        ..status = UpdateStatus.available
+        ..version = '2.1.0'
+        ..releaseNotes = '中文\n\n• 改进播放。\n\nEnglish\n\n• Improved playback.';
+      await open(tester, updates, locale: Locale(language));
+      expect(
+        find.text(
+          language == 'zh' ? '发现新版本 2.1.0' : 'Version 2.1.0 is available',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('appUpdateReleaseNotes')))
+            .data,
+        language == 'zh' ? '• 改进播放。' : '• Improved playback.',
+      );
+      expect(find.text('更新内容'), findsNothing);
+      expect(find.text('What’s new'), findsNothing);
+      expect(find.text('中文'), findsNothing);
+      expect(find.text('English'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('release notes react to a UI language change', (tester) async {
+    final updates = _FakeUpdates()
+      ..status = UpdateStatus.available
+      ..version = '2.1.0'
+      ..releaseNotes = '中文\n• 改进播放。\nEnglish\n• Improved playback.';
+    final locale = ValueNotifier(const Locale('zh'));
+    addTearDown(locale.dispose);
+    addTearDown(updates.dispose);
+    await tester.pumpWidget(
+      ValueListenableBuilder<Locale>(
+        valueListenable: locale,
+        builder: (context, value, child) => MaterialApp(
+          locale: value,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: AppUpdateDialog(
+            updates: updates,
+            currentVersion: '1.0.0',
+            connected: false,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('• 改进播放。'), findsOneWidget);
+    locale.value = const Locale('en');
+    await tester.pumpAndSettle();
+    expect(find.text('• Improved playback.'), findsOneWidget);
+    expect(find.text('• 改进播放。'), findsNothing);
   });
 
   testWidgets(
