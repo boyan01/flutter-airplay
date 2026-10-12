@@ -184,6 +184,8 @@ flutter drive --driver=test_driver/integration_test.dart \
 通过后在同一个 Ubuntu job 中按改动继续运行 Linux 回归，复用 Flutter 和构建环境。
 该 job 成功后再按改动运行 macOS、Windows 和 Android 回归。手动触发可覆盖这四个平台。
 桌面 CI 只运行上述一个 UI 集成流程，不再运行独立原生窗口或更新集成套件。
+macOS 和 Windows 先由 `flutter test` 构建并运行集成用例，再复用其原生库和 Flutter 工程产物运行原生测试。
+CI 不额外构建普通桌面 Debug 应用；普通应用入口的打包验证在发布流程中执行。
 iPad 测试、Release 打包和安装升级验证不在 CI 中执行，相关入口仍可手动使用。
 播放和生命周期改动还应在对应设备上确认发现、画面、声音及重连。
 

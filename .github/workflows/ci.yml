@@ -196,16 +196,14 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
-      - name: Compile Debug app
-        run: flutter build macos --debug
-      - name: Run all macOS native and window tests
-        run: ./scripts/test_native.sh macos all
       - name: Run desktop integration suite
         timeout-minutes: 15
         shell: bash
         run: |
           mkdir -p artifacts/macos
           flutter test -d macos integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/macos/desktop.log
+      - name: Run macOS native tests using integration build output
+        run: ./scripts/test_native.sh macos all
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
@@ -274,21 +272,6 @@ jobs:
             build/windows-deps/ffmpeg-aac
             build/native-preparation/windows-dependencies.txt
           key: windows-native-deps-v2-windows2022-x64-${{ steps.native-toolchain.outputs.version }}-${{ hashFiles('native/dependencies.lock.json', 'windows/scripts/build_dependencies.ps1', 'windows/scripts/build_ffmpeg.sh', 'windows/scripts/build_native.ps1', 'scripts/ensure_native.py') }}
-      - name: Compile Debug app with automatic native preparation
-        env:
-          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
-          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
-        run: flutter build windows --debug
-      - name: Build native fixtures
-        env:
-          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
-          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
-        run: |
-          ./windows/scripts/build_native.ps1 -Tests
-          cmake --build build/windows/x64 --config Debug --target windows_texture_test
-      - name: Run native tests
-        shell: bash
-        run: ./scripts/test_native.sh windows all
       - name: Run desktop integration suite
         timeout-minutes: 15
         shell: bash
@@ -298,6 +281,18 @@ jobs:
         run: |
           mkdir -p artifacts/windows
           flutter.bat test -d windows integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/windows/desktop.log
+      - name: Build native fixtures using integration build output
+        env:
+          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
+          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
+        run: |
+          ./windows/scripts/build_native.ps1 -Tests
+          # The integration build already produced Flutter and its wrappers.
+          # Reuse them without rerunning Flutter's temporary test entrypoint.
+          cmake --build build/windows/x64 --config Debug --target windows_texture_test -- /p:BuildProjectReferences=false
+      - name: Run native tests
+        shell: bash
+        run: ./scripts/test_native.sh windows all
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
