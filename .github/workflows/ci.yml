@@ -243,10 +243,36 @@ jobs:
       - name: Ensure Media Foundation is available
         shell: powershell
         run: |
-          if (-not (Get-WindowsFeature Server-Media-Foundation).Installed) {
+          # Check the runtime before loading the slow ServerManager module.
+          $probe = @'
+          import ctypes
+          import sys
+
+          try:
+              library = ctypes.WinDLL('mfplat.dll')
+              library.MFStartup.argtypes = [ctypes.c_ulong, ctypes.c_ulong]
+              library.MFStartup.restype = ctypes.c_long
+              library.MFShutdown.restype = ctypes.c_long
+              result = library.MFStartup(0x00020070, 0)
+              if result < 0:
+                  raise OSError(f'MFStartup failed: 0x{result & 0xffffffff:08x}')
+              result = library.MFShutdown()
+              if result < 0:
+                  raise OSError(f'MFShutdown failed: 0x{result & 0xffffffff:08x}')
+          except (OSError, AttributeError) as error:
+              print(error)
+              sys.exit(1)
+          print('Media Foundation runtime is available.')
+          '@
+          $probe | python -
+          if ($LASTEXITCODE -ne 0) {
             $result = Install-WindowsFeature Server-Media-Foundation
             if (-not $result.Success -or $result.RestartNeeded -eq 'Yes') {
               throw 'Media Foundation could not be enabled without restarting the runner.'
+            }
+            $probe | python -
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Media Foundation runtime is unavailable after installation.'
             }
           }
       - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
@@ -258,6 +284,9 @@ jobs:
         with:
           channel: stable
           cache: true
+          # Restoring thousands of small package files is slower on Windows
+          # than downloading the locked packages with pub.
+          pub-cache: false
       - run: flutter pub get --enforce-lockfile
       - name: Identify Windows dependency toolchain
         id: native-toolchain
@@ -277,6 +306,12 @@ jobs:
             throw 'Could not identify the x64 MSVC toolset and Windows SDK.'
           }
           $sdk = $env:WindowsSDKVersion.TrimEnd('\')
+          $flutterRevision = & git -C $env:FLUTTER_ROOT rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not identify the Flutter SDK revision.'
+          }
+          "sdk=$flutterRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "image=$env:ImageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           # Runner image updates alone do not change these compiled dependencies.
           "version=$version-msvc$env:VCToolsVersion-sdk$sdk" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Cache Windows native dependencies
@@ -287,6 +322,14 @@ jobs:
             build/windows-deps/ffmpeg-aac
             build/native-preparation/windows-dependencies.txt
           key: windows-native-deps-v2-windows2022-x64-${{ steps.native-toolchain.outputs.version }}-${{ hashFiles('native/dependencies.lock.json', 'windows/scripts/build_dependencies.ps1', 'windows/scripts/build_ffmpeg.sh', 'windows/scripts/build_native.ps1', 'scripts/ensure_native.py') }}
+      - name: Cache Windows Dart native assets
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .dart_tool/hooks_runner
+          # Hooks still validate package sources and build inputs on every run.
+          key: windows-dart-v1-${{ steps.native-toolchain.outputs.image }}-${{ steps.native-toolchain.outputs.version }}-${{ steps.native-toolchain.outputs.sdk }}-${{ hashFiles('pubspec.yaml', 'pubspec.lock') }}-${{ github.sha }}
+          restore-keys: |
+            windows-dart-v1-${{ steps.native-toolchain.outputs.image }}-${{ steps.native-toolchain.outputs.version }}-${{ steps.native-toolchain.outputs.sdk }}-${{ hashFiles('pubspec.yaml', 'pubspec.lock') }}-
       - name: Run desktop integration suite
         timeout-minutes: 15
         shell: bash
@@ -295,7 +338,7 @@ jobs:
           AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
         run: |
           mkdir -p artifacts/windows
-          flutter.bat test -d windows integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/windows/desktop.log
+          flutter.bat test --no-pub -d windows integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/windows/desktop.log
       - name: Build native fixtures using integration build output
         env:
           AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
