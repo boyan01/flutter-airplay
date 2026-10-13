@@ -84,25 +84,6 @@ if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
     endif()
     set_tests_properties(linux_gpu_flutter_texture PROPERTIES LABELS "host;extended" TIMEOUT 30)
   endif()
-  add_executable(linux_window_tests window_test.cc ../runner/window_channel.cc
-    ../runner/my_application.cc ../runner/receiver_host.cc
-    ../runner/frame_texture.cc ../runner/discovery.cc)
-  set(AIRPLAY_BUILD_INFO_TARGET linux_window_tests)
-  include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
-  target_compile_definitions(linux_window_tests PRIVATE APPLICATION_ID="tech.soit.flutterairplay.WindowTest")
-  target_include_directories(linux_window_tests PRIVATE .. ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
-  target_link_libraries(linux_window_tests PRIVATE airplay_player PkgConfig::EPOXY PkgConfig::GTK PkgConfig::AVAHI
-    "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
-  file(COPY ../icons DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
-  find_program(XVFB_RUN xvfb-run)
-  find_program(DBUS_RUN_SESSION dbus-run-session)
-  if(XVFB_RUN AND DBUS_RUN_SESSION)
-    add_test(NAME linux_window_lifecycle COMMAND ${DBUS_RUN_SESSION} --
-      ${XVFB_RUN} -a $<TARGET_FILE:linux_window_tests>)
-    set_tests_properties(linux_window_lifecycle PROPERTIES TIMEOUT 60)
-  else()
-    message(STATUS "Window lifecycle runtime tests need xvfb-run and dbus-run-session")
-  endif()
   # Developer-only fixture; not installed in the product bundle or run by CTest.
   add_executable(linux_synthetic_demo synthetic_demo.cc ../runner/frame_texture.cc ../runner/window_channel.cc)
   target_include_directories(linux_synthetic_demo PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}" "${AIRPLAY_DART_INCLUDE}")
@@ -129,7 +110,4 @@ set_tests_properties(linux_playback linux_sender_resume PROPERTIES LABELS "playb
 set_tests_properties(linux_audio_decode_recovery linux_video_reorder_recovery linux_audio_unavailable_cleanup PROPERTIES LABELS "backend")
 if(TARGET linux_host_tests)
     set_tests_properties(linux_flutter_host_lifecycle PROPERTIES LABELS "host")
-endif()
-if(XVFB_RUN AND DBUS_RUN_SESSION)
-    set_tests_properties(linux_window_lifecycle PROPERTIES LABELS "host;extended")
 endif()
