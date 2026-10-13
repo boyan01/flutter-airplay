@@ -188,8 +188,7 @@ flutter drive --driver=test_driver/integration_test.dart \
 macOS 和 Windows 复用其原生库和 Flutter 工程产物，Linux 宿主测试复用集成构建准备的 Flutter 引擎。
 Ubuntu job 缓存 Dart 生成器和原生依赖的构建产物，按 runner 镜像、Flutter 版本和依赖锁文件隔离；
 缓存命中后仍执行生成文件比对和全部测试。
-Windows 同样缓存 Dart 原生依赖的构建产物，并额外按 MSVC 和 Windows SDK 版本隔离；
-Dart 包由 `pub get --enforce-lockfile` 下载，避免恢复包缓存时大量小文件解压的开销。
+Windows 同样缓存 Dart 原生依赖的构建产物，并额外按 MSVC 和 Windows SDK 版本隔离。
 CI 不额外构建普通桌面 Debug 应用；普通应用入口的打包验证在发布流程中执行。
 iPad 测试、Release 打包和安装升级验证不在 CI 中执行，相关入口仍可手动使用。
 播放和生命周期改动还应在对应设备上确认发现、画面、声音及重连。

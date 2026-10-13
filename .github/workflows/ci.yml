@@ -284,9 +284,6 @@ jobs:
         with:
           channel: stable
           cache: true
-          # Restoring thousands of small package files is slower on Windows
-          # than downloading the locked packages with pub.
-          pub-cache: false
       - run: flutter pub get --enforce-lockfile
       - name: Identify Windows dependency toolchain
         id: native-toolchain
