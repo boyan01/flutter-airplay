@@ -51,11 +51,14 @@ upstream changes in `vendor/UxPlay/UPSTREAM.md`.
 
 ## Verification
 
-Use the `flutter run` loop and tests scoped to the change, reusing passing results while their inputs remain valid.
+Choose verification scoped to the change, reusing passing results while their inputs remain valid.
 Dart tests use `flutter test`; native tests use `scripts/test_native.sh`.
+Prefer Flutter unit and widget tests for UI layout, interactions, focus, timers, edge cases and state combinations.
+For changes fully covered by these tests, verification is complete when scoped tests and static checks pass.
+Use `flutter run` when the affected behavior requires a real host, window or device to verify.
+Exercise that behavior; startup or hot reload alone does not verify it.
 Keep desktop integration coverage to one main-flow test per platform, running in one application instance.
-Extend that shared flow only for essential end-to-end behavior. Prefer Flutter unit and widget tests for
-UI layout, interactions, timers, edge cases and state combinations; these checks should run without real windows.
+Extend that shared flow only for essential end-to-end behavior.
 Keep the default native suite small and select device/codec matrices explicitly.
 Add fixtures to the relevant suite, with generators beside their test sources.
 Shared native tests live in `native/tests/`; real host, window and device tests live in platform projects.

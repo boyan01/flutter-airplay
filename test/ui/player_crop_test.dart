@@ -171,6 +171,78 @@ void main() {
   VideoCropEditor editor(WidgetTester tester) =>
       tester.widget<VideoCropEditor>(find.byType(VideoCropEditor));
 
+  for (final platform in ['macos', 'windows', 'linux']) {
+    for (final exit in ['apply', 'cancel', 'rotation']) {
+      testWidgets(
+        '$platform controls auto-hide after crop $exit with a stationary mouse',
+        (tester) async {
+          await mount(
+            tester,
+            platform: platform,
+            native: platform == 'macos',
+            initialCrop: crop,
+          );
+          await edit(tester);
+          final mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          addTearDown(mouse.removePointer);
+          final location = exit == 'rotation'
+              ? const Offset(400, 300)
+              : tester.getCenter(
+                  find.text(exit == 'apply' ? 'Apply crop' : 'Cancel'),
+                );
+          await mouse.addPointer(location: location);
+          if (exit == 'rotation') {
+            frame(backend, 1080, 1920);
+          } else {
+            await mouse.down(location);
+            await mouse.up();
+          }
+          await tester.pumpAndSettle();
+          expect(find.byType(VideoCropEditor), findsNothing);
+          expect(find.byKey(const Key('playerControls')), findsOneWidget);
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('playerControls')), findsNothing);
+          expect(
+            RendererBinding.instance.mouseTracker.debugDeviceActiveCursor(
+              1,
+            ),
+            SystemMouseCursors.none,
+          );
+          await mouse.moveTo(const Offset(401, 300));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('playerControls')), findsOneWidget);
+        },
+      );
+    }
+  }
+
+  for (final key in [
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.space,
+    LogicalKeyboardKey.escape,
+  ]) {
+    testWidgets('keyboard crop exit restores entry focus ($key)', (
+      tester,
+    ) async {
+      await mount(tester, initialCrop: crop);
+      await edit(tester);
+      Focus.of(tester.element(find.text('Apply crop'))).requestFocus();
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(key);
+      await tester.pumpAndSettle();
+      expect(find.byType(VideoCropEditor), findsNothing);
+      final entry = tester.widget<ButtonStyleButton>(
+        find.byKey(const Key('cropVideo')),
+      );
+      expect(entry.focusNode!.hasPrimaryFocus, isTrue);
+      await tester.pump(const Duration(seconds: 6));
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+    });
+  }
+
   Rect textureViewport(WidgetTester tester) => tester.getRect(
     find
         .ancestor(of: find.byType(Texture), matching: find.byType(ClipRect))
@@ -524,7 +596,7 @@ void main() {
         final entry = tester.widget<ButtonStyleButton>(
           find.byKey(const Key('cropVideo')),
         );
-        expect(entry.focusNode!.hasFocus, isTrue);
+        expect(entry.focusNode!.hasFocus, isFalse);
         expect(backend.stops, 0);
       },
     );

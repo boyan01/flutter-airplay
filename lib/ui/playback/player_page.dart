@@ -95,6 +95,12 @@ class _PlayerPageState extends State<PlayerPage> {
     widget.onCropEditingChanged?.call(false);
     _schedulePresentation();
     _show();
+    _restoreCropEntryFocus();
+  }
+
+  void _restoreCropEntryFocus() {
+    // Pointer users must not acquire a focus hold that prevents auto-hide.
+    if (!tv && HardwareKeyboard.instance.logicalKeysPressed.isEmpty) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _cropEntryFocus.requestFocus();
@@ -284,9 +290,7 @@ class _PlayerPageState extends State<PlayerPage> {
       _previewCrop = null;
       widget.onCropEditingChanged?.call(false);
       _show();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _cropEntryFocus.requestFocus();
-      });
+      _restoreCropEntryFocus();
     }
     if (sourceChanged || _cropRevision != widget.model.videoCropRevision) {
       _cropRevision = widget.model.videoCropRevision;

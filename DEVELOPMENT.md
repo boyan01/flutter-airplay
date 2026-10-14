@@ -21,7 +21,7 @@ flutter devices
 | Linux | `flutter run -d linux` |
 
 设备 ID 来自 `flutter devices`。Flutter 构建会自动准备原生依赖，首次需要联网，后续增量构建。
-Dart 改动使用热重载；原生改动后重新执行 `flutter run`。
+运行应用调试时，Dart 改动使用热重载；原生改动后重新执行 `flutter run`。
 
 ## 环境
 
@@ -111,7 +111,7 @@ flutter test
 | --- | --- |
 | 文档 | `git diff --check`、链接和命令路径 |
 | Dart 接收逻辑 | `flutter test test/receiver/` |
-| UI / 输入 | `flutter test test/ui/`，运行应用检查窗口尺寸、触摸、键盘和 TV 焦点 |
+| UI / 输入 | `flutter test test/ui/`；需要真实窗口或设备才能验证的行为，再运行应用检查 |
 | 公共控制 / FFI | `./scripts/test_native.sh receiver` 和平台原生套件中的 FFI 用例 |
 | 协议 / 播放 | 对应平台的 RTP、player 或 video 套件 |
 | 构建 / 依赖 / 打包脚本 | `./scripts/test_native.sh build` 和对应平台构建 |
