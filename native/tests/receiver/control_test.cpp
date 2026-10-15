@@ -29,6 +29,18 @@ extern "C" bool airplay_player_set_volume(AirplayPlayer*, float) { std::abort();
 extern "C" bool airplay_player_set_video_size(AirplayPlayer*, int, int) { std::abort(); }
 extern "C" bool airplay_player_start(AirplayPlayer*, const char*, const uint8_t[6], const char*, char*, size_t) { std::abort(); }
 int main() {
+    try {
+        const std::string json = R"({"C:\\key":"C:\\Users\\test\\pairing.pem","nested":[{"name":"Receiver\\TV\"\n\t\u0001"}],"integer":1234567890123,"negative":-15,"real":-7.5,"flag":true,"empty":null})";
+        auto original = airplay::parse_json(json.c_str());
+        airplay::set(original.get(), "textureId", int64_t(-1));
+        auto restored = airplay::parse_json(airplay::json_text(original.get()).c_str());
+        require(airplay::text(restored.get(), "C:\\key") == "C:\\Users\\test\\pairing.pem", "JSON paths and keys round-trip without losing backslashes");
+        require(airplay::text(plist_array_get_item(airplay::item(restored.get(), "nested"), 0), "name") == "Receiver\\TV\"\n\t\x01", "nested JSON strings preserve quotes and controls");
+        uint64_t integer = 0; plist_get_uint_val(airplay::item(restored.get(), "integer"), &integer);
+        require(integer == 1234567890123 && airplay::integer(restored.get(), "negative") == -15 && airplay::integer(restored.get(), "textureId") == -1, "JSON keeps positive and negative integers");
+        double real = 0; plist_get_real_val(airplay::item(restored.get(), "real"), &real);
+        require(real == -7.5 && airplay::boolean(restored.get(), "flag") && plist_get_node_type(airplay::item(restored.get(), "empty")) == PLIST_NULL, "JSON keeps real, boolean and null values");
+    } catch (const std::exception& error) { require(false, error.what()); }
     AirplayReceiverHost host{};
     host.create_player = [](void*, AirplayCallbacks, int, int, int, char* error, size_t capacity) -> AirplayPlayer* {
         snprintf(error, capacity, "Synthetic output failure"); return nullptr;
