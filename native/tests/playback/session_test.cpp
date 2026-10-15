@@ -42,6 +42,15 @@ void check_video_resume(void *surface, const char *decoder) {
     auto p = std::make_unique<AirplayPlayer>(cb, surface, decoder, "");
     airplay_player_set_stats_enabled(p.get(), true);
     const auto receive = receiver_callbacks(p.get());
+    if (receive.audio_set_client_volume(receive.cls) != -15.0 ||
+        std::abs(p->pcm->gain() - std::pow(10.f, -15.f / 20.f)) > 0.00001f)
+        throw std::runtime_error("new receiver does not start at the AirPlay slider midpoint");
+    for (float db : {-7.5f, -30.f, -144.f, 0.f}) {
+        receive.audio_set_volume(receive.cls, db);
+        p->reset("volume_reconnect_test");
+        if (receive.audio_set_client_volume(receive.cls) != db)
+            throw std::runtime_error("reconnection reports a different volume from playback");
+    }
     if (!p->video->supports_hevc() && receive.video_set_codec(receive.cls, VIDEO_CODEC_H265) != -1)
         throw std::runtime_error("unsupported platform accepts HEVC input");
     float width = 640, height = 360;

@@ -24,6 +24,8 @@ void check_video_resume(void *surface, const char *decoder) {
     };
     auto p = std::make_unique<AirplayPlayer>(cb, surface, decoder, "");
     const auto receive = receiver_callbacks(p.get());
+    // This fixture compares PCM bytes, independently of the receiver's default volume.
+    receive.audio_set_volume(receive.cls, 0.f);
     float width = 640, height = 360;
     receive.video_report_size(receive.cls, &width, &height, nullptr, nullptr);
     auto feed = [&](int first, int end) {

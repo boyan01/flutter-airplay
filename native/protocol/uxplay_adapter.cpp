@@ -43,7 +43,7 @@ void client(void *cls, char *, char *, char *name, bool *admit) {
     player(cls)->event("client", clean.c_str());
 }
 void mirror(void *cls, bool running) { if (running) player(cls)->event("connecting", "Sender connected"); }
-double volume(void *) { return 0.; }
+double volume(void *cls) { return player(cls)->pcm->volume_db(); }
 void volume_set(void *cls, float db) { player(cls)->set_volume(db); }
 int codec(void *cls, video_codec_t c) {
     if (c != VIDEO_CODEC_H264 && c != VIDEO_CODEC_H265) return -1;

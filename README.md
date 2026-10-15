@@ -55,6 +55,7 @@ Use **More → Disconnect** to end mirroring.
 ## Features
 
 - **Video and audio:** H.264 / HEVC playback, with native hardware decoding on Apple and Android devices.
+- **Volume:** starts at 50% on first launch and remembers the volume set on the sending device across connections and app restarts.
 - **Picture controls:** choose resolution up to 4K, crop the picture and adjust playback buffering.
 - **Desktop:** fullscreen, always on top, video-sized windows, system tray and open at login.
 - **Android phone and TV:** background reception, notification controls and TV remote navigation.

@@ -69,6 +69,7 @@ struct AirplayPlayer {
 
     AirplayPlayer(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback)
         : callbacks(cb), audio(pcm, [this](const char *text) { log(text); }) {
+        pcm->volume(-15.f); // AirPlay slider midpoint; the receiver restores saved volume before start.
         output = make_audio_output(pcm);
         video = make_video_output(surface, decoder, fallback, {
             [this](void *frame, int w, int h, int64_t due, uint64_t generation) {

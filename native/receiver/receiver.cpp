@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -330,6 +331,17 @@ public:
         if (method == "snapshot") return snapshot();
         auto result = json_object();
         if (method == "save") configure(settings_from_json(arguments));
+        else if (method == "restoreVolume") {
+            const auto node = item(arguments, "volumeDb");
+            double db = 0;
+            if (plist_get_node_type(node) == PLIST_REAL) plist_get_real_val(node, &db);
+            else if (plist_get_node_type(node) == PLIST_UINT) db = double(integer(arguments, "volumeDb"));
+            else throw std::runtime_error("Invalid saved volume");
+            if (!std::isfinite(db) || (db != -144 && (db < -30 || db > 0)))
+                throw std::runtime_error("Invalid saved volume");
+            // Reattaching Dart must preserve a live player's more recent value.
+            if (!player_) volume_db_ = float(db);
+        }
         else if (method == "start") {
             const auto generation = item(arguments, "generation");
             if (plist_get_node_type(generation) != PLIST_UINT) throw std::runtime_error("Missing receiver generation");
@@ -402,6 +414,7 @@ private:
     bool audio_ = false, paused_ = false, foreground_ = true, resume_ = false;
     std::atomic<uint64_t> generation_{0};
     AirplayPlayer *player_ = nullptr;
+    std::atomic<float> volume_db_{-15.f};
     struct Callback { Receiver *owner; uint64_t generation; };
     std::unique_ptr<Callback> callback_;
     std::mutex lock_;
@@ -531,6 +544,9 @@ private:
         callbacks.event = [](void *context, const char *type, const char *detail, int w, int h) {
             auto *current = static_cast<Callback *>(context); auto *self = current->owner; const auto epoch = current->generation;
             std::string event(type ? type : ""), bytes(detail ? detail : "");
+            // Stop advances the generation before joining callbacks. Keep the
+            // last volume through that join, then persist it before replacement.
+            if (event == "volume") self->volume_db_ = std::stof(bytes);
             self->enqueue([self, epoch, event = std::move(event), bytes = std::move(bytes), w, h] {
                 if (self->player_ && epoch == self->generation_) self->receive(event, bytes, w, h);
             });
@@ -552,6 +568,7 @@ private:
             if (!player_) throw std::runtime_error(error[0] ? error : "Cannot create native player");
             airplay_player_set_stats_enabled(player_, settings_.show_playback_stats);
             if (!airplay_player_set_playback_buffer(player_, settings_.playback_buffer_ms) ||
+                !airplay_player_set_volume(player_, volume_db_) ||
                 !airplay_player_set_fast_pairing(player_, settings_.fast_pairing) ||
                 !airplay_player_set_video_size(player_, width, height)) throw std::runtime_error("Cannot configure native player");
             receiving_name_ = settings_.name; active_ = settings_;
@@ -587,12 +604,19 @@ private:
         ++generation_; state(restarting ? AIRPLAY_RECEIVER_STARTING : AIRPLAY_RECEIVER_STOPPING, "正在停止接收器…");
         if (host.unpublish) host.unpublish(host.context);
         airplay_player_destroy(player_); player_ = nullptr; callback_.reset();
+        volume_changed();
         report_output();
         if (host.end_video) host.end_video(host.context, restarting);
         if (!restarting) state(AIRPLAY_RECEIVER_STOPPED, "接收器已停止");
     }
     void fail(const std::string& error) { stop(); state(AIRPLAY_RECEIVER_ERROR, error); }
+    void volume_changed() {
+        auto event = json_object(); set(event.get(), "type", "volume");
+        plist_dict_set_item(event.get(), "volumeDb", plist_new_real(volume_db_.load()));
+        deliver(event.get());
+    }
     void receive(const std::string& type, const std::string& detail, int width, int height) {
+        if (type == "volume") { volume_changed(); return; }
         if (type == "playbackStats") {
             if (settings_.show_playback_stats && width_ > 0 && !paused_) {
                 auto event = json_object(); set(event.get(), "type", "playbackStats");

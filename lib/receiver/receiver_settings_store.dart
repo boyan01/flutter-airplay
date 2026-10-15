@@ -12,6 +12,21 @@ class ReceiverSettingsStore {
   SharedPreferencesAsync get preferences =>
       _preferences ??= SharedPreferencesAsync();
   static const storageKey = 'receiver.settings';
+  // Sender volume changes immediately and must not be overwritten by settings saves.
+  static const volumeKey = 'receiver.volumeDb';
+  static bool validVolume(double db) =>
+      db.isFinite && (db == -144 || (db >= -30 && db <= 0));
+
+  Future<double?> readVolume() async {
+    final db = await preferences.getDouble(volumeKey);
+    return db != null && validVolume(db) ? db : null;
+  }
+
+  Future<void> writeVolume(double db) {
+    if (!validVolume(db)) throw ArgumentError.value(db, 'db');
+    return preferences.setDouble(volumeKey, db);
+  }
+
   Future<ReceiverSettings?> read() async {
     final stored = await preferences.getString(storageKey);
     if (stored == null) return null;

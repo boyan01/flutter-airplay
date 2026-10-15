@@ -57,6 +57,7 @@ class NativeReceiverRepository implements ReceiverRepository {
   final _events = StreamController<ReceiverEvent>.broadcast();
   Future<void>? _initializing;
   Future<void> _saving = Future.value();
+  Future<void> _savingVolume = Future.value();
   ReceiverControl? _control;
   final ReceiverSettingsStore _store;
   StreamSubscription<Map<String, dynamic>>? _subscription;
@@ -83,6 +84,10 @@ class NativeReceiverRepository implements ReceiverRepository {
       );
       final snapshot = decodeReceiverState(await control.request('snapshot'));
       _hostPlatform = snapshot.capabilities.platform;
+      final volume = await _store.readVolume();
+      if (volume != null) {
+        await control.request('restoreVolume', {'volumeDb': volume});
+      }
       final saved = await _store.read();
       if (saved != null) await control.request('save', saved.toJson());
       _settings = (decodeReceiverState(await control.request('snapshot')))
@@ -101,7 +106,14 @@ class NativeReceiverRepository implements ReceiverRepository {
 
   void _event(Map<String, dynamic> event) {
     if (_disposed) return;
-    if (event['type'] == 'startRequest') {
+    if (event['type'] == 'volume') {
+      final db = (event['volumeDb'] as num).toDouble();
+      _savingVolume = _savingVolume
+          .then((_) => _store.writeVolume(db))
+          .catchError((Object error, StackTrace stack) {
+            if (!_disposed) _events.addError(error, stack);
+          });
+    } else if (event['type'] == 'startRequest') {
       unawaited(
         start(_settings.name, _settings.path).catchError((
           Object error,

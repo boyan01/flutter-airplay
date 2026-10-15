@@ -157,11 +157,17 @@ void AirplayPlayer::stop_audio() {
     const auto report = output->diagnostics();
     if (!report.empty()) log(report.c_str());
 }
+extern "C" bool airplay_player_set_volume(AirplayPlayer *p, float db) {
+    if (!p || !std::isfinite(db) || (db != -144.f && (db < -30.f || db > 0.f))) return false;
+    p->pcm->volume(db);
+    return true;
+}
 void AirplayPlayer::set_volume(float db) {
-    auto *p = this; p->pcm->volume(db);
+    if (!airplay_player_set_volume(this, db)) return;
     char message[96];
     std::snprintf(message, sizeof(message), "Sender audio volume: db=%.1f muted=%s", db, db <= -144 ? "true" : "false");
-    p->log(message);
+    log(message);
+    event("volume", std::to_string(db).c_str());
 }
 int AirplayPlayer::select_codec(bool hevc) {
     auto *p = this;

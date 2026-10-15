@@ -3,6 +3,7 @@
 #include "../../include/airplay/receiver.h"
 #include "../../receiver/json.h"
 #include "../../playback/texture_stats.h"
+#include "../../protocol/uxplay_callbacks.h"
 #include <dart_native_api.h>
 #include <chrono>
 #include <condition_variable>
@@ -11,6 +12,8 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <filesystem>
+#include <limits>
 
 namespace {
 using namespace airplay;
@@ -52,8 +55,79 @@ struct Preferences {
     std::condition_variable wake;
     bool block = false, entered = false, reject = false;
 };
+void check_receiver_volume() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("airplay-volume-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto key = (directory / "pairing.pem").string();
+    AirplayPlayer* player = nullptr;
+    AirplayReceiverHost host{}; host.context = &player;
+    host.create_player = [](void* context, AirplayCallbacks cb, int, int, int, char*, size_t) {
+        return *static_cast<AirplayPlayer**>(context) = airplay_player_create(cb, nullptr, nullptr, nullptr);
+    };
+    uint8_t identity[6]{2,0,0,0,0,2}; char error[512]{};
+    const auto handle = airplay_receiver_create(host,
+        "{\"defaultName\":\"Volume Fixture\"}", key.c_str(), identity, error, sizeof(error));
+    require(handle != 0, "volume receiver created");
+    const auto token = airplay_receiver_attach(handle, 30, reinterpret_cast<void*>(post));
+    require(token != 0, "volume events subscribed");
+    auto start = [&] {
+        require(airplay_receiver_start(handle, UINT64_MAX, error, sizeof(error)), "volume receiver starts");
+    };
+    auto volume = [&] {
+        const auto cb = receiver_callbacks(player);
+        return cb.audio_set_client_volume(cb.cls);
+    };
+    auto restore = [&](int64_t id, const char* arguments, bool valid = true) {
+        require(command(handle, token, id, "restoreVolume", arguments), "volume restore admitted");
+        require(bool(item(reply(30, id).get(), "error")) != valid, "volume restore validation");
+    };
+    start(); require(volume() == -15, "first launch uses the slider midpoint");
+    auto cb = receiver_callbacks(player);
+    cb.audio_set_volume(cb.cls, -7.5f);
+    snapshot(handle); // Drain the copied sender event on the receiver worker.
+    require(volume() == -7.5, "sender updates reported volume");
+    {
+        std::lock_guard<std::mutex> guard(messages_lock);
+        bool persisted = false;
+        for (const auto& message : messages) {
+            auto event = parse_json(message.second.c_str());
+            if (message.first != 30 || text(event.get(), "type") != "volume") continue;
+            double db = 0; plist_get_real_val(item(event.get(), "volumeDb"), &db);
+            persisted |= db == -7.5;
+        }
+        require(persisted, "sender volume reaches the Dart persistence event");
+    }
+    restore(201, "{\"volumeDb\":-20}");
+    require(volume() == -7.5, "reattaching cannot overwrite live sender volume");
+    require(airplay_receiver_disconnect(handle, error, sizeof(error)), "volume disconnect restarts receiver");
+    require(volume() == -7.5, "disconnect preserves remembered volume");
+    require(airplay_receiver_suspend(handle, error, sizeof(error)), "volume receiver suspends");
+    require(airplay_receiver_resume(handle, error, sizeof(error)), "volume receiver resumes");
+    require(volume() == -7.5, "suspend and resume preserve volume");
+    AirplayReceiverSettings settings{}; settings.fields = AIRPLAY_SETTING_PLAYBACK_BUFFER; settings.playback_buffer_ms = 100;
+    require(airplay_receiver_save(handle, &settings, error, sizeof(error)), "other settings saved");
+    bool applied = false;
+    require(airplay_receiver_apply_settings(handle, &applied, error, sizeof(error)) && applied, "idle settings restart applied");
+    require(volume() == -7.5, "applying unrelated settings preserves volume");
+    require(airplay_receiver_stop(handle, error, sizeof(error)), "volume receiver stops");
+    for (const auto* invalid : {"{}", "{\"volumeDb\":true}", "{\"volumeDb\":\"-10\"}",
+                              "{\"volumeDb\":-31}", "{\"volumeDb\":1}"})
+        restore(202, invalid, false);
+    start(); require(volume() == -7.5, "invalid restores preserve remembered volume");
+    require(airplay_receiver_stop(handle, error, sizeof(error)), "volume receiver stops for restore");
+    restore(203, "{\"volumeDb\":-144}");
+    start(); require(volume() == -144, "saved mute restores before the next connection");
+    cb = receiver_callbacks(player);
+    for (const auto db : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -31.f, 1.f})
+        cb.audio_set_volume(cb.cls, db);
+    require(volume() == -144, "invalid sender values preserve mute");
+    airplay_receiver_destroy(handle);
+    std::filesystem::remove_all(directory);
+}
 }
 int main() {
+    check_receiver_volume();
     TextureStats texture_stats;
     texture_stats.receive(); texture_stats.receive(); texture_stats.acquire(); texture_stats.acquire(); texture_stats.receive();
     require(texture_stats.received == 3 && texture_stats.acquired_new == 1 && texture_stats.overwritten == 1 && texture_stats.repeated == 1,

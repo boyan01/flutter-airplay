@@ -199,6 +199,10 @@ int main() {
             const auto info = CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
             CFRelease(data);
             check(info && CFGetTypeID(info) == CFDictionaryGetTypeID(), "decode advertised info plist");
+            double initial_volume = 0;
+            const auto volume = static_cast<CFNumberRef>(CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), CFSTR("initialVolume")));
+            check(volume && CFNumberGetValue(volume, kCFNumberDoubleType, &initial_volume) && initial_volume == -15,
+                  "connection advertises 50 percent volume instead of maximum");
             int64_t features = 0;
             const auto feature_value = static_cast<CFNumberRef>(CFDictionaryGetValue(static_cast<CFDictionaryRef>(info), CFSTR("features")));
             check(feature_value && CFNumberGetValue(feature_value, kCFNumberSInt64Type, &features), "numeric AirPlay features");

@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_airplay/receiver/receiver_settings_store.dart';
 
@@ -34,6 +35,8 @@ class TestControl implements ReceiverControl {
         data = {...data, ...args, 'name': (args['name'] as String).trim()};
       case 'applySettings':
         return {'applied': false};
+      case 'restoreVolume':
+        if (data['status'] == 'stopped') data['volumeDb'] = args['volumeDb'];
     }
     return {};
   }
@@ -51,6 +54,21 @@ class MemoryPreferences implements SharedPreferencesAsync {
   set value(String? value) => _state['value'] = value;
   bool get failWrites => _state['failWrites'] == true;
   set failWrites(bool value) => _state['failWrites'] = value;
+  double? get volume => _state['volume'] as double?;
+  set volume(double? value) => _state['volume'] = value;
+  @override
+  Future<double?> getDouble(String key) async {
+    expect(key, ReceiverSettingsStore.volumeKey);
+    return volume;
+  }
+
+  @override
+  Future<void> setDouble(String key, double value) async {
+    expect(key, ReceiverSettingsStore.volumeKey);
+    if (failWrites) throw StateError('Synthetic persistence failure');
+    volume = value;
+  }
+
   @override
   Future<String?> getString(String key) async {
     expect(key, ReceiverSettingsStore.storageKey);
@@ -98,6 +116,14 @@ void main() {
 
   setUp(() async {
     preferences = MemoryPreferences();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('org.airplayreceiver/platform'),
+          (call) async {
+            expect(call.method, 'prepareReception');
+            return null;
+          },
+        );
     PackageInfo.setMockInitialValues(
       appName: 'Flutter AirPlay',
       packageName: 'tech.soit.flutterairplay',
@@ -140,6 +166,63 @@ void main() {
     expect(data.settings.fastPairing, false);
     expect(data.settings.showPlaybackStats, true);
     expect(data.settings.playbackBufferMs, 100);
+  });
+  for (final platform in ['macos', 'ios', 'android', 'linux', 'windows']) {
+    test(
+      '$platform persists sender volume and restores it before start',
+      () async {
+        final native = control(platform);
+        final repo = repository(native);
+        await repo.snapshot();
+        expect(native.commands, isNot(contains('restoreVolume')));
+        for (final db in [-7.5, -30.0, -144.0]) {
+          native.stream.add({'type': 'volume', 'volumeDb': db});
+        }
+        await repo.save('Renamed', '', playbackBufferMs: 100);
+        for (var i = 0; i < 100 && preferences.volume != -144; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(preferences.volume, -144);
+        expect(jsonDecode(preferences.value!), isNot(contains('volumeDb')));
+        final restarted = control(platform);
+        await repository(restarted).start('Restarted', '');
+        expect(restarted.data['volumeDb'], -144);
+        expect(
+          restarted.commands.indexOf('restoreVolume'),
+          lessThan(restarted.commands.indexOf('start')),
+        );
+      },
+    );
+  }
+  test('reattaching preserves current playback volume', () async {
+    preferences.volume = -20;
+    final native = control('macos');
+    native.data.addAll({'status': 'streaming', 'volumeDb': -7.5});
+    await repository(native).snapshot();
+    expect(native.data['volumeDb'], -7.5);
+  });
+  test('invalid persisted volume falls back to native default', () async {
+    for (final db in [double.nan, double.infinity, -31.0, 1.0]) {
+      preferences.volume = db;
+      final native = control('macos');
+      await repository(native).snapshot();
+      expect(native.commands, isNot(contains('restoreVolume')));
+    }
+  });
+  test('volume persistence recovers after a failed write', () async {
+    final native = control('macos');
+    final repo = repository(native);
+    await repo.snapshot();
+    final error = expectLater(repo.events, emitsError(isStateError));
+    preferences.failWrites = true;
+    native.stream.add({'type': 'volume', 'volumeDb': -10.0});
+    await error;
+    preferences.failWrites = false;
+    native.stream.add({'type': 'volume', 'volumeDb': -12.0});
+    for (var i = 0; i < 100 && preferences.volume != -12; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(preferences.volume, -12);
   });
   test(
     'serialized saves preserve options and canonical native values',

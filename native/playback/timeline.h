@@ -80,7 +80,11 @@ public:
     uint64_t generation() const { return generation_.load(std::memory_order_acquire); }
     uint64_t late_drops() const { return late_drops_.load(std::memory_order_relaxed); }
     uint64_t stale_drops() const { return stale_drops_.load(std::memory_order_relaxed); }
-    float gain() const { return gain_.load(std::memory_order_relaxed); }
+    float volume_db() const { return volume_db_.load(std::memory_order_relaxed); }
+    float gain() const {
+        const auto db = volume_db();
+        return db <= -144 ? 0.f : std::pow(10.f, db / 20.f);
+    }
     std::string diagnostics() const {
         // Never inspect ring frames from the reporting thread: only the SPSC
         // reader/writer owns them. Atomic snapshots are approximate but bounded.
@@ -102,7 +106,7 @@ public:
     }
     void flush() { generation_.fetch_add(1, std::memory_order_acq_rel); }
     void volume(float db) {
-        gain_.store(db <= -144 ? 0.f : std::pow(10.f, std::clamp(db, -30.f, 0.f) / 20.f));
+        volume_db_.store(db <= -144 ? -144.f : std::clamp(db, -30.f, 0.f));
     }
     size_t write(const int16_t *pcm, size_t count, int64_t deadline, uint64_t generation) {
         const auto read = read_.load(std::memory_order_acquire);
@@ -121,7 +125,7 @@ public:
         auto read = read_.load(std::memory_order_relaxed);
         const auto write = write_.load(std::memory_order_acquire);
         const auto generation = this->generation();
-        const float gain = gain_.load(std::memory_order_relaxed);
+        const float gain = this->gain();
         uint64_t late = 0, stale = 0, played = 0, future = 0;
         int64_t future_lead = 0;
         for (size_t i = 0; i < count; ++i) {
@@ -158,7 +162,7 @@ private:
     const size_t capacity_;
     alignas(64) std::atomic<uint64_t> read_{0}, write_{0};
     std::atomic<uint64_t> generation_{1};
-    std::atomic<float> gain_{1};
+    std::atomic<float> volume_db_{0};
     std::atomic<uint64_t> late_drops_{0}, stale_drops_{0};
     std::atomic<uint64_t> write_drops_{0}, played_{0}, empty_{0}, future_{0};
     std::atomic<int64_t> last_write_{0}, last_pull_{0}, future_lead_{0}, output_lead_{0};

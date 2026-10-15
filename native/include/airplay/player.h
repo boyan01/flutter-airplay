@@ -48,6 +48,9 @@ bool airplay_player_set_video_size(AirplayPlayer *, int width, int height);
 bool airplay_player_set_playback_buffer(AirplayPlayer *, int milliseconds);
 // Skips legacy pairing when enabled. Defaults to true; set before receiver start.
 bool airplay_player_set_fast_pairing(AirplayPlayer *, bool enabled);
+// Restores receiver volume without emitting a sender change. -30..0 dB, or -144=mute.
+// AirPlay's slider midpoint is -15 dB. Safe before start and while playing.
+bool airplay_player_set_volume(AirplayPlayer *, float db);
 bool airplay_player_start(AirplayPlayer *, const char *name, const uint8_t identity[6],
                           const char *key_path, char *error, size_t error_size);
 uint16_t airplay_player_port(AirplayPlayer *);
