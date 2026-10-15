@@ -39,17 +39,27 @@ class DesktopWindowBar extends StatelessWidget {
         tooltip: tooltip,
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(),
+        style: ButtonStyle(
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) =>
+                states.any(
+                  (state) => {
+                    WidgetState.hovered,
+                    WidgetState.focused,
+                    WidgetState.pressed,
+                  }.contains(state),
+                )
+                ? Colors.black54
+                : Colors.transparent,
+          ),
+        ),
         onPressed: () => window.execute(command),
         icon: Container(
-          width: 14,
-          height: 14,
+          width: 12,
+          height: 12,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          child: Icon(
-            icon,
-            size: 10,
-            color: Colors.black54,
-            semanticLabel: tooltip,
-          ),
+          child: Icon(icon, size: 10, semanticLabel: tooltip),
         ),
       ),
     ),
@@ -98,7 +108,8 @@ class DesktopWindowBar extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
                 color: dark
                     ? Colors.white
                     : Theme.of(context).colorScheme.onSurfaceVariant,
@@ -129,7 +140,8 @@ class DesktopWindowBar extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
                         color: dark
                             ? Colors.white
                             : Theme.of(context).colorScheme.onSurfaceVariant,

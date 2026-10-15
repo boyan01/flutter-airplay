@@ -447,7 +447,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get saveRestart => '保存并重启';
 
   @override
-  String get shareLogs => '分享日志文件';
+  String get shareLogs => '分享日志';
 
   @override
   String get exportingLogs => '正在打包日志…';
@@ -459,11 +459,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get shareLogsUnavailable => '此设备没有可用的文件分享应用。';
 
   @override
-  String get clearLogView => '清空当前列表';
-
-  @override
-  String get shareLogsHelp =>
-      '将历史日志、应用版本和播放信息打包为 ZIP 文件分享。清空列表会保留日志文件。日志可能包含设备和网络信息。';
+  String get clearLogView => '清空列表';
 
   @override
   String get audioOutput => '音频输出';

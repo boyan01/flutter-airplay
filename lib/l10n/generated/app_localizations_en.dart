@@ -457,7 +457,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get saveRestart => 'Save and restart';
 
   @override
-  String get shareLogs => 'Share log file';
+  String get shareLogs => 'Share logs';
 
   @override
   String get exportingLogs => 'Preparing logs…';
@@ -471,11 +471,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'No file sharing app is available on this device.';
 
   @override
-  String get clearLogView => 'Clear current list';
-
-  @override
-  String get shareLogsHelp =>
-      'Shares saved logs, app version and playback information as a ZIP file. Clearing this list keeps saved logs. Logs may contain device and network information.';
+  String get clearLogView => 'Clear list';
 
   @override
   String get audioOutput => 'Audio output';

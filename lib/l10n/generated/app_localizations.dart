@@ -947,7 +947,7 @@ abstract class AppLocalizations {
   /// No description provided for @shareLogs.
   ///
   /// In en, this message translates to:
-  /// **'Share log file'**
+  /// **'Share logs'**
   String get shareLogs;
 
   /// No description provided for @exportingLogs.
@@ -971,14 +971,8 @@ abstract class AppLocalizations {
   /// No description provided for @clearLogView.
   ///
   /// In en, this message translates to:
-  /// **'Clear current list'**
+  /// **'Clear list'**
   String get clearLogView;
-
-  /// No description provided for @shareLogsHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Shares saved logs, app version and playback information as a ZIP file. Clearing this list keeps saved logs. Logs may contain device and network information.'**
-  String get shareLogsHelp;
 
   /// No description provided for @audioOutput.
   ///

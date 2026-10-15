@@ -839,6 +839,109 @@ void main() {
     });
   }
 
+  for (final locale in ['zh', 'en']) {
+    for (final (size, tv, scale) in [
+      (const Size(1000, 700), false, 1.0),
+      (const Size(1280, 720), true, 1.0),
+      (const Size(390, 650), false, 2.0),
+    ]) {
+      testWidgets('$locale logs layout at $size TV=$tv scale=$scale', (
+        tester,
+      ) async {
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final backend = await launch(
+          tester,
+          platform: tv ? 'android' : 'macos',
+          tv: tv,
+          size: size,
+          locale: locale,
+        );
+        final model = tester
+            .widget<ReceiverApp>(find.byType(ReceiverApp))
+            .model;
+        backend.controller.add({
+          'type': 'log',
+          'entry': {
+            'id': 1,
+            'time': '2026-10-15T12:30:08',
+            'text':
+                'Playback pipeline: ${List.filled(12, 'received=1234 decoded=1234').join(' ')}',
+          },
+        });
+        Navigator.of(
+          tester.element(find.byType(Scaffold).first),
+        ).push<void>(MaterialPageRoute(builder: (_) => LogsPage(model: model)));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('12:30:08'), findsOneWidget);
+        expect(find.textContaining('ZIP'), findsNothing);
+        final panel = tester.getRect(find.byKey(const Key('logPanel')));
+        expect(panel.height, greaterThan(150));
+        final share = tester.getRect(find.byKey(const Key('shareLogs')));
+        expect(share.bottom, lessThan(panel.top));
+        expect(share.right, lessThanOrEqualTo(size.width));
+        final title = tester.getRect(
+          find.text(locale == 'zh' ? '接收日志' : 'Receiver logs'),
+        );
+        if (scale == 1) {
+          expect(title.center.dy, closeTo(share.center.dy, 1));
+        } else {
+          expect(title.bottom, lessThan(share.top));
+        }
+      });
+    }
+  }
+
+  testWidgets(
+    'Logs copy retains diagnostic text and clear only empties the view',
+    (tester) async {
+      final backend = await launch(tester);
+      final model = tester.widget<ReceiverApp>(find.byType(ReceiverApp)).model;
+      backend.controller.add({
+        'type': 'log',
+        'entry': {
+          'id': 1,
+          'time': '2026-10-15T12:30:08',
+          'text': 'Decoder failed: code=-12\nRetrying decoder',
+        },
+      });
+      Navigator.of(
+        tester.element(find.byType(Scaffold).first),
+      ).push<void>(MaterialPageRoute(builder: (_) => LogsPage(model: model)));
+      await tester.pumpAndSettle();
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.tap(find.text('复制日志'));
+      await tester.pumpAndSettle();
+      expect(copied, '12:30:08  Decoder failed: code=-12\nRetrying decoder');
+      await tester.tap(find.text('清空列表'));
+      await tester.pumpAndSettle();
+      expect(find.text('暂无日志'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('shareLogs')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(backend.stops, 0);
+    },
+  );
+
   testWidgets(
     'TV logs page scrolls with remote and keeps sharing enabled after clearing',
     (tester) async {
@@ -869,19 +972,25 @@ void main() {
       final logFocus = find.byWidgetPredicate(
         (widget) => widget is Focus && widget.debugLabel == 'Log list',
       );
-      Focus.of(
-        tester.element(
-          find.descendant(of: logFocus, matching: find.byType(Scrollbar)),
-        ),
-      ).requestFocus();
-      await tester.pump();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Share logs');
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Log list');
+      expect(
+        tester.getRect(find.byKey(const Key('tvFocusRing'))),
+        tester.getRect(find.byKey(const Key('logPanel'))).inflate(3),
+      );
+      expect(logFocus, findsOneWidget);
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
       await tester.pumpAndSettle();
       expect(list.controller!.offset, 100);
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
       expect(list.controller!.offset, 0);
-      await tester.tap(find.text('清空当前列表'));
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Share logs');
+      await tester.tap(find.text('清空列表'));
       await tester.pumpAndSettle();
       expect(model.logs, isEmpty);
       expect(
@@ -1716,7 +1825,11 @@ void main() {
           await tester.pumpAndSettle();
         }
         final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-        final route = ModalRoute.of(tester.element(find.byType(AppBar).last))!;
+        final route = ModalRoute.of(
+          tester.element(
+            page == 'logs' ? find.byType(LogsPage) : find.byType(AppBar).last,
+          ),
+        )!;
         expect(route.isCurrent, isTrue);
 
         // Android must receive the complete key sequence before navigating.
@@ -1823,7 +1936,7 @@ void main() {
           expect(find.byType(LogsPage), findsOneWidget);
           expect(find.byType(AlertDialog), findsNothing);
           expect(
-            find.text(locale == 'zh' ? '分享日志文件' : 'Share log file'),
+            find.text(locale == 'zh' ? '分享日志' : 'Share logs'),
             findsOneWidget,
           );
           expect(
