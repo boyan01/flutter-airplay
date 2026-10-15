@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.7
+
+### 中文
+
+- 修复投屏时音量跳到最大的问题，首次启动默认 50%，并记住上次调好的音量。
+- 改进 TV 遥控器焦点与裁剪操作，修复裁剪后播放控件不自动隐藏的问题。
+- 优化设置、日志和更新界面，更新说明跟随应用语言显示。
+
+### English
+
+- Fixed volume jumping to maximum when casting, with a 50% default on first launch and the last volume remembered.
+- Improved TV remote focus and cropping controls, and fixed playback controls staying visible after cropping.
+- Refined settings, logs, and update screens, with release notes shown in the app's language.
+
 ## 0.1.6
 
 ### 中文
