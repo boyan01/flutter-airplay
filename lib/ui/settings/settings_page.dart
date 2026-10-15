@@ -184,7 +184,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _option(String key, String title, {bool enabled = true}) =>
       SwitchListTile(
         key: Key(key),
-        contentPadding: EdgeInsets.zero,
+        contentPadding:
+            ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
         title: Text(title),
         value: _options[key]!,
         onChanged: enabled && model.editable
@@ -221,7 +222,10 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           if (title != null)
             Padding(
-              padding: const EdgeInsets.only(left: 16, bottom: 8),
+              padding: EdgeInsets.only(
+                left: model.isTelevision ? 24 : 16,
+                bottom: 8,
+              ),
               child: Text(
                 title,
                 style: theme.textTheme.titleSmall?.copyWith(
@@ -237,7 +241,9 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             clipBehavior: Clip.antiAlias,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: model.isTelevision
+                  ? const EdgeInsets.all(8)
+                  : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
@@ -263,10 +269,8 @@ class _SettingsPageState extends State<SettingsPage> {
               key: const Key('tvName'),
               autofocus: true,
               title: Text(l10n(context).name),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [Text(model.name), const Icon(Icons.chevron_right)],
-              ),
+              subtitle: Text(model.name),
+              trailing: const Icon(Icons.chevron_right),
               onTap: _editTvName,
             ),
           )
@@ -293,7 +297,8 @@ class _SettingsPageState extends State<SettingsPage> {
         else
           SwitchListTile(
             key: const Key('autoStart'),
-            contentPadding: EdgeInsets.zero,
+            contentPadding:
+                ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
             title: Text(l10n(context).autoStart),
             value: _autoStart,
             onChanged: model.editable
@@ -324,18 +329,27 @@ class _SettingsPageState extends State<SettingsPage> {
             child: ListTile(
               key: const Key('videoQuality'),
               focusNode: _qualityFocus,
-              contentPadding: EdgeInsets.zero,
+              contentPadding:
+                  ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
               title: Text(l10n(context).videoQuality),
               subtitle: Text(qualityLabel(context, model.videoQuality)),
               trailing: const Icon(Icons.chevron_right),
               onTap: model.editable ? _editVideoQuality : null,
             ),
           ),
-          Text(
-            '${l10n(context).screenSize}: ${model.screenWidth} × ${model.screenHeight}',
-          ),
-          Text(
-            '${l10n(context).receivedSize}: ${model.hasVideo ? '${model.videoWidth} × ${model.videoHeight}' : l10n(context).noReceivedVideo}',
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: tv ? 16 : 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${l10n(context).screenSize}: ${model.screenWidth} × ${model.screenHeight}',
+                ),
+                Text(
+                  '${l10n(context).receivedSize}: ${model.hasVideo ? '${model.videoWidth} × ${model.videoHeight}' : l10n(context).noReceivedVideo}',
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -345,7 +359,8 @@ class _SettingsPageState extends State<SettingsPage> {
           TvFocus(
             child: ListTile(
               key: const Key('backgroundLaunch'),
-              contentPadding: EdgeInsets.zero,
+              contentPadding:
+                  ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
               title: Text(l10n(context).backgroundLaunch),
               subtitle: Text(l10n(context).backgroundLaunchHelp),
               trailing: const Icon(Icons.chevron_right),
@@ -356,7 +371,8 @@ class _SettingsPageState extends State<SettingsPage> {
           TvFocus(
             child: ListTile(
               key: const Key('appPermissions'),
-              contentPadding: EdgeInsets.zero,
+              contentPadding:
+                  ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
               title: Text(l10n(context).appPermissions),
               subtitle: Text(l10n(context).appPermissionsHelp),
               trailing: const Icon(Icons.chevron_right),
@@ -374,13 +390,16 @@ class _SettingsPageState extends State<SettingsPage> {
         ExpansionTile(
           key: const Key('advancedSettings'),
           title: Text(l10n(context).advanced),
-          tilePadding: EdgeInsets.zero,
+          tilePadding: tv
+              ? const EdgeInsets.symmetric(horizontal: 16)
+              : EdgeInsets.zero,
           children: [
             TvFocus(
               child: ListTile(
                 key: const Key('playbackBuffer'),
                 focusNode: _playbackBufferFocus,
-                contentPadding: EdgeInsets.zero,
+                contentPadding:
+                    ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
                 title: Text(l10n(context).playbackBuffer),
                 subtitle: Text(_bufferLabel(context, model.playbackBufferMs)),
                 trailing: const Icon(Icons.chevron_right),
@@ -390,7 +409,8 @@ class _SettingsPageState extends State<SettingsPage> {
             TvFocus(
               child: SwitchListTile(
                 key: const Key('fastPairing'),
-                contentPadding: EdgeInsets.zero,
+                contentPadding:
+                    ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
                 title: Text(l10n(context).fastPairing),
                 subtitle: Text(l10n(context).fastPairingHelp),
                 value: model.fastPairing,
@@ -410,7 +430,8 @@ class _SettingsPageState extends State<SettingsPage> {
             TvFocus(
               child: SwitchListTile(
                 key: const Key('showPlaybackStats'),
-                contentPadding: EdgeInsets.zero,
+                contentPadding:
+                    ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
                 title: Text(l10n(context).showPlaybackStats),
                 subtitle: Text(l10n(context).showPlaybackStatsHelp),
                 value: model.showPlaybackStats,
@@ -431,7 +452,9 @@ class _SettingsPageState extends State<SettingsPage> {
               TvFocus(
                 child: ListTile(
                   key: const Key('audioOutput'),
-                  contentPadding: EdgeInsets.zero,
+                  contentPadding:
+                      ListTileTheme.of(context).contentPadding ??
+                      EdgeInsets.zero,
                   focusNode: _audioOutputFocus,
                   title: Text(l10n(context).audioOutput),
                   subtitle: Text(audioOutputLabel(context, model.audioOutput)),
@@ -477,7 +500,8 @@ class _SettingsPageState extends State<SettingsPage> {
         if (model.buildVersion.isNotEmpty || model.buildTime.isNotEmpty)
           ListTile(
             key: const Key('buildInfo'),
-            contentPadding: EdgeInsets.zero,
+            contentPadding:
+                ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
             title: model.buildVersion.isEmpty
                 ? null
                 : Text('${l10n(context).buildVersion}: ${model.buildVersion}'),
@@ -489,12 +513,14 @@ class _SettingsPageState extends State<SettingsPage> {
             {'macos', 'android', 'windows'}.contains(model.platform))
           AppUpdateSettings(
             updates: widget.updates!,
+            television: tv,
             onOpenUpdate: widget.onOpenUpdate,
           ),
         TvFocus(
           child: ListTile(
             key: const Key('settingsLogs'),
-            contentPadding: EdgeInsets.zero,
+            contentPadding:
+                ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
             title: Text(l10n(context).logs),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
@@ -507,7 +533,8 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         TvFocus(
           child: ListTile(
-            contentPadding: EdgeInsets.zero,
+            contentPadding:
+                ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
             title: Text(l10n(context).licenses),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => showLicensePage(
@@ -532,7 +559,10 @@ class _SettingsPageState extends State<SettingsPage> {
             ...systemEntries,
           ],
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.symmetric(
+              horizontal: tv ? (desktop ? 24 : 16) : 0,
+              vertical: 8,
+            ),
             child: Text(
               l10n(context).settingsApplyHelp,
               style: Theme.of(context).textTheme.bodySmall,

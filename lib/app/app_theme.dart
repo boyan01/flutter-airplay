@@ -64,6 +64,25 @@ ThemeData receiverTheme(
         minimumSize: Size.square(television ? 56 : 44),
       ).copyWith(overlayColor: focusOverlay),
     ),
+    listTileTheme: television
+        ? const ListTileThemeData(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            titleAlignment: ListTileTitleAlignment.center,
+          )
+        : const ListTileThemeData(),
+    expansionTileTheme: television
+        ? const ExpansionTileThemeData(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+            collapsedShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+          )
+        : const ExpansionTileThemeData(),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       border: const OutlineInputBorder(),

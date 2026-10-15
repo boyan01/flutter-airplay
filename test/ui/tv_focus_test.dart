@@ -3,6 +3,25 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_airplay/ui/tv_focus.dart';
 
+Rect buttonBounds(WidgetTester tester, String key) => tester
+    .getRect(
+      find
+          .descendant(of: find.byKey(Key(key)), matching: find.byType(Material))
+          .first,
+    )
+    .inflate(3);
+
+BoxDecoration ringDecoration(WidgetTester tester) =>
+    tester
+            .widget<DecoratedBox>(
+              find.descendant(
+                of: find.byKey(const Key('tvFocusRing')),
+                matching: find.byType(DecoratedBox),
+              ),
+            )
+            .decoration
+        as BoxDecoration;
+
 void main() {
   testWidgets('one white rounded ring animates between native D-pad targets', (
     tester,
@@ -37,13 +56,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     final ring = find.byKey(const Key('tvFocusRing'));
-    final first = tester.getRect(find.byKey(const Key('first'))).inflate(3);
-    final second = tester.getRect(find.byKey(const Key('second'))).inflate(3);
+    final first = buttonBounds(tester, 'first');
+    final second = buttonBounds(tester, 'second');
     expect(tester.getRect(ring), first);
-    final decoration =
-        tester.widget<DecoratedBox>(ring).decoration as BoxDecoration;
+    final decoration = ringDecoration(tester);
     expect(decoration.border, Border.all(color: Colors.white, width: 3));
-    expect(decoration.borderRadius, BorderRadius.circular(12));
+    expect(decoration.borderRadius, BorderRadius.circular(first.height / 2));
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
     await tester.pump();
@@ -56,10 +74,7 @@ void main() {
     expect(tester.getRect(ring), second);
     await tester.binding.setSurfaceSize(const Size(600, 500));
     await tester.pumpAndSettle();
-    expect(
-      tester.getRect(ring),
-      tester.getRect(find.byKey(const Key('second'))).inflate(3),
-    );
+    expect(tester.getRect(ring), buttonBounds(tester, 'second'));
     expect(find.byType(AnimatedScale), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -97,10 +112,7 @@ void main() {
     final ring = find.byKey(const Key('tvFocusRing'));
     await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -60));
     await tester.pumpAndSettle();
-    expect(
-      tester.getRect(ring),
-      tester.getRect(find.byKey(const Key('action'))).inflate(3),
-    );
+    expect(tester.getRect(ring), buttonBounds(tester, 'action'));
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(activations, 1);
@@ -135,6 +147,264 @@ void main() {
     expect(tester.state(find.byType(Navigator)), same(navigator));
     expect(FocusManager.instance.primaryFocus, same(focus));
     expect(find.byKey(const Key('tvFocusRing')), findsOneWidget);
+  });
+
+  testWidgets('circle morphs to a list item and retargets during key repeats', (
+    tester,
+  ) async {
+    final first = FocusNode();
+    final second = FocusNode();
+    final third = FocusNode();
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    addTearDown(third.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
+        home: Scaffold(
+          body: Column(
+            children: [
+              IconButton(
+                key: const Key('circle'),
+                focusNode: first,
+                autofocus: true,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(120, 56),
+                  shape: const CircleBorder(),
+                ),
+                onPressed: () {},
+                icon: const Icon(Icons.settings),
+              ),
+              const SizedBox(height: 100),
+              ListTile(
+                key: const Key('item'),
+                focusNode: second,
+                title: const Text('Settings'),
+                onTap: () {},
+              ),
+              const SizedBox(height: 100),
+              TextButton(
+                key: const Key('rounded'),
+                focusNode: third,
+                style: TextButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                onPressed: () {},
+                child: const Text('Third'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ring = find.byKey(const Key('tvFocusRing'));
+    final button = buttonBounds(tester, 'circle').deflate(3);
+    final circle = Rect.fromCircle(
+      center: button.center,
+      radius: button.shortestSide / 2,
+    ).inflate(3);
+    expect(tester.getRect(ring), circle);
+    expect(
+      ringDecoration(tester).borderRadius,
+      BorderRadius.circular(circle.shortestSide / 2),
+    );
+    second.requestFocus();
+    await tester.idle();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 70));
+    final moving = tester.getRect(ring);
+    final item = tester.getRect(find.byKey(const Key('item'))).inflate(3);
+    expect(moving.top, greaterThan(circle.top));
+    expect(moving.top, lessThan(item.top));
+    final radius =
+        (ringDecoration(tester).borderRadius! as BorderRadius).topLeft.x;
+    expect(radius, greaterThan(0));
+    expect(radius, lessThan(circle.shortestSide / 2));
+    third.requestFocus();
+    await tester.idle();
+    await tester.pump();
+    await tester.pump();
+    expect(tester.getRect(ring), moving);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(ring), buttonBounds(tester, 'rounded'));
+    expect(ringDecoration(tester).borderRadius, BorderRadius.circular(13));
+    second.requestFocus();
+    await tester.idle();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(ring), item);
+    expect(ringDecoration(tester).borderRadius, BorderRadius.zero);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('reduced motion snaps to the next target', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: TvFocusScope(enabled: true, child: child!),
+        ),
+        home: Scaffold(
+          body: Row(
+            children: [
+              TextButton(
+                autofocus: true,
+                onPressed: () {},
+                child: const Text('First'),
+              ),
+              TextButton(
+                key: const Key('second'),
+                onPressed: () {},
+                child: const Text('Second'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.pump();
+    expect(
+      tester.getRect(find.byKey(const Key('tvFocusRing'))),
+      buttonBounds(tester, 'second'),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('scrolling clips the outline without changing its shape', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              height: 180,
+              child: SingleChildScrollView(
+                controller: scroll,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 100),
+                    TextButton(
+                      key: const Key('action'),
+                      autofocus: true,
+                      onPressed: () {},
+                      child: const Text('Action'),
+                    ),
+                    const SizedBox(height: 500),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    scroll.jumpTo(120);
+    await tester.pump();
+    await tester.pump();
+    final ring = find.byKey(const Key('tvFocusRing'));
+    expect(tester.getRect(ring), buttonBounds(tester, 'action'));
+    final clip = tester.widget<ClipRect>(
+      find.ancestor(of: ring, matching: find.byType(ClipRect)).first,
+    );
+    expect(
+      clip.clipper!.getClip(const Size(800, 600)),
+      tester.getRect(find.byType(SingleChildScrollView)),
+    );
+    scroll.jumpTo(200);
+    await tester.pumpAndSettle();
+    expect(ring, findsNothing);
+  });
+
+  testWidgets('dialog focus stays on its route and restores the trigger', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              key: const Key('trigger'),
+              autofocus: true,
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  actions: [
+                    TextButton(
+                      key: const Key('close'),
+                      autofocus: true,
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    final ring = find.byKey(const Key('tvFocusRing'));
+    expect(tester.getRect(ring), buttonBounds(tester, 'close'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(ring), buttonBounds(tester, 'trigger'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('hidden custom targets lose the ring and restore their outline', (
+    tester,
+  ) async {
+    final hidden = ValueNotifier(false);
+    addTearDown(hidden.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: hidden,
+            builder: (_, value, _) => Offstage(
+              offstage: value,
+              child: const TvFocus(
+                borderRadius: BorderRadius.zero,
+                child: Focus(
+                  autofocus: true,
+                  child: SizedBox(width: 180, height: 100),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ring = find.byKey(const Key('tvFocusRing'));
+    expect(ring, findsOneWidget);
+    expect(ringDecoration(tester).borderRadius, BorderRadius.zero);
+    hidden.value = true;
+    await tester.pumpAndSettle();
+    expect(ring, findsNothing);
+    hidden.value = false;
+    await tester.pumpAndSettle();
+    expect(ring, findsOneWidget);
+    expect(ringDecoration(tester).borderRadius, BorderRadius.zero);
   });
 
   testWidgets('non-TV screens keep native focus without a TV ring', (

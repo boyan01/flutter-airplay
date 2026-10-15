@@ -130,28 +130,31 @@ class _ReceiverAppState extends State<ReceiverApp> {
                       onChanged: (active) {
                         _titleInteraction.value = active;
                       },
-                      child: DesktopWindowBar(
-                        window: window,
-                        platform: model.platform,
-                        title: model.hasVideo
-                            ? model.clientName ?? 'iPhone'
-                            : 'Flutter AirPlay',
-                        dark: model.hasVideo,
-                        maximized: _expanded,
-                        trailing: ListenableBuilder(
-                          listenable: _updates,
-                          builder: (context, _) => _updates.hasUpdate
-                              ? AppUpdateIndicator(
-                                  status: _updates.status,
-                                  progress: _updates.progress,
-                                  dark: model.hasVideo,
-                                  tooltip: updateStatusLabel(
-                                    AppLocalizations.of(context)!,
-                                    _updates,
-                                  ),
-                                  onPressed: () => _updateRequests.value++,
-                                )
-                              : const SizedBox.shrink(),
+                      child: ExcludeFocus(
+                        excluding: model.isTelevision,
+                        child: DesktopWindowBar(
+                          window: window,
+                          platform: model.platform,
+                          title: model.hasVideo
+                              ? model.clientName ?? 'iPhone'
+                              : 'Flutter AirPlay',
+                          dark: model.hasVideo,
+                          maximized: _expanded,
+                          trailing: ListenableBuilder(
+                            listenable: _updates,
+                            builder: (context, _) => _updates.hasUpdate
+                                ? AppUpdateIndicator(
+                                    status: _updates.status,
+                                    progress: _updates.progress,
+                                    dark: model.hasVideo,
+                                    tooltip: updateStatusLabel(
+                                      AppLocalizations.of(context)!,
+                                      _updates,
+                                    ),
+                                    onPressed: () => _updateRequests.value++,
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
                         ),
                       ),
                     ),

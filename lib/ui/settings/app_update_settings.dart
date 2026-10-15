@@ -13,9 +13,11 @@ class AppUpdateSettings extends StatelessWidget {
     super.key,
     required this.updates,
     this.onOpenUpdate,
+    this.television = false,
   });
 
   final AppUpdates updates;
+  final bool television;
   final VoidCallback? onOpenUpdate;
 
   @override
@@ -68,10 +70,17 @@ class AppUpdateSettings extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(strings.appUpdates, style: theme.textTheme.titleSmall),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: television ? 16 : 0),
+              child: Text(
+                strings.appUpdates,
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
             SwitchListTile(
               key: const Key('automaticallyCheckForUpdates'),
-              contentPadding: EdgeInsets.zero,
+              contentPadding:
+                  ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
               title: Text(strings.automaticallyCheckForUpdates),
               subtitle: Text(
                 updates.savingPreference
@@ -87,13 +96,16 @@ class AppUpdateSettings extends StatelessWidget {
             ),
             ListTile(
               key: const Key('appUpdateAction'),
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                available && updates.status == UpdateStatus.error
-                    ? Icons.error_outline
-                    : Icons.system_update_alt,
-                size: 20,
-              ),
+              contentPadding:
+                  ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
+              leading: television
+                  ? null
+                  : Icon(
+                      available && updates.status == UpdateStatus.error
+                          ? Icons.error_outline
+                          : Icons.system_update_alt,
+                      size: 20,
+                    ),
               title: Text(title),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

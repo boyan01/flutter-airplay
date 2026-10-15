@@ -96,7 +96,8 @@ class _LaunchAtLoginTileState extends State<LaunchAtLoginTile>
       children: [
         SwitchListTile(
           key: const Key('launchAtLogin'),
-          contentPadding: EdgeInsets.zero,
+          contentPadding:
+              ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
           title: Text(strings.launchAtLogin),
           subtitle: Text(strings.launchAtLoginHelp),
           value: _enabled ?? false,
@@ -114,6 +115,9 @@ class _LaunchAtLoginTileState extends State<LaunchAtLoginTile>
         if (!_busy && _error == 'loginNotApplied')
           TextButton(
             key: const Key('cancelLoginRequest'),
+            style: TextButton.styleFrom(
+              padding: ListTileTheme.of(context).contentPadding,
+            ),
             onPressed: () => unawaited(_run(false)),
             child: Text(strings.cancelLoginRequest),
           ),
@@ -122,6 +126,9 @@ class _LaunchAtLoginTileState extends State<LaunchAtLoginTile>
             alignment: AlignmentDirectional.centerStart,
             child: TextButton(
               key: const Key('refreshLogin'),
+              style: TextButton.styleFrom(
+                padding: ListTileTheme.of(context).contentPadding,
+              ),
               onPressed: () => unawaited(_run()),
               child: Text(strings.refreshLogin),
             ),

@@ -139,7 +139,13 @@ class ReceiverModel extends ChangeNotifier {
   bool get supportsWindowPreferences =>
       {'macos', 'windows', 'linux'}.contains(platform);
   bool get isMobile => platform == 'android' || platform == 'ios';
-  bool isTelevision = false;
+  // Keep native capabilities intact while previewing TV UI on a desktop host.
+  bool get isTelevision =>
+      _isTelevision ||
+      (kDebugMode &&
+          platform == 'macos' &&
+          const bool.fromEnvironment('AIRPLAY_DEBUG_TV'));
+  bool _isTelevision = false;
   bool get supportsExecutablePath => _supportsExecutablePath ?? false;
   bool? _supportsExecutablePath;
 
@@ -193,7 +199,7 @@ class ReceiverModel extends ChangeNotifier {
     _videoGeneration = data.generation;
     final capabilities = data.capabilities;
     if (capabilities.platform.isNotEmpty) _platform = capabilities.platform;
-    isTelevision = capabilities.isTelevision;
+    _isTelevision = capabilities.isTelevision;
     _supportsExecutablePath = capabilities.supportsExecutablePath;
     usesNativeVideo = capabilities.nativeVideoSurface;
     supportsLaunchAtLogin = capabilities.supportsLaunchAtLogin;

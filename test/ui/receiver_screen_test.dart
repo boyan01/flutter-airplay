@@ -712,6 +712,66 @@ void main() {
     }
   }
 
+  for (final platform in ['android', 'macos']) {
+    testWidgets('$platform TV settings rows align and use rounded focus', (
+      tester,
+    ) async {
+      await launch(
+        tester,
+        platform: platform,
+        tv: true,
+        size: const Size(960, 900),
+        backend: FakeReceiver(
+          enableVideoQuality: true,
+          capabilities: {'platform': platform, 'isTelevision': true},
+        ),
+      );
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      final name = find.byKey(const Key('tvName'));
+      final left = tester
+          .getTopLeft(find.descendant(of: name, matching: find.text('设备名')))
+          .dx;
+      for (final text in ['打开应用时自动接收', '投屏清晰度']) {
+        expect(tester.getTopLeft(find.text(text)).dx, closeTo(left, 0.1));
+      }
+      final ring = find.byKey(const Key('tvFocusRing'));
+      final decoration =
+          tester
+                  .widget<DecoratedBox>(
+                    find.descendant(
+                      of: ring,
+                      matching: find.byType(DecoratedBox),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(
+        (decoration.borderRadius! as BorderRadius).topLeft.x,
+        greaterThanOrEqualTo(12),
+      );
+      final quality = find.byKey(const Key('videoQuality'));
+      final nameArrow = find.descendant(
+        of: name,
+        matching: find.byIcon(Icons.chevron_right),
+      );
+      final qualityArrow = find.descendant(
+        of: quality,
+        matching: find.byIcon(Icons.chevron_right),
+      );
+      expect(
+        tester.getTopRight(nameArrow).dx,
+        closeTo(tester.getTopRight(qualityArrow).dx, 0.1),
+      );
+      if (platform == 'macos') {
+        for (final text in ['关闭窗口后保留在菜单栏', '收到投屏时显示窗口', '通用']) {
+          expect(tester.getTopLeft(find.text(text)).dx, closeTo(left, 0.1));
+        }
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final locale in ['zh', 'en']) {
     testWidgets('$locale Android settings keep consistent content edges', (
       tester,
@@ -1208,45 +1268,51 @@ void main() {
     expect(backend.stops, 0);
   });
 
-  testWidgets('TV focus ring follows home actions and restores after a route', (
-    tester,
-  ) async {
-    await launch(
-      tester,
-      platform: 'android',
-      tv: true,
-      size: const Size(960, 540),
+  for (final platform in [
+    'android',
+    if (const bool.fromEnvironment('AIRPLAY_DEBUG_TV')) 'macos',
+  ]) {
+    testWidgets(
+      '$platform TV focus ring follows home actions and restores after a route',
+      (tester) async {
+        await launch(
+          tester,
+          platform: platform,
+          tv: platform == 'android',
+          size: const Size(960, 540),
+        );
+        final ring = find.byKey(const Key('tvFocusRing'));
+        expect(
+          tester.getRect(ring),
+          tester.getRect(find.byKey(const Key('openSettings'))).inflate(3),
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(ring),
+          tester.getRect(find.byKey(const Key('openLogs'))).inflate(3),
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(ring),
+          tester.getRect(find.byKey(const Key('shareLogs'))).inflate(3),
+        );
+        await tester.sendKeyEvent(
+          LogicalKeyboardKey.goBack,
+          physicalKey: PhysicalKeyboardKey.escape,
+          platform: 'android',
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(ring),
+          tester.getRect(find.byKey(const Key('openSettings'))).inflate(3),
+        );
+        expect(tester.takeException(), isNull);
+      },
     );
-    final ring = find.byKey(const Key('tvFocusRing'));
-    expect(
-      tester.getRect(ring),
-      tester.getRect(find.byKey(const Key('openSettings'))).inflate(3),
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    await tester.pumpAndSettle();
-    expect(
-      tester.getRect(ring),
-      tester.getRect(find.byKey(const Key('openLogs'))).inflate(3),
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(
-      tester.getRect(ring),
-      tester.getRect(find.byKey(const Key('shareLogs'))).inflate(3),
-    );
-    await tester.sendKeyEvent(
-      LogicalKeyboardKey.goBack,
-      physicalKey: PhysicalKeyboardKey.escape,
-      platform: 'android',
-    );
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(
-      tester.getRect(ring),
-      tester.getRect(find.byKey(const Key('openSettings'))).inflate(3),
-    );
-    expect(tester.takeException(), isNull);
-  });
+  }
 
   testWidgets('TV defaults to Settings and Back never disconnects', (
     tester,
