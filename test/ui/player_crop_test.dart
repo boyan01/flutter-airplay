@@ -206,9 +206,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.byKey(const Key('playerControls')), findsNothing);
           expect(
-            RendererBinding.instance.mouseTracker.debugDeviceActiveCursor(
-              1,
-            ),
+            RendererBinding.instance.mouseTracker.debugDeviceActiveCursor(1),
             SystemMouseCursors.none,
           );
           await mouse.moveTo(const Offset(401, 300));
