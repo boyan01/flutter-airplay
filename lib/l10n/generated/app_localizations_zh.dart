@@ -507,9 +507,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playbackStatsQueued => '输入队列';
 
   @override
-  String get playbackStatsHelp => '提交不等于屏幕实际呈现。丢帧不包含网络丢包。';
-
-  @override
   String get launchAtLoginHelp => '登录桌面后打开应用。请将应用保留在固定安装位置；自动接收由另一选项控制。';
 
   @override

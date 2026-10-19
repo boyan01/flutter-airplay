@@ -619,14 +619,32 @@ void main() {
         await tester.pump();
         expect(find.text('HEVC · Fixture decoder'), findsOneWidget);
         expect(find.text('AAC · 44.1 kHz · 2 ch'), findsOneWidget);
-        expect(find.text('FPS 59.8'), findsOneWidget);
-        expect(find.text('Pending 2/-'), findsOneWidget);
-        expect(find.text('· Queue 1/-'), findsOneWidget);
-        expect(find.text('Underrun -'), findsOneWidget);
-        expect(find.text('V/A   Drop 3/-'), findsOneWidget);
+        expect(find.text('提交帧率 59.8'), findsOneWidget);
+        expect(find.text('已提交帧 120'), findsOneWidget);
+        expect(find.text('调度丢帧 3'), findsOneWidget);
+        expect(find.text('待提交帧 2'), findsOneWidget);
+        expect(find.text('输入队列 1'), findsOneWidget);
+        backend.controller.add({
+          'type': 'playbackStats',
+          'metrics': {'codec': 'HEVC', 'decoder': 'Fixture decoder'},
+        });
+        await tester.pump();
+        // Unknown audio details are omitted rather than shown as placeholders.
+        expect(find.textContaining('kHz'), findsNothing);
+        expect(find.textContaining(' · -'), findsNothing);
         await tester.binding.setSurfaceSize(const Size(280, 320));
+        tester.platformDispatcher.textScaleFactorTestValue = 1.8;
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        final overlay = tester.getRect(
+          find.byKey(const Key('playbackStatsOverlay')),
+        );
+        final last = tester.getRect(find.text('输入队列 0'));
+        expect(overlay.contains(last.topLeft), isTrue);
+        expect(last.bottom, lessThanOrEqualTo(overlay.bottom));
+        expect(last.right, lessThanOrEqualTo(overlay.right));
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+        await tester.pumpAndSettle();
         if (target == 'tv') {
           await tester.pump(const Duration(seconds: 6));
           expect(find.byKey(const Key('playerControls')), findsOneWidget);
@@ -658,7 +676,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.sendKeyEvent(LogicalKeyboardKey.space);
         await tester.pumpAndSettle();
-        expect(find.text('Waiting…'), findsOneWidget);
+        expect(find.text('等待播放统计…'), findsOneWidget);
         expect(find.text('HEVC · Fixture decoder'), findsNothing);
         expect(tester.takeException(), isNull);
       },

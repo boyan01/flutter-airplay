@@ -1064,12 +1064,6 @@ abstract class AppLocalizations {
   /// **'Input queue'**
   String get playbackStatsQueued;
 
-  /// No description provided for @playbackStatsHelp.
-  ///
-  /// In en, this message translates to:
-  /// **'Submissions are not measured screen presentations. Drops exclude network loss.'**
-  String get playbackStatsHelp;
-
   /// No description provided for @launchAtLoginHelp.
   ///
   /// In en, this message translates to:

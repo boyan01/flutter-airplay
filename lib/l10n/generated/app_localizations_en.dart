@@ -522,10 +522,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playbackStatsQueued => 'Input queue';
 
   @override
-  String get playbackStatsHelp =>
-      'Submissions are not measured screen presentations. Drops exclude network loss.';
-
-  @override
   String get launchAtLoginHelp =>
       'Open this app after you sign in to your desktop. Keep the app in a permanent installation location. Receiving automatically is a separate option.';
 
