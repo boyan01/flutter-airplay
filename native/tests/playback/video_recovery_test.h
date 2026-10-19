@@ -82,5 +82,20 @@ inline void video_recovery_test() {
     recovery.clear();
     recovery.failed(400, 8);
     check(decode(idr) == idr && recovery.active(), "a new stream has no saved parameter sets");
+
+    // A new stream's first packet carries its parameter sets with a corrupt picture.
+    decode(join({sps, pps, idr}), false);
+    recovery.failed(410, 8);
+    check(decode(idr) == join({sps, pps, idr}), "a rejected packet's parameter sets fill an empty replay");
+    recovery.failed(420, 8);
+    check(decode(idr) == join({sps, pps, idr}), "they are saved once the replay decodes");
+
+    // The same after a change to HEVC, without mixing in the H.264 parameter sets.
+    const Bytes vps{0, 0, 0, 1, 0x40, 1, 1}, hsps{0, 0, 0, 1, 0x42, 1, 2}, hpps{0, 0, 0, 1, 0x44, 1, 3};
+    const Bytes hidr{0, 0, 0, 1, 0x26, 1, 4};
+    decode(join({vps, hsps, hpps, hidr}), false, true);
+    recovery.failed(430, 8);
+    check(decode(hidr, true, true) == join({vps, hsps, hpps, hidr}), "a new codec replays only its own parameter sets");
+    recovery.clear();
 }
 } // namespace airplay_test

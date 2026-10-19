@@ -3,6 +3,7 @@
 #include "platform.h"
 #include "timeline.h"
 #include <array>
+#include <optional>
 #include <vector>
 
 namespace airplay {
@@ -31,12 +32,17 @@ public:
             else pictures.push_back(nal);
             key |= packet.hevc ? type >= 16 && type <= 23 : type == 5;
         }
-        if (!replay_ || !key || packet.hevc != hevc_) return;
+        const bool known = packet.hevc == hevc_, retry = retry_hevc_ == packet.hevc;
+        if (!replay_ || !key || (!known && !retry)) return;
         // The reset decoder has no parameter sets. Rebuild the access unit with
         // every parameter set first, in VPS, SPS, PPS dependency order.
         std::vector<uint8_t> bytes;
         for (size_t slot = 0; slot < staged_.size(); ++slot) {
-            const auto &parameter = staged_[slot].empty() ? parameters_[slot] : staged_[slot];
+            // A rejected packet's parameter sets only fill gaps; they are kept
+            // once this keyframe decodes.
+            if (retry && staged_[slot].empty() && (!known || parameters_[slot].empty()))
+                staged_[slot] = retry_[slot];
+            const auto &parameter = staged_[slot].empty() && known ? parameters_[slot] : staged_[slot];
             bytes.insert(bytes.end(), parameter.begin(), parameter.end());
         }
         for (const auto &nal : pictures) {
@@ -48,7 +54,17 @@ public:
     }
     // Keep parameter sets only from packets the decoder accepted.
     void decoded(bool accepted) {
-        if (!accepted) return;
+        if (!accepted) {
+            // The picture may be what failed, as in the first packet of a stream,
+            // so offer these to the replay.
+            for (size_t slot = 0; slot < staged_.size(); ++slot) {
+                if (staged_[slot].empty()) continue;
+                if (retry_hevc_ != staged_hevc_) { retry_ = {}; retry_hevc_ = staged_hevc_; }
+                retry_[slot] = std::move(staged_[slot]);
+            }
+            return;
+        }
+        if (!replay_) { retry_ = {}; retry_hevc_.reset(); }
         for (size_t slot = 0; slot < staged_.size(); ++slot) {
             if (staged_[slot].empty()) continue;
             if (staged_hevc_ != hevc_) { parameters_ = {}; hevc_ = staged_hevc_; }
@@ -73,7 +89,7 @@ public:
         return Result::timed_out;
     }
     // A new stream must not reuse the previous stream's parameter sets.
-    void clear() { parameters_ = {}; staged_ = {}; replay_ = false; since_ = 0; }
+    void clear() { parameters_ = {}; staged_ = {}; retry_ = {}; retry_hevc_.reset(); replay_ = false; since_ = 0; }
 
 private:
     using ParameterSets = std::array<std::vector<uint8_t>, 3>; // VPS, SPS, PPS; H.264 has no VPS.
@@ -83,8 +99,9 @@ private:
         return unit;
     }
 
-    ParameterSets parameters_, staged_;
+    ParameterSets parameters_, staged_, retry_;
     bool hevc_ = false, staged_hevc_ = false, replay_ = false;
+    std::optional<bool> retry_hevc_;
     int64_t since_ = 0, output_ = 0;
 };
 } // namespace airplay
