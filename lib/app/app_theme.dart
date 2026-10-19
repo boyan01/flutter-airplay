@@ -28,10 +28,7 @@ ThemeData receiverTheme(
   final theme = ThemeData(
     useMaterial3: true,
     brightness: brightness,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: _brandColor,
-      brightness: brightness,
-    ),
+    colorScheme: scheme,
     focusColor: television ? Colors.transparent : null,
     fontFamily: systemFonts.familyFor(platform),
     fontFamilyFallback: systemFonts.fallbacksFor(platform),
