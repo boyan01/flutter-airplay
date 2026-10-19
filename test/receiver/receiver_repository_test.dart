@@ -339,6 +339,19 @@ void main() {
     );
   });
 
+  test('malformed native events are reported on the event stream', () async {
+    final native = control('macos');
+    final repo = repository(native);
+    await repo.snapshot();
+    final errors = <Object>[];
+    final subscription = repo.events.listen((_) {}, onError: errors.add);
+    addTearDown(subscription.cancel);
+    native.stream.add({'type': 'volume', 'volumeDb': 'loud'});
+    native.stream.add({'type': 'snapshot', 'data': 'broken'});
+    await Future<void>.delayed(Duration.zero);
+    expect(errors, hasLength(2));
+  });
+
   test('a session ending during a settings check is checked again', () async {
     final native = control('macos');
     native.data['status'] = 'streaming';

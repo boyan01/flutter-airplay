@@ -115,38 +115,43 @@ class NativeReceiverRepository implements ReceiverRepository {
 
   void _event(Map<String, dynamic> event) {
     if (_disposed) return;
-    if (event['type'] == 'volume') {
-      final db = (event['volumeDb'] as num).toDouble();
-      _savingVolume = _savingVolume
-          .then((_) => _store.writeVolume(db))
-          .catchError((Object error, StackTrace stack) {
+    // A malformed event must not escape the stream listener uncaught.
+    try {
+      if (event['type'] == 'volume') {
+        final db = (event['volumeDb'] as num).toDouble();
+        _savingVolume = _savingVolume
+            .then((_) => _store.writeVolume(db))
+            .catchError((Object error, StackTrace stack) {
+              if (!_disposed) _events.addError(error, stack);
+            });
+      } else if (event['type'] == 'startRequest') {
+        unawaited(
+          start(_settings.name, _settings.path).catchError((
+            Object error,
+            StackTrace stack,
+          ) {
             if (!_disposed) _events.addError(error, stack);
-          });
-    } else if (event['type'] == 'startRequest') {
-      unawaited(
-        start(_settings.name, _settings.path).catchError((
-          Object error,
-          StackTrace stack,
-        ) {
-          if (!_disposed) _events.addError(error, stack);
-        }),
-      );
-    } else if (event['type'] == 'settingsRequest') {
-      final patch = Map<String, dynamic>.from(event['settings'] as Map);
-      unawaited(
-        _save(patch).catchError((Object error, StackTrace stack) {
-          if (!_disposed) _events.addError(error, stack);
-        }),
-      );
-    } else if (_ready) {
-      if (event['type'] == 'snapshot') {
-        final data = Map<String, dynamic>.from(event['data'] as Map);
-        data['buildVersion'] = _buildVersion;
-        _events.add(decodeReceiverEvent({...event, 'data': data}));
-        _scheduleSettingsApply();
-      } else {
-        _events.add(decodeReceiverEvent(event));
+          }),
+        );
+      } else if (event['type'] == 'settingsRequest') {
+        final patch = Map<String, dynamic>.from(event['settings'] as Map);
+        unawaited(
+          _save(patch).catchError((Object error, StackTrace stack) {
+            if (!_disposed) _events.addError(error, stack);
+          }),
+        );
+      } else if (_ready) {
+        if (event['type'] == 'snapshot') {
+          final data = Map<String, dynamic>.from(event['data'] as Map);
+          data['buildVersion'] = _buildVersion;
+          _events.add(decodeReceiverEvent({...event, 'data': data}));
+          _scheduleSettingsApply();
+        } else {
+          _events.add(decodeReceiverEvent(event));
+        }
       }
+    } catch (error, stack) {
+      _events.addError(error, stack);
     }
   }
 
