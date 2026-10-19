@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
+import 'package:mixin_logger/mixin_logger.dart';
 import 'package:nativeapi/nativeapi.dart' as native;
 
 import '../l10n/generated/app_localizations.dart';
@@ -111,8 +112,18 @@ class DesktopPresentation {
               message: 'Desktop operations require the platform thread',
             );
           }
-          await _createTray();
-          if (_disposed) return;
+          try {
+            await _createTray();
+            if (_disposed) return;
+            // A visible icon alone is not enough: its Open and Quit actions must
+            // be available before the host commits to a background-only launch.
+            _updateMenu();
+          } on PlatformException catch (error) {
+            // Some Linux desktops have no working tray. Keep window
+            // presentation; without a tray the window does not hide.
+            w('[Desktop] Tray unavailable: ${error.message}');
+            _releaseTray();
+          }
           await window.withWindow((value) {
             _windowId = value.id;
           });
@@ -155,9 +166,6 @@ class DesktopPresentation {
               });
             }
           });
-          // A visible icon alone is not enough: its Open and Quit actions must
-          // be available before the host commits to a background-only launch.
-          _updateMenu();
           _ready = true;
           _trayVisible = await window.finishDesktopStartup(
             trayAvailable: _trayVisible,
@@ -449,7 +457,12 @@ class DesktopPresentation {
         if (event is native.MenuClosedEvent) {
           _menuOpen = false;
           Timer.run(() {
-            if (!_disposed) _updateMenu();
+            if (_disposed) return;
+            try {
+              _updateMenu();
+            } on PlatformException catch (error) {
+              onError(error);
+            }
           });
         }
       });
@@ -591,6 +604,10 @@ class DesktopPresentation {
       native.WindowManager.instance.removeListener(_windowListener!);
       _windowListener = null;
     }
+    _releaseTray();
+  }
+
+  void _releaseTray() {
     final tray = _tray;
     if (tray != null) {
       if (_trayListener != null) tray.removeListener(_trayListener!);
