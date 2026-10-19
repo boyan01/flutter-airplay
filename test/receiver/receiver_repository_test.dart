@@ -16,6 +16,8 @@ class TestControl implements ReceiverControl {
   Map<String, dynamic> data;
   final stream = StreamController<Map<String, dynamic>>.broadcast();
   final commands = <String>[];
+  // Holds the next snapshot reply, taken when it was requested.
+  Completer<void>? snapshotGate;
   bool closed = false;
   @override
   Stream<Map<String, dynamic>> get events => stream.stream;
@@ -27,7 +29,11 @@ class TestControl implements ReceiverControl {
     commands.add(method);
     switch (method) {
       case 'snapshot':
-        return Map.of(data);
+        final snapshot = Map.of(data);
+        final gate = snapshotGate;
+        snapshotGate = null;
+        await gate?.future;
+        return snapshot;
       case 'save':
         if (args['videoQuality'] == 'invalid') {
           throw StateError('Unknown video quality');
@@ -331,6 +337,36 @@ void main() {
       native.commands.where((command) => command == 'applySettings'),
       hasLength(1),
     );
+  });
+
+  test('a session ending during a settings check is checked again', () async {
+    final native = control('macos');
+    native.data['status'] = 'streaming';
+    native.data['activeSettings'] = {
+      'name': 'Existing receiver',
+      'path': '',
+      'fastPairing': true,
+    };
+    final repo = repository(native);
+    await repo.snapshot();
+    await repo.save('Pending receiver', '');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final gate = native.snapshotGate = Completer<void>();
+    native.stream.add({'type': 'snapshot', 'data': native.data});
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // The session ends after the running check read its snapshot.
+    native.data['status'] = 'waiting';
+    native.stream.add({'type': 'snapshot', 'data': native.data});
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    gate.complete();
+    for (
+      var i = 0;
+      i < 100 && !native.commands.contains('applySettings');
+      i++
+    ) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(native.commands, contains('applySettings'));
   });
 
   test(

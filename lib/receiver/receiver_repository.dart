@@ -65,6 +65,8 @@ class NativeReceiverRepository implements ReceiverRepository {
   ReceiverSettings _settings = const ReceiverSettings();
   String _hostPlatform = '', _buildVersion = '';
   bool _ready = false, _disposed = false, _applyQueued = false;
+  // A change while a check runs may come after its snapshot; check again.
+  bool _applyAgain = false;
 
   Future<void> _initialize() =>
       _initializing ??= _open().catchError((Object error, StackTrace stack) {
@@ -199,7 +201,11 @@ class NativeReceiverRepository implements ReceiverRepository {
   }
 
   void _scheduleSettingsApply() {
-    if (_disposed || !_ready || _applyQueued) return;
+    if (_disposed || !_ready) return;
+    if (_applyQueued) {
+      _applyAgain = true;
+      return;
+    }
     _applyQueued = true;
     unawaited(
       _saving
@@ -223,6 +229,10 @@ class NativeReceiverRepository implements ReceiverRepository {
           })
           .whenComplete(() {
             _applyQueued = false;
+            if (_applyAgain) {
+              _applyAgain = false;
+              _scheduleSettingsApply();
+            }
           }),
     );
   }
