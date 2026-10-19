@@ -122,9 +122,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get clear => 'Clear';
 
   @override
-  String get back => 'Back';
-
-  @override
   String get confirmBack => 'Press Back again to disconnect';
 
   @override

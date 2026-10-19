@@ -121,9 +121,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get clear => '清空';
 
   @override
-  String get back => '返回';
-
-  @override
   String get confirmBack => '再次返回将断开投屏';
 
   @override

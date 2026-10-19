@@ -320,12 +320,6 @@ abstract class AppLocalizations {
   /// **'Clear'**
   String get clear;
 
-  /// No description provided for @back.
-  ///
-  /// In en, this message translates to:
-  /// **'Back'**
-  String get back;
-
   /// No description provided for @confirmBack.
   ///
   /// In en, this message translates to:

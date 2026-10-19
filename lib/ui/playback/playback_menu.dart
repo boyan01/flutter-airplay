@@ -169,15 +169,12 @@ PopupMenuItem<T> playbackMenuItem<T>(
   required IconData icon,
   bool selected = false,
   bool enabled = true,
-  bool destructive = false,
   bool television = false,
 }) {
   final theme = Theme.of(context);
   final colors = theme.colorScheme;
   final foreground = !enabled
       ? colors.onSurface.withValues(alpha: .38)
-      : destructive
-      ? colors.error
       : selected
       ? colors.primary
       : colors.onSurface;

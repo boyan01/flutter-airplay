@@ -265,10 +265,6 @@ class _PlayerPageState extends State<PlayerPage> {
       widget.model.disconnect();
       return;
     }
-    if (_visible) {
-      _hide();
-      return;
-    }
     _show();
     setState(() => _confirmBack = true);
     _backTimer?.cancel();
@@ -358,49 +354,32 @@ class _PlayerPageState extends State<PlayerPage> {
         onCanceled: closed,
         onSelected: (action) {
           closed();
-          if (action == WindowAction.disconnectSession) {
-            widget.model.disconnect();
-          } else {
-            widget.onWindowAction?.call(action);
-          }
+          widget.onWindowAction?.call(action);
         },
         items: [
-          if (widget.model.supportsWindowPreferences) ...[
-            playbackMenuItem(
-              context,
-              value: WindowAction.actualSize,
-              label: strings.actualSize,
-              icon: Icons.aspect_ratio_rounded,
-              enabled: widget.onWindowAction != null,
-              television: tv,
-            ),
-            playbackMenuItem(
-              context,
-              value: WindowAction.fitScreen,
-              label: strings.fitScreen,
-              icon: Icons.fit_screen_rounded,
-              enabled: widget.onWindowAction != null,
-              television: tv,
-            ),
-            playbackMenuItem(
-              context,
-              value: WindowAction.toggleOnTop,
-              label: strings.alwaysOnTop,
-              icon: Icons.push_pin_outlined,
-              selected: widget.model.desktopOptions['alwaysOnTop']!,
-              enabled: widget.model.editable && widget.onWindowAction != null,
-              television: tv,
-            ),
-            const PopupMenuDivider(height: 13),
-          ],
           playbackMenuItem(
             context,
-            key: const Key('disconnect'),
-            value: WindowAction.disconnectSession,
-            label: strings.disconnect,
-            icon: Icons.eject_rounded,
-            enabled: widget.model.canStop,
-            destructive: true,
+            value: WindowAction.actualSize,
+            label: strings.actualSize,
+            icon: Icons.aspect_ratio_rounded,
+            enabled: widget.onWindowAction != null,
+            television: tv,
+          ),
+          playbackMenuItem(
+            context,
+            value: WindowAction.fitScreen,
+            label: strings.fitScreen,
+            icon: Icons.fit_screen_rounded,
+            enabled: widget.onWindowAction != null,
+            television: tv,
+          ),
+          playbackMenuItem(
+            context,
+            value: WindowAction.toggleOnTop,
+            label: strings.alwaysOnTop,
+            icon: Icons.push_pin_outlined,
+            selected: widget.model.desktopOptions['alwaysOnTop']!,
+            enabled: widget.model.editable && widget.onWindowAction != null,
             television: tv,
           ),
         ],
@@ -435,16 +414,18 @@ class _PlayerPageState extends State<PlayerPage> {
       builder: (context, constraints) {
         final scale = MediaQuery.textScalerOf(context).scale(1);
         final compact =
-            !tv && constraints.maxWidth < (mobile ? 280 : 420) * scale;
+            !tv && constraints.maxWidth < (mobile ? 300 : 500) * scale;
         Widget action(
           String key,
           String label,
           IconData icon,
-          VoidCallback onPressed, {
+          VoidCallback? onPressed, {
           FocusNode? focusNode,
+          bool destructive = false,
         }) {
+          final foreground = destructive ? colors.error : colors.onSurface;
           final style = TextButton.styleFrom(
-            foregroundColor: colors.onSurface,
+            foregroundColor: foreground,
             minimumSize: Size(48, tv ? 56 : 48),
             visualDensity: VisualDensity.standard,
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -463,9 +444,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       tooltip: label,
                       onPressed: onPressed,
                       icon: Icon(icon, size: 22),
-                      style: IconButton.styleFrom(
-                        foregroundColor: colors.onSurface,
-                      ),
+                      style: IconButton.styleFrom(foregroundColor: foreground),
                     ),
                   )
                 : TextButton.icon(
@@ -529,7 +508,15 @@ class _PlayerPageState extends State<PlayerPage> {
                       Icons.fullscreen,
                       widget.onFullscreen,
                     ),
-                  _moreMenu(context, showLabel: !compact && (tv || mobile)),
+                  action(
+                    'disconnect',
+                    strings.disconnect,
+                    Icons.eject_rounded,
+                    widget.model.canStop ? widget.model.disconnect : null,
+                    destructive: true,
+                  ),
+                  if (widget.model.supportsWindowPreferences)
+                    _moreMenu(context, showLabel: !compact && (tv || mobile)),
                 ],
               ),
             ),
@@ -573,7 +560,7 @@ class _PlayerPageState extends State<PlayerPage> {
             child: SafeArea(
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
+                  horizontal: 20,
                   vertical: 8,
                 ),
                 decoration: const BoxDecoration(
@@ -583,28 +570,15 @@ class _PlayerPageState extends State<PlayerPage> {
                     colors: [Color(0x99000000), Colors.transparent],
                   ),
                 ),
-                child: Row(
-                  children: [
-                    if (phone)
-                      IconButton(
-                        key: const Key('playerBack'),
-                        tooltip: l10n(context).back,
-                        color: Colors.white,
-                        onPressed: _back,
-                        icon: const Icon(Icons.arrow_back),
-                      )
-                    else
-                      const SizedBox(width: 60),
-                    Expanded(
-                      child: Text(
-                        client,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                        ),
-                      ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      client,
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),

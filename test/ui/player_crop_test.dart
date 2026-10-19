@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
@@ -95,6 +96,66 @@ void main() {
     await tester.tap(find.byKey(const Key('cropVideo')));
     await tester.pumpAndSettle();
     expect(find.byType(VideoCropEditor), findsOneWidget);
+  }
+
+  for (final (platform, television) in [
+    ('windows', false),
+    ('android', false),
+    ('android', true),
+  ]) {
+    testWidgets(
+      '$platform${television ? ' TV' : ''} toolbar Disconnect follows canStop',
+      (tester) async {
+        await mount(tester, platform: platform, television: television);
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        final disconnect = find.byKey(const Key('disconnect'));
+        final button = tester.widget<ButtonStyleButton>(disconnect);
+        expect(button.onPressed, isNotNull);
+        final error = Theme.of(tester.element(disconnect)).colorScheme.error;
+        expect(
+          IconTheme.of(
+            tester.element(
+              find.descendant(of: disconnect, matching: find.byType(Icon)),
+            ),
+          ).color,
+          error,
+        );
+        expect(
+          DefaultTextStyle.of(
+            tester.element(
+              find.descendant(
+                of: disconnect,
+                matching: find.text('Disconnect'),
+              ),
+            ),
+          ).style.color,
+          error,
+        );
+        // A pending command makes the receiver busy without ending playback.
+        backend.saving = Completer();
+        final saving = model.save(model.name, model.path);
+        await tester.pump();
+        expect(model.canStop, isFalse);
+        await tester.pump();
+        expect(tester.widget<ButtonStyleButton>(disconnect).onPressed, isNull);
+        await tester.tap(disconnect, warnIfMissed: false);
+        await tester.pump();
+        expect(backend.stops, 0);
+        expect(
+          find.byKey(const Key('playerWindowMenu')),
+          platform == 'windows' ? findsOneWidget : findsNothing,
+        );
+        backend.saving!.complete();
+        await saving;
+        await tester.pump();
+        expect(
+          tester.widget<ButtonStyleButton>(disconnect).onPressed,
+          isNotNull,
+        );
+        await tester.pumpAndSettle(const Duration(seconds: 6));
+      },
+    );
   }
 
   testWidgets('TV remote opens crop from player and edits the selection', (
