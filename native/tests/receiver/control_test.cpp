@@ -38,6 +38,12 @@ int main() {
         require(airplay::text(plist_array_get_item(airplay::item(restored.get(), "nested"), 0), "name") == "Receiver\\TV\"\n\t\x01", "nested JSON strings preserve quotes and controls");
         uint64_t integer = 0; plist_get_uint_val(airplay::item(restored.get(), "integer"), &integer);
         require(integer == 1234567890123 && airplay::integer(restored.get(), "negative") == -15 && airplay::integer(restored.get(), "textureId") == -1, "JSON keeps positive and negative integers");
+        auto bytes = airplay::json_object();
+        // Truncated, overlong, surrogate and out-of-range sequences are replaced.
+        airplay::set(bytes.get(), "name", std::string("iPhone \xe4\xbd\xa0\xe5 \xc0\xaf \xed\xa0\x80 \xf4\x90\x80\x80 \xf0\x9f\x93\xba"));
+        const auto encoded = airplay::json_text(bytes.get());
+        require(encoded == "{\"name\":\"iPhone \xe4\xbd\xa0\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd \xf0\x9f\x93\xba\"}",
+                "JSON replaces invalid UTF-8 and keeps valid characters");
         double real = 0; plist_get_real_val(airplay::item(restored.get(), "real"), &real);
         require(real == -7.5 && airplay::boolean(restored.get(), "flag") && plist_get_node_type(airplay::item(restored.get(), "empty")) == PLIST_NULL, "JSON keeps real, boolean and null values");
     } catch (const std::exception& error) { require(false, error.what()); }

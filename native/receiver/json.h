@@ -20,13 +20,31 @@ inline Json parse_json(const char *text) {
     }
     return Json(value);
 }
+// Length of the valid UTF-8 sequence at bytes[i], or 0. Rejects overlong
+// forms, surrogates and code points above U+10FFFF.
+inline size_t utf8_sequence(const std::string& bytes, size_t i) {
+    const auto at = [&](size_t offset) { return static_cast<unsigned char>(bytes[i + offset]); };
+    const auto lead = at(0);
+    const size_t length = lead < 0x80 ? 1 : lead >= 0xc2 && lead <= 0xdf ? 2 : lead >= 0xe0 && lead <= 0xef ? 3 : lead >= 0xf0 && lead <= 0xf4 ? 4 : 0;
+    if (!length || i + length > bytes.size()) return 0;
+    for (size_t k = 1; k < length; ++k) if ((at(k) & 0xc0) != 0x80) return 0;
+    if ((lead == 0xe0 && at(1) < 0xa0) || (lead == 0xed && at(1) > 0x9f) ||
+        (lead == 0xf0 && at(1) < 0x90) || (lead == 0xf4 && at(1) > 0x8f)) return 0;
+    return length;
+}
 inline std::string json_string(const std::string& bytes) {
     constexpr char hex[] = "0123456789abcdef";
     std::string result = "\"";
-    for (unsigned char byte : bytes) {
+    for (size_t i = 0; i < bytes.size();) {
+        const auto byte = static_cast<unsigned char>(bytes[i]);
+        const auto length = utf8_sequence(bytes, i);
+        // Dart rejects posted strings that are not valid UTF-8, which would
+        // detach the transport. Sender names and logs can carry any bytes.
+        if (!length) { result += "\xef\xbf\xbd"; ++i; continue; }
         if (byte == '\\' || byte == '"') { result += '\\'; result += char(byte); }
         else if (byte < 32) { result += "\\u00"; result += hex[byte >> 4]; result += hex[byte & 15]; }
-        else result += char(byte);
+        else result.append(bytes, i, length);
+        i += length;
     }
     return result + '"';
 }
