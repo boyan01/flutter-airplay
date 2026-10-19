@@ -110,7 +110,7 @@ final class ReceiverBridge: NSObject, NetServiceDelegate {
         host.queue.async { self.host.resume() }
     }
     func dispose() {
-        stopServices(); host.shutdown()
+        stopServices(); host.queue.sync { host.shutdown() }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll(); video?.dispose(); video = nil
         methods?.setMethodCallHandler(nil)

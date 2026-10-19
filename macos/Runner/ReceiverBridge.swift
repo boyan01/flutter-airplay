@@ -65,8 +65,8 @@ final class ReceiverBridge: NSObject {
 
     func dispose() {
         methods?.setMethodCallHandler(nil)
-        host.shutdown()
         host.queue.sync {
+            host.shutdown()
             host.videoOutput = nil
             host.onEvent = nil
         }

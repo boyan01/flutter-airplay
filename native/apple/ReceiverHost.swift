@@ -311,5 +311,6 @@ final class ReceiverHost {
         if ready { airplay_receiver_discovery(handle, UInt64(token), true, nil, nil) }
     }
     func discoveryFailed(_ detail: String, token: Int) { airplay_receiver_discovery(handle, UInt64(token), false, detail, nil) }
+    // Call on queue, which owns handle and closed.
     func shutdown() { if handle != 0 { airplay_receiver_destroy(handle); handle = 0 }; closed = true }
 }
