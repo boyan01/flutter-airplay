@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:mixin_logger/mixin_logger.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'native/receiver_control.dart';
@@ -88,8 +89,14 @@ class NativeReceiverRepository implements ReceiverRepository {
       if (volume != null) {
         await control.request('restoreVolume', {'volumeDb': volume});
       }
-      final saved = await _store.read();
-      if (saved != null) await control.request('save', saved.toJson());
+      try {
+        final saved = await _store.read();
+        if (saved != null) await control.request('save', saved.toJson());
+      } catch (error) {
+        // Settings written by another app version or a damaged store must
+        // not block every start; the next save replaces them.
+        w('[Receiver] Ignoring stored settings: $error');
+      }
       _settings = (decodeReceiverState(await control.request('snapshot')))
           .settings;
       final info = await PackageInfo.fromPlatform();

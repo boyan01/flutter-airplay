@@ -32,6 +32,9 @@ class TestControl implements ReceiverControl {
         if (args['videoQuality'] == 'invalid') {
           throw StateError('Unknown video quality');
         }
+        if (args['playbackBufferMs'] == -1) {
+          throw StateError('Unsupported playback buffer');
+        }
         data = {...data, ...args, 'name': (args['name'] as String).trim()};
       case 'applySettings':
         return {'applied': false};
@@ -166,6 +169,22 @@ void main() {
     expect(data.settings.fastPairing, false);
     expect(data.settings.showPlaybackStats, true);
     expect(data.settings.playbackBufferMs, 100);
+  });
+  test('unreadable stored settings fall back to native defaults', () async {
+    for (final stored in [
+      '{not json',
+      '[]',
+      jsonEncode({'name': 'From newer version', 'videoQuality': '4320'}),
+      jsonEncode({'name': 'Rejected by native', 'playbackBufferMs': -1}),
+    ]) {
+      preferences.value = stored;
+      final native = control('macos');
+      final repo = repository(native);
+      final data = await repo.snapshot();
+      expect(data.settings.name, 'Existing receiver', reason: stored);
+      await repo.start('Started', '');
+      expect(native.commands, contains('start'), reason: stored);
+    }
   });
   for (final platform in ['macos', 'ios', 'android', 'linux', 'windows']) {
     test(
