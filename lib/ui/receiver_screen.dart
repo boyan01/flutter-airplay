@@ -28,6 +28,7 @@ class ReceiverScreen extends StatefulWidget {
     this.window = const WindowController(),
     this.updates,
     this.updateRequests,
+    this.settingsRequests,
     this.onControlsVisibility,
     this.controlsInteraction,
     this.onDialogVisibility,
@@ -36,6 +37,8 @@ class ReceiverScreen extends StatefulWidget {
   final ReceiverModel model;
   final AppUpdates? updates;
   final Listenable? updateRequests;
+  // The desktop window bar's Settings button.
+  final Listenable? settingsRequests;
   final ValueListenable<bool>? controlsInteraction;
   final LaunchAtLogin launchAtLogin;
   final WindowController window;
@@ -77,6 +80,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     );
     widget.updates?.addListener(_updateDesktop);
     widget.updateRequests?.addListener(_openUpdate);
+    widget.settingsRequests?.addListener(_settings);
     _lifecycle = AppLifecycleListener(
       onResume: () => widget.updates?.checkIfDue(),
       onExitRequested: () async {
@@ -321,6 +325,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     unawaited(_desktop.dispose().then((_) => _window.releaseNativeWindow()));
     widget.updates?.removeListener(_updateDesktop);
     widget.updateRequests?.removeListener(_openUpdate);
+    widget.settingsRequests?.removeListener(_settings);
     model.removeListener(_changed);
     _homeFocus.dispose();
     model.dispose();

@@ -705,6 +705,26 @@ void main() {
   }
 
   for (final platform in ['macos', 'windows', 'linux']) {
+    testWidgets('$platform window bar opens Settings when idle', (
+      tester,
+    ) async {
+      final backend = await launch(tester, platform: platform);
+      final settings = find.byKey(const Key('windowSettings'));
+      expect(settings, findsOneWidget);
+      await tester.tap(settings);
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(settings, findsNothing);
+      await tester.tap(find.byKey(const Key('closeSettings')));
+      await tester.pumpAndSettle();
+      expect(settings, findsOneWidget);
+      frame(backend);
+      await tester.pumpAndSettle();
+      expect(settings, findsNothing);
+    });
+  }
+
+  for (final platform in ['macos', 'windows', 'linux']) {
     for (final size in [const Size(440, 560), const Size(900, 1000)]) {
       testWidgets('$platform settings fill content height at $size', (
         tester,

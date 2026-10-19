@@ -40,6 +40,7 @@ class _ReceiverAppState extends State<ReceiverApp> {
   bool _hadVideo = false;
   final _titleInteraction = ValueNotifier(false);
   final _updateRequests = ValueNotifier(0);
+  final _settingsRequests = ValueNotifier(0);
   late final AppUpdates _updates = widget.updates ?? AppUpdates();
   ReceiverModel get model => widget.model;
   WindowController get window => widget.window;
@@ -64,6 +65,7 @@ class _ReceiverAppState extends State<ReceiverApp> {
     model.removeListener(_modeChanged);
     _titleInteraction.dispose();
     _updateRequests.dispose();
+    _settingsRequests.dispose();
     _updates.dispose();
     super.dispose();
   }
@@ -142,8 +144,11 @@ class _ReceiverAppState extends State<ReceiverApp> {
                           maximized: _expanded,
                           trailing: ListenableBuilder(
                             listenable: _updates,
-                            builder: (context, _) => _updates.hasUpdate
-                                ? AppUpdateIndicator(
+                            builder: (context, _) => Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_updates.hasUpdate)
+                                  AppUpdateIndicator(
                                     status: _updates.status,
                                     progress: _updates.progress,
                                     dark: model.hasVideo,
@@ -152,8 +157,20 @@ class _ReceiverAppState extends State<ReceiverApp> {
                                       _updates,
                                     ),
                                     onPressed: () => _updateRequests.value++,
-                                  )
-                                : const SizedBox.shrink(),
+                                  ),
+                                if (!model.hasVideo && !_dialogOpen)
+                                  IconButton(
+                                    key: const Key('windowSettings'),
+                                    tooltip: AppLocalizations.of(context)!
+                                        .settings,
+                                    onPressed: () => _settingsRequests.value++,
+                                    icon: const Icon(
+                                      Icons.settings_outlined,
+                                      size: 18,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -198,6 +215,7 @@ class _ReceiverAppState extends State<ReceiverApp> {
         model: model,
         updates: _updates,
         updateRequests: _updateRequests,
+        settingsRequests: _settingsRequests,
         controlsInteraction: _titleInteraction,
         launchAtLogin: widget.launchAtLogin,
         window: window,
