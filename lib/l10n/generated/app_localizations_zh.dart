@@ -653,7 +653,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get cropSelection => '画面裁剪选框';
 
   @override
-  String get cropKeyboardHelp => '拖动选框移动，拖动边角调整大小';
+  String get cropKeyboardHelp => '拖动选框或用方向键移动；拖动边角，或按住 Alt（Option）加方向键调整大小';
 
   @override
   String get cropRatio16By9 => '16:9';

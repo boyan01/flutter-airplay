@@ -276,7 +276,7 @@
   "cropResetOnResize": "画面比例已变化，已恢复完整画面",
   "cropFailed": "无法调整画面裁剪",
   "cropSelection": "画面裁剪选框",
-  "cropKeyboardHelp": "拖动选框移动，拖动边角调整大小",
+  "cropKeyboardHelp": "拖动选框或用方向键移动；拖动边角，或按住 Alt（Option）加方向键调整大小",
   "cropRatio16By9": "16:9",
   "cropRatioFree": "自由比例",
   "cropMove": "移动选框",

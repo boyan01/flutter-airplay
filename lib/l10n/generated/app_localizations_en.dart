@@ -679,7 +679,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cropKeyboardHelp =>
-      'Drag the frame to move; drag edges or corners to resize.';
+      'Drag the frame or use the arrow keys to move it. Drag edges or corners, or hold Alt (Option) with the arrow keys, to resize.';
 
   @override
   String get cropRatio16By9 => '16:9';

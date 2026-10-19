@@ -1337,7 +1337,7 @@ abstract class AppLocalizations {
   /// No description provided for @cropKeyboardHelp.
   ///
   /// In en, this message translates to:
-  /// **'Drag the frame to move; drag edges or corners to resize.'**
+  /// **'Drag the frame or use the arrow keys to move it. Drag edges or corners, or hold Alt (Option) with the arrow keys, to resize.'**
   String get cropKeyboardHelp;
 
   /// No description provided for @cropRatio16By9.

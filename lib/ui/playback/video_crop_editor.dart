@@ -226,7 +226,9 @@ class _VideoCropEditorState extends State<VideoCropEditor> {
       _ => null,
     };
     if (delta == null) return KeyEventResult.ignored;
-    if (_resizing) {
+    // Keyboards resize with Alt (Option on macOS); TV remotes use Resize mode.
+    if (_resizing ||
+        (!widget.television && HardwareKeyboard.instance.isAltPressed)) {
       _resizeCenter(delta);
     } else {
       _move(delta);
@@ -592,20 +594,23 @@ class _VideoCropEditorState extends State<VideoCropEditor> {
               Align(alignment: Alignment.centerRight, child: actions),
             ],
             const SizedBox(height: 10),
-            Text(
-              widget.previewing
-                  ? ''
-                  : widget.television
-                  ? (_cropFocus.hasFocus
-                        ? (_resizing
-                              ? strings.cropResizeActive
-                              : strings.cropMoveActive)
-                        : strings.cropTvHelp)
-                  : strings.cropKeyboardHelp,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
+            // Hidden in preview but kept in layout so the video does not move.
+            Visibility.maintain(
+              visible: !widget.previewing,
+              child: Text(
+                widget.television
+                    ? (_cropFocus.hasFocus
+                          ? (_resizing
+                                ? strings.cropResizeActive
+                                : strings.cropMoveActive)
+                          : strings.cropTvHelp)
+                    : strings.cropKeyboardHelp,
+                // TV hints change with focus; one line keeps their height fixed.
+                maxLines: widget.television ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
               ),
             ),
           ],

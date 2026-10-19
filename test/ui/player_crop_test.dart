@@ -302,6 +302,30 @@ void main() {
     });
   }
 
+  testWidgets('keyboard arrows move and Alt arrows resize the selection', (
+    tester,
+  ) async {
+    await mount(tester, initialCrop: crop);
+    await edit(tester);
+    final selection = find.byKey(const Key('cropSelection'));
+    Focus.of(tester.element(selection)).requestFocus();
+    await tester.pumpAndSettle();
+    final before = tester.getRect(selection);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    final moved = tester.getRect(selection);
+    expect(moved.left, greaterThan(before.left));
+    expect(moved.width, closeTo(before.width, .01));
+    expect(moved.height, closeTo(before.height, .01));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pumpAndSettle();
+    final resized = tester.getRect(selection);
+    expect(resized.width, lessThan(moved.width));
+    expect(resized.center.dx, closeTo(moved.center.dx, .5));
+  });
+
   Rect textureViewport(WidgetTester tester) => tester.getRect(
     find
         .ancestor(of: find.byType(Texture), matching: find.byType(ClipRect))

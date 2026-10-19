@@ -283,7 +283,7 @@
   "cropResetOnResize": "Video aspect ratio changed. Showing the full frame.",
   "cropFailed": "Could not adjust video crop",
   "cropSelection": "Video crop selection",
-  "cropKeyboardHelp": "Drag the frame to move; drag edges or corners to resize.",
+  "cropKeyboardHelp": "Drag the frame or use the arrow keys to move it. Drag edges or corners, or hold Alt (Option) with the arrow keys, to resize.",
   "cropRatio16By9": "16:9",
   "cropRatioFree": "Free ratio",
   "cropMove": "Move frame",
