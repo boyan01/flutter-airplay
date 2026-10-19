@@ -155,7 +155,7 @@ class ReceiverModel extends ChangeNotifier {
   bool loaded = false;
   bool busy = false;
   bool _disposed = false;
-  Future<void> _pendingSave = Future.value();
+  Future<void> _commands = Future.value();
   UnmodifiableListView<ReceiverLog> get logs => UnmodifiableListView(_logs);
   bool get active => {
     'checking',
@@ -329,11 +329,15 @@ class ReceiverModel extends ChangeNotifier {
       ? error.message ?? 'nativeError'
       : error.toString();
 
+  // Commands run one at a time in call order. A command that arrives while
+  // another runs waits instead of being dropped, then checks [when] against
+  // the state the previous command left.
   Future<void> _command(
     Future<void> Function() action, {
+    bool Function()? when,
     String? success,
-  }) async {
-    if (busy || _disposed) return;
+  }) => _commands = _commands.then((_) async {
+    if (_disposed || !(when?.call() ?? true)) return;
     busy = true;
     notice = null;
     commandError = null;
@@ -350,7 +354,7 @@ class ReceiverModel extends ChangeNotifier {
       busy = false;
       _notify();
     }
-  }
+  });
 
   String? validateName(String value) {
     final clean = value.trim();
@@ -376,60 +380,54 @@ class ReceiverModel extends ChangeNotifier {
     final options = desktopOptions == null
         ? null
         : Map<String, bool>.of(desktopOptions);
-    return _pendingSave = _pendingSave.then((_) async {
-      if (!loaded || _disposed) return;
-      final error = validateName(nextName);
-      if (error != null) {
-        notice = error;
-        _notify();
-        return;
-      }
-      await _command(() async {
-        if (active) _receivingName ??= name;
-        await repository.save(
-          nextName.trim(),
-          nextPath.trim(),
-          autoStart: autoStart ?? this.autoStart,
-          fastPairing: fastPairing ?? this.fastPairing,
-          showPlaybackStats: showPlaybackStats ?? this.showPlaybackStats,
-          playbackBufferMs: playbackBufferMs ?? this.playbackBufferMs,
-          videoQuality: supportsVideoQuality
-              ? videoQuality ?? this.videoQuality
-              : null,
-          audioOutput: platform == 'android'
-              ? audioOutput ?? this.audioOutput
-              : null,
-          desktopOptions: options ?? this.desktopOptions,
-        );
-        name = nextName.trim();
-        path = nextPath.trim();
-        this.autoStart = autoStart ?? this.autoStart;
-        this.fastPairing = fastPairing ?? this.fastPairing;
-        this.showPlaybackStats = showPlaybackStats ?? this.showPlaybackStats;
-        this.playbackBufferMs = playbackBufferMs ?? this.playbackBufferMs;
-        if (!this.showPlaybackStats) playbackStats = null;
-        this.videoQuality = videoQuality ?? this.videoQuality;
-        this.audioOutput = audioOutput ?? this.audioOutput;
-        if (options != null) this.desktopOptions.addAll(options);
-      });
+    final error = validateName(nextName);
+    if (error != null) {
+      notice = error;
+      _notify();
+      return Future.value();
+    }
+    return _command(when: () => loaded, () async {
+      if (active) _receivingName ??= name;
+      await repository.save(
+        nextName.trim(),
+        nextPath.trim(),
+        autoStart: autoStart ?? this.autoStart,
+        fastPairing: fastPairing ?? this.fastPairing,
+        showPlaybackStats: showPlaybackStats ?? this.showPlaybackStats,
+        playbackBufferMs: playbackBufferMs ?? this.playbackBufferMs,
+        videoQuality: supportsVideoQuality
+            ? videoQuality ?? this.videoQuality
+            : null,
+        audioOutput: platform == 'android'
+            ? audioOutput ?? this.audioOutput
+            : null,
+        desktopOptions: options ?? this.desktopOptions,
+      );
+      name = nextName.trim();
+      path = nextPath.trim();
+      this.autoStart = autoStart ?? this.autoStart;
+      this.fastPairing = fastPairing ?? this.fastPairing;
+      this.showPlaybackStats = showPlaybackStats ?? this.showPlaybackStats;
+      this.playbackBufferMs = playbackBufferMs ?? this.playbackBufferMs;
+      if (!this.showPlaybackStats) playbackStats = null;
+      this.videoQuality = videoQuality ?? this.videoQuality;
+      this.audioOutput = audioOutput ?? this.audioOutput;
+      if (options != null) this.desktopOptions.addAll(options);
     });
   }
 
   // The current native protocol has no session-only disconnect command.
-  Future<void> disconnect() async {
-    if (!canStop) return;
-    await _command(repository.disconnect);
-  }
+  Future<void> disconnect() =>
+      _command(when: () => canStop, repository.disconnect);
 
   Future<void> start(String nextName, String nextPath) async {
-    if (!canStart) return;
     final error = validateName(nextName);
     if (error != null) {
       notice = error;
       _notify();
       return;
     }
-    await _command(() async {
+    await _command(when: () => canStart, () async {
       _receivingName = nextName.trim();
       _activeSettings = ReceiverSettings(
         name: nextName.trim(),
@@ -446,18 +444,13 @@ class ReceiverModel extends ChangeNotifier {
     });
   }
 
-  Future<void> stop() async {
-    if (!canStop) return;
-    await _command(repository.stop);
-  }
+  Future<void> stop() => _command(when: () => canStop, repository.stop);
 
-  Future<void> check(String nextPath) async {
-    if (!canStart) return;
-    await _command(
-      () => repository.check(nextPath.trim()),
-      success: 'checkPassed',
-    );
-  }
+  Future<void> check(String nextPath) => _command(
+    when: () => canStart,
+    () => repository.check(nextPath.trim()),
+    success: 'checkPassed',
+  );
 
   void clearLogs() {
     _logs.clear();

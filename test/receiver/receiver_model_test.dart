@@ -140,10 +140,12 @@ void main() {
       final model = ReceiverModel(backend);
       await model.initialize();
       final first = model.start('Office', '');
-      await model.start('Office', '');
+      final second = model.start('Office', '');
+      await Future<void>.delayed(Duration.zero);
       expect(backend.starts, 1);
       backend.startup!.complete();
-      await first;
+      await Future.wait([first, second]);
+      expect(backend.starts, 1);
       backend.state('streaming');
       await model.save('Room', '');
       expect(backend.stops, 0);
@@ -233,6 +235,36 @@ void main() {
     model.dispose();
     await backend.controller.close();
   });
+  test(
+    'Commands issued while another runs wait instead of being dropped',
+    () async {
+      final backend = FakeReceiver(autoStart: false)
+        ..shutdown = Completer<void>();
+      final model = ReceiverModel(backend);
+      await model.initialize();
+      await model.start('Living Room', '');
+      final stopping = model.stop();
+      await Future<void>.delayed(Duration.zero);
+      expect(model.busy, isTrue);
+      final saving = model.save('Renamed', '', autoStart: true);
+      final starting = model.start('Renamed', '');
+      final repeated = model.start('Renamed', ''); // Skipped once started.
+      await Future<void>.delayed(Duration.zero);
+      expect(backend.saves, 0);
+      backend.shutdown!.complete();
+      backend.shutdown = null;
+      await Future.wait([stopping, saving, starting, repeated]);
+      expect(backend.savedName, 'Renamed');
+      expect(model.name, 'Renamed');
+      expect(model.autoStart, isTrue);
+      expect(model.commandError, isNull);
+      expect(backend.starts, 2);
+      expect(backend.stops, 1);
+      expect(model.status, 'waiting');
+      model.dispose();
+      await backend.controller.close();
+    },
+  );
   test('An apply failure preserves saved settings for recovery', () async {
     final backend = FakeReceiver();
     final model = ReceiverModel(backend);
