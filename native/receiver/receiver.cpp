@@ -463,7 +463,9 @@ private:
         if (observer_) observer_->deliver(bytes);
     }
 
-    Json snapshot() {
+    // State-change snapshots omit logs: entries already arrive as log events,
+    // and repeating up to 300 of them on every change is costly.
+    Json snapshot(bool include_logs = true) {
         Json value(plist_copy(metadata_.get())); merge(value.get(), settings_json(settings_).get());
         set(value.get(), "status", status_name(status_)); set(value.get(), "message", message_);
         set(value.get(), "clientName", client_); set(value.get(), "receivingName", receiving_name_);
@@ -479,6 +481,7 @@ private:
 #endif
         ) : int64_t(0));
         plist_dict_set_item(value.get(), "activeSettings", settings_json(active_).release());
+        if (!include_logs) return value;
         auto logs = plist_new_array(); for (const auto& entry : logs_) {
             auto value = json_object(); set(value.get(), "id", entry.id); set(value.get(), "time", entry.time); set(value.get(), "text", entry.text);
             plist_array_append_item(logs, value.release());
@@ -487,7 +490,7 @@ private:
     }
     void changed() {
         auto event = json_object(); set(event.get(), "type", "snapshot");
-        plist_dict_set_item(event.get(), "data", snapshot().release()); deliver(event.get());
+        plist_dict_set_item(event.get(), "data", snapshot(false).release()); deliver(event.get());
     }
     void state(AirplayReceiverStatus next, const std::string& detail) {
         if (status_ == next && message_ == detail) return;

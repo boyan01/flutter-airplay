@@ -84,8 +84,19 @@ int main() {
     require(snapshot && snapshot->status == AIRPLAY_RECEIVER_ERROR && !snapshot->pid, "startup failure cleans runtime");
     airplay_receiver_free_snapshot(snapshot);
     require(airplay_receiver_stop(handle, error, sizeof(error)), "stop recovers failed receiver");
+    airplay_receiver_log(handle, "Fixture log");
+    auto requested = airplay::control_receiver(handle, R"({"method":"snapshot"})");
+    require(plist_array_get_size(airplay::item(requested.get(), "logs")) > 0, "requested snapshots include log history");
     airplay_receiver_destroy(handle);
     require(observer->closed && !observer->events.empty(), "worker drains events before closing outlet");
+    bool snapshots = false;
+    for (const auto& bytes : observer->events) {
+        auto event = airplay::parse_json(bytes.c_str());
+        if (airplay::text(event.get(), "type") != "snapshot") continue;
+        snapshots = true;
+        require(!airplay::item(airplay::item(event.get(), "data"), "logs"), "state-change snapshots omit log history");
+    }
+    require(snapshots, "state changes publish snapshots");
     require(!airplay::observe_receiver(handle, observer), "stale handle cannot acquire an outlet");
     require(!airplay_receiver_stop(handle, error, sizeof(error)), "stale operation is rejected");
     puts("PASS: receiver control without Dart, protocol or media backends");
