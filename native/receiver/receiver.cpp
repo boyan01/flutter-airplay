@@ -449,7 +449,8 @@ private:
                 }
             } catch (const std::exception& error) { log(error.what()); }
         }
-        stop();
+        // An exception leaving the worker thread would terminate the app.
+        try { stop(); } catch (const std::exception& error) { log(error.what()); }
         { std::lock_guard<std::mutex> guard(event_lock_);
           events_closed_ = true;
           if (observer_) observer_->close();
