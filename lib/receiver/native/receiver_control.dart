@@ -62,6 +62,7 @@ class FfiReceiverControl implements ReceiverControl {
   Stream<Map<String, dynamic>> get events => _events.stream;
   void _receive(dynamic message) {
     if (_disposed) return;
+    Completer<Map<String, dynamic>>? pending;
     try {
       final event = Map<String, dynamic>.from(
         jsonDecode(message as String) as Map,
@@ -70,9 +71,11 @@ class FfiReceiverControl implements ReceiverControl {
         _events.add(event);
         return;
       }
-      final reply = ReceiverReply.fromJson(event);
-      final pending = _pending.remove(reply.request);
+      // Claim the request before decoding so a malformed reply fails it
+      // instead of leaving the caller waiting forever.
+      pending = _pending.remove(event['request']);
       if (pending == null) return;
+      final reply = ReceiverReply.fromJson(event);
       if (reply.error != null) {
         pending.completeError(
           PlatformException(code: 'receiver_error', message: reply.error),
@@ -81,7 +84,11 @@ class FfiReceiverControl implements ReceiverControl {
         pending.complete(reply.data);
       }
     } catch (error, stack) {
-      _events.addError(error, stack);
+      if (pending != null && !pending.isCompleted) {
+        pending.completeError(error, stack);
+      } else {
+        _events.addError(error, stack);
+      }
     }
   }
 
