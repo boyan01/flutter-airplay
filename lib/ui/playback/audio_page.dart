@@ -34,7 +34,8 @@ class AudioPage extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: model.platform == 'macos'
+                  // Desktop windows already show the title in the window bar.
+                  child: !model.isMobile
                       ? const SizedBox()
                       : const Text(
                           'Flutter AirPlay',

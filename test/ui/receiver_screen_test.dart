@@ -1142,6 +1142,17 @@ void main() {
     expect(find.byKey(const Key('homeDisconnect')), findsNothing);
   });
 
+  testWidgets('Desktop audio page leaves the title to the window bar', (
+    tester,
+  ) async {
+    final backend = await launch(tester, platform: 'windows');
+    backend.state('streaming');
+    media(backend);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('audioPage')), findsOneWidget);
+    expect(find.text('Flutter AirPlay'), findsOneWidget);
+  });
+
   testWidgets('Audio and sender pause have their own page until a new frame', (
     tester,
   ) async {
