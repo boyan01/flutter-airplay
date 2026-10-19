@@ -80,6 +80,8 @@ class ReceiverNameField extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      // Renaming restarts the receiver, so save a finished name, not each key.
+      // Pages also save it with other settings and when they close.
       TextField(
         key: const Key('receiverName'),
         controller: controller,

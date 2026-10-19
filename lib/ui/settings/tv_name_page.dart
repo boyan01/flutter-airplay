@@ -17,22 +17,10 @@ class TvNamePage extends StatefulWidget {
 
 class TvNamePageState extends State<TvNamePage> {
   late final _name = TextEditingController(text: widget.model.name);
-  Timer? _textSave;
   String? _error;
 
-  @override
-  void initState() {
-    super.initState();
-    _name.addListener(_scheduleSave);
-  }
-
-  void _scheduleSave() {
-    _textSave?.cancel();
-    _textSave = Timer(const Duration(milliseconds: 600), _save);
-  }
-
   Future<void> _save() async {
-    _textSave?.cancel();
+    if (!mounted) return;
     setState(() => _error = widget.model.validateName(_name.text));
     if (_error != null || _name.text.trim() == widget.model.name) return;
     await widget.model.save(_name.text, widget.model.path);
@@ -41,7 +29,6 @@ class TvNamePageState extends State<TvNamePage> {
 
   @override
   void dispose() {
-    _textSave?.cancel();
     if (_name.text.trim() != widget.model.name &&
         widget.model.validateName(_name.text) == null) {
       unawaited(widget.model.save(_name.text, widget.model.path));
@@ -73,7 +60,7 @@ class TvNamePageState extends State<TvNamePage> {
                     television: true,
                     enabled: widget.model.loaded,
                     error: _error,
-                    onGenerated: () => setState(() => _error = null),
+                    onGenerated: _save,
                     onSubmitted: _save,
                   ),
                   const SizedBox(height: 24),

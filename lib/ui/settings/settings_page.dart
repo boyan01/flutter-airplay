@@ -53,7 +53,6 @@ class _SettingsPageState extends State<SettingsPage> {
   final _qualityFocus = FocusNode();
   final _audioOutputFocus = FocusNode();
   final _playbackBufferFocus = FocusNode();
-  Timer? _textSave;
   String? _error;
   String? _systemSettingsError;
   bool _openingLogs = false;
@@ -66,20 +65,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    _name.addListener(_scheduleSave);
-    _path.addListener(_scheduleSave);
-  }
-
-  void _scheduleSave() {
-    _textSave?.cancel();
-    _textSave = Timer(const Duration(milliseconds: 600), _save);
-  }
-
-  @override
   void dispose() {
-    _textSave?.cancel();
     if (!model.isTelevision &&
         (_name.text.trim() != model.name || _path.text.trim() != model.path) &&
         model.validateName(_name.text) == null) {
@@ -94,7 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _save() async {
-    _textSave?.cancel();
+    if (!mounted) return;
     setState(() => _error = model.validateName(_name.text));
     final nextName = !model.isTelevision && _error == null
         ? _name.text
@@ -281,7 +267,7 @@ class _SettingsPageState extends State<SettingsPage> {
             autofocus: widget.editName,
             enabled: model.loaded,
             error: _error,
-            onGenerated: () => setState(() => _error = null),
+            onGenerated: _save,
             onSubmitted: _save,
           ),
         const SizedBox(height: 12),
@@ -480,6 +466,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 key: const Key('receiverPath'),
                 controller: _path,
                 enabled: model.editable,
+                onSubmitted: (_) => _save(),
                 decoration: InputDecoration(
                   labelText: l10n(context).path,
                   helperText: l10n(context).pathHelp,

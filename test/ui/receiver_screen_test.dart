@@ -1256,7 +1256,7 @@ void main() {
     expect(find.text('查看日志'), findsOneWidget);
   });
 
-  testWidgets('Rename applies automatically while waiting', (tester) async {
+  testWidgets('Rename applies on submit while waiting', (tester) async {
     final backend = await launch(tester);
     await tester.tap(find.byKey(const Key('openSettings')));
     await tester.pumpAndSettle();
@@ -1264,7 +1264,10 @@ void main() {
       find.byKey(const Key('receiverName')),
       'Living Room',
     );
-    await tester.pump(const Duration(milliseconds: 600));
+    // Typing alone does not restart the receiver.
+    await tester.pump(const Duration(seconds: 1));
+    expect(backend.savedName, isNull);
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(backend.savedName, 'Living Room');
     expect(backend.startedName, 'Living Room');
@@ -1283,7 +1286,6 @@ void main() {
           .controller!
           .text;
       expect(name, matches(RegExp(r' \d{4}$')));
-      await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
       expect(backend.savedName, name);
       expect(backend.stops, 1);
@@ -1302,7 +1304,6 @@ void main() {
     await tester.tap(find.byKey(const Key('tvName')));
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     final name = tester
         .widget<TextField>(find.byKey(const Key('receiverName')))
@@ -1369,7 +1370,7 @@ void main() {
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('receiverName')), '   ');
-      await tester.pump(const Duration(milliseconds: 600));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
       expect(find.text('请输入设备名'), findsOneWidget);
       expect(backend.savedName, isNull);
@@ -1764,14 +1765,13 @@ void main() {
     });
   }
 
-  testWidgets('Home shows the new advertised name after an idle update', (
+  testWidgets('Leaving Settings applies the new advertised name', (
     tester,
   ) async {
     final backend = await launch(tester, platform: 'android');
     await tester.tap(find.byKey(const Key('openSettings')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('receiverName')), 'Office');
-    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
@@ -1846,7 +1846,6 @@ void main() {
       } else {
         await tester.tap(reset);
       }
-      await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
       expect(backend.savedName, 'System Device');
       expect(backend.startedName, 'System Device');
