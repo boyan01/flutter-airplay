@@ -544,7 +544,8 @@ private:
             auto *current = static_cast<Callback *>(context); auto *self = current->owner;
             if (current->generation == self->generation_ && self->host.frame) self->host.frame(self->host.context, frame, deadline);
         };
-        callbacks.event = [](void *context, const char *type, const char *detail, int w, int h) {
+        // Player callbacks are C function pointers; exceptions must not escape them.
+        callbacks.event = [](void *context, const char *type, const char *detail, int w, int h) { try {
             auto *current = static_cast<Callback *>(context); auto *self = current->owner; const auto epoch = current->generation;
             std::string event(type ? type : ""), bytes(detail ? detail : "");
             // Stop advances the generation before joining callbacks. Keep the
@@ -553,15 +554,15 @@ private:
             self->enqueue([self, epoch, event = std::move(event), bytes = std::move(bytes), w, h] {
                 if (self->player_ && epoch == self->generation_) self->receive(event, bytes, w, h);
             });
-        };
-        callbacks.log = [](void *context, int, const char *message) {
+        } catch (...) {} };
+        callbacks.log = [](void *context, int, const char *message) { try {
             auto *current = static_cast<Callback *>(context); auto *self = current->owner; const auto epoch = current->generation;
             std::string bytes(message ? message : "");
             self->enqueue([self, epoch, bytes = std::move(bytes)] { if (epoch == self->generation_) {
                 self->log(bytes);
                 if (bytes.find("Unsupported Windows") == 0 || bytes.find("Unavailable Windows") == 0) self->fail(bytes);
             } });
-        };
+        } catch (...) {} };
         char error[512]{};
         try {
             const auto height = video_height(), width = requested_video_width(height);
@@ -700,11 +701,14 @@ extern "C" uint64_t airplay_receiver_create(AirplayReceiverHost host, const char
         auto handle = ++next_handle; value->handle = handle; value->launch(); receivers.emplace(handle, std::move(value)); return handle;
     } catch (const std::exception& failure) { if (error && capacity) snprintf(error, capacity, "%s", failure.what()); return 0; }
 }
+// Exceptions must not cross the C ABI; callbacks without a result drop them.
 extern "C" void airplay_receiver_destroy(uint64_t handle) {
-    std::shared_ptr<Receiver> value;
-    { std::lock_guard<std::mutex> guard(registry_lock); auto found = receivers.find(handle);
-      if (found == receivers.end()) return; value = std::move(found->second); receivers.erase(found); }
-    value->close();
+    try {
+        std::shared_ptr<Receiver> value;
+        { std::lock_guard<std::mutex> guard(registry_lock); auto found = receivers.find(handle);
+          if (found == receivers.end()) return; value = std::move(found->second); receivers.erase(found); }
+        value->close();
+    } catch (...) {}
 }
 extern "C" void airplay_receiver_free_snapshot(AirplayReceiverSnapshot* value) {
     if (!value) return;
@@ -756,17 +760,19 @@ extern "C" void airplay_receiver_request_settings(uint64_t handle, const Airplay
     } } catch (...) {}
 }
 extern "C" void airplay_receiver_discovery(uint64_t handle, uint64_t generation, bool ready, const char *error, const char *name) {
-    if (auto value = receiver(handle)) value->discovery(generation, ready, error ? error : "", name ? name : "");
+    try { if (auto value = receiver(handle)) value->discovery(generation, ready, error ? error : "", name ? name : ""); } catch (...) {}
 }
 extern "C" bool airplay_receiver_set_surface(uint64_t handle, void *surface) {
     try { auto value = receiver(handle); return value && value->surface(surface); } catch (...) { return false; }
 }
-extern "C" void airplay_receiver_update(uint64_t handle, const char *json) { if (auto value = receiver(handle); value && json) value->update(json); }
+extern "C" void airplay_receiver_update(uint64_t handle, const char *json) {
+    try { if (auto value = receiver(handle); value && json) value->update(json); } catch (...) {}
+}
 extern "C" void airplay_receiver_log(uint64_t handle, const char *message) {
-    if (auto value = receiver(handle); value && message) { std::string bytes(message); value->enqueue([value, bytes] { value->log(bytes); }); }
+    try { if (auto value = receiver(handle); value && message) { std::string bytes(message); value->enqueue([value, bytes] { value->log(bytes); }); } } catch (...) {}
 }
 extern "C" void airplay_receiver_output_error(uint64_t handle, const char *message) {
-    if (auto value = receiver(handle); value && message) value->output_error(message);
+    try { if (auto value = receiver(handle); value && message) value->output_error(message); } catch (...) {}
 }
 
 namespace airplay {
