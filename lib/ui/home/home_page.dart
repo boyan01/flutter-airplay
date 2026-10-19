@@ -39,6 +39,27 @@ class HomePage extends StatelessWidget {
           _ => model.loaded ? l10n(context).off : l10n(context).loading,
         };
 
+  // Connected but no picture yet: the sender may have stalled.
+  bool get awaitingFrame => model.status == 'streaming' && !error;
+
+  Widget _disconnect(BuildContext context, {bool outlined = false}) {
+    final label = Text(l10n(context).disconnect);
+    final onPressed = model.canStop ? model.disconnect : null;
+    return outlined
+        ? OutlinedButton.icon(
+            key: const Key('homeDisconnect'),
+            focusNode: actionFocus,
+            onPressed: onPressed,
+            icon: const Icon(Icons.eject_rounded),
+            label: label,
+          )
+        : TextButton(
+            key: const Key('homeDisconnect'),
+            onPressed: onPressed,
+            child: label,
+          );
+  }
+
   Widget _start(BuildContext context) => FilledButton(
     key: const Key('start'),
     focusNode: model.canStart ? actionFocus : null,
@@ -181,6 +202,11 @@ class HomePage extends StatelessWidget {
                 Text(
                   l10n(context).reconnectHelp,
                   style: TextStyle(color: colors.onSurfaceVariant, height: 1.5),
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _disconnect(context),
                 ),
               ],
             )
@@ -459,10 +485,14 @@ class HomePage extends StatelessWidget {
                       runSpacing: 12,
                       children: [
                         if (model.canStart) TvFocus(child: _start(context)),
+                        if (awaitingFrame)
+                          TvFocus(child: _disconnect(context, outlined: true)),
                         TvFocus(
                           child: OutlinedButton.icon(
                             key: const Key('openSettings'),
-                            focusNode: model.canStart ? null : actionFocus,
+                            focusNode: model.canStart || awaitingFrame
+                                ? null
+                                : actionFocus,
                             onPressed: () => onSettings(),
                             icon: const Icon(Icons.settings_outlined),
                             label: Text(l10n(context).settings),

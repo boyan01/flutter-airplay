@@ -1062,6 +1062,48 @@ void main() {
     },
   );
 
+  for (final platform in ['android', 'macos']) {
+    testWidgets('$platform awaiting first frame offers Disconnect', (
+      tester,
+    ) async {
+      final backend = await launch(tester, platform: platform);
+      backend.controller.add({'type': 'client', 'name': 'Alice’s iPhone'});
+      backend.state('streaming');
+      await tester.pump(); // A progress indicator animates while waiting.
+      final disconnect = find.descendant(
+        of: find.byKey(const Key('homeInstructions')),
+        matching: find.byKey(const Key('homeDisconnect')),
+      );
+      expect(disconnect, findsOneWidget);
+      await tester.tap(disconnect);
+      await tester.pumpAndSettle();
+      expect(backend.stops, 1);
+      expect(backend.starts, 2);
+      expect(find.byKey(const Key('homeDisconnect')), findsNothing);
+    });
+  }
+
+  testWidgets('TV awaiting first frame focuses Disconnect', (tester) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    backend.controller.add({'type': 'client', 'name': 'Alice’s iPhone'});
+    backend.state('streaming');
+    await tester.pump(); // A progress indicator animates while waiting.
+    final disconnect = find.byKey(const Key('homeDisconnect'));
+    expect(
+      tester.widget<OutlinedButton>(disconnect).focusNode?.hasFocus,
+      isTrue,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.stops, 1);
+    expect(find.byKey(const Key('homeDisconnect')), findsNothing);
+  });
+
   testWidgets('Audio and sender pause have their own page until a new frame', (
     tester,
   ) async {
