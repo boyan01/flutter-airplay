@@ -148,11 +148,15 @@ void AirplayPlayer::flush_audio() {
     if (p->audio_playing) { p->audio_playing = false; p->event("audio_stopped", "Audio paused"); }
 }
 void AirplayPlayer::stop_audio() {
-    std::lock_guard<std::mutex> guard(lock);
+    // Stopping can join audio threads or wait on the platform. Keep it outside
+    // the player lock, as format_audio does for start, so video keeps running.
     output->stop();
-    audio_rtp_anchored = false; audio_ct = 0;
-    audio.flush();
-    if (audio_playing) { audio_playing = false; event("audio_stopped", "Audio stopped"); }
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        audio_rtp_anchored = false; audio_ct = 0;
+        audio.flush();
+        if (audio_playing) { audio_playing = false; event("audio_stopped", "Audio stopped"); }
+    }
     log("Audio output stopped: audio transport ended");
     const auto report = output->diagnostics();
     if (!report.empty()) log(report.c_str());
