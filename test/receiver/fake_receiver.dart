@@ -30,7 +30,6 @@ class FakeReceiver extends ReceiverRepository {
   Map<String, dynamic> activeSettings = {};
   bool connectBeforeApply = false;
   bool completesBeforeReady = false;
-  @override
   Future<bool> applySettings() async {
     if (connectBeforeApply) state('streaming');
     if (currentStatus != 'waiting') return false;

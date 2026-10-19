@@ -34,9 +34,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mirroring => 'Mirroring';
 
   @override
-  String get playbackWindow => 'Player window';
-
-  @override
   String get settings => 'Settings';
 
   @override
@@ -302,9 +299,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get openApp => 'Open Flutter AirPlay';
 
   @override
-  String get showPlayer => 'Show player window';
-
-  @override
   String get quitApp => 'Quit Flutter AirPlay';
 
   @override
@@ -418,9 +412,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get keepInTray => 'Keep in system tray when the window closes';
 
   @override
-  String get fullscreenWindows => 'Toggle fullscreen (F11)';
-
-  @override
   String get videoQuality => 'Mirroring quality';
 
   @override
@@ -453,9 +444,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noReceivedVideo => 'Waiting for video';
-
-  @override
-  String get saveRestart => 'Save and restart';
 
   @override
   String get shareLogs => 'Share logs';

@@ -146,12 +146,6 @@ abstract class AppLocalizations {
   /// **'Mirroring'**
   String get mirroring;
 
-  /// No description provided for @playbackWindow.
-  ///
-  /// In en, this message translates to:
-  /// **'Player window'**
-  String get playbackWindow;
-
   /// No description provided for @settings.
   ///
   /// In en, this message translates to:
@@ -644,12 +638,6 @@ abstract class AppLocalizations {
   /// **'Open Flutter AirPlay'**
   String get openApp;
 
-  /// No description provided for @showPlayer.
-  ///
-  /// In en, this message translates to:
-  /// **'Show player window'**
-  String get showPlayer;
-
   /// No description provided for @quitApp.
   ///
   /// In en, this message translates to:
@@ -866,12 +854,6 @@ abstract class AppLocalizations {
   /// **'Keep in system tray when the window closes'**
   String get keepInTray;
 
-  /// No description provided for @fullscreenWindows.
-  ///
-  /// In en, this message translates to:
-  /// **'Toggle fullscreen (F11)'**
-  String get fullscreenWindows;
-
   /// No description provided for @videoQuality.
   ///
   /// In en, this message translates to:
@@ -937,12 +919,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Waiting for video'**
   String get noReceivedVideo;
-
-  /// No description provided for @saveRestart.
-  ///
-  /// In en, this message translates to:
-  /// **'Save and restart'**
-  String get saveRestart;
 
   /// No description provided for @shareLogs.
   ///

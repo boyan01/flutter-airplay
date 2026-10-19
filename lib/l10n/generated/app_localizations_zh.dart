@@ -34,9 +34,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mirroring => '正在投屏';
 
   @override
-  String get playbackWindow => '播放窗口';
-
-  @override
   String get settings => '设置';
 
   @override
@@ -295,9 +292,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get openApp => '打开 Flutter AirPlay';
 
   @override
-  String get showPlayer => '显示播放窗口';
-
-  @override
   String get quitApp => '退出 Flutter AirPlay';
 
   @override
@@ -408,9 +402,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get keepInTray => '关闭窗口后保留在托盘';
 
   @override
-  String get fullscreenWindows => '切换全屏（F11）';
-
-  @override
   String get videoQuality => '投屏清晰度';
 
   @override
@@ -442,9 +433,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get noReceivedVideo => '等待画面';
-
-  @override
-  String get saveRestart => '保存并重启';
 
   @override
   String get shareLogs => '分享日志';

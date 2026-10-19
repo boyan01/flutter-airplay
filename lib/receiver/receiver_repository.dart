@@ -26,8 +26,6 @@ abstract class ReceiverRepository {
     Map<String, bool> desktopOptions = const {},
   });
   Future<void> start(String name, String path);
-  // The native worker reserves an idle receiver atomically before restarting.
-  Future<bool> applySettings();
   Future<void> stop();
   Future<void> disconnect() async {
     await stop();
@@ -227,6 +225,7 @@ class NativeReceiverRepository implements ReceiverRepository {
                 )) {
               return;
             }
+            // The native worker reserves an idle receiver atomically before restarting.
             await _control!.request('applySettings');
           })
           .catchError((Object error, StackTrace stack) {
@@ -267,13 +266,6 @@ class NativeReceiverRepository implements ReceiverRepository {
     await _initialize();
     await _saving;
     await _control!.request('disconnect');
-  }
-
-  @override
-  Future<bool> applySettings() async {
-    await _initialize();
-    await _saving;
-    return (await _control!.request('applySettings'))['applied'] as bool;
   }
 
   @override
