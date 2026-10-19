@@ -245,6 +245,22 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
       }
     }
     final connected = model.status == 'streaming';
+    // Settings and Logs cover the player; say that a sender is now showing.
+    // The short-lived update dialog would hide the notice, so skip it there.
+    if (!_connected && connected && _dialogOpen && !_updateDialogOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && model.status == 'streaming') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                l10n(context).clientConnected(model.clientName ?? 'iPhone'),
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      });
+    }
     if (_connected && !connected && model.isTelevision) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -467,7 +483,12 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
             .modalBarrierDismissLabel,
         pageBuilder: (context, animation, secondary) => Align(
           alignment: Alignment.topCenter,
-          child: SizedBox(width: 480, height: double.infinity, child: page),
+          // A Scaffold lets app notices show above the panel, not behind it.
+          child: SizedBox(
+            width: 480,
+            height: double.infinity,
+            child: Scaffold(backgroundColor: Colors.transparent, body: page),
+          ),
         ),
         transitionBuilder: (context, animation, secondary, child) =>
             SlideTransition(

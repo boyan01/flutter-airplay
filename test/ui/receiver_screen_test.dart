@@ -1201,6 +1201,40 @@ void main() {
     expect(find.byKey(const Key('homeDisconnect')), findsNothing);
   });
 
+  for (final platform in ['macos', 'android']) {
+    testWidgets('$platform settings say when a sender connects behind them', (
+      tester,
+    ) async {
+      final backend = await launch(tester, platform: platform);
+      final notice = find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text('已连接 · Alice’s iPhone'),
+      );
+      backend.controller.add({'type': 'client', 'name': 'Alice’s iPhone'});
+      backend.state('streaming');
+      await tester.pump();
+      await tester.pump();
+      // The home screen already shows the connection.
+      expect(find.byType(SnackBar), findsNothing);
+      backend.state('waiting');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('openSettings')));
+      await tester.pumpAndSettle();
+      backend.controller.add({'type': 'client', 'name': 'Alice’s iPhone'});
+      backend.state('streaming');
+      await tester.pump();
+      await tester.pump();
+      expect(notice, findsWidgets);
+      // The notice must not be hidden behind the desktop settings panel.
+      await tester.pump(const Duration(milliseconds: 300));
+      final snackBar = tester.renderObject(
+        find.ancestor(of: notice.last, matching: find.byType(Material)).first,
+      );
+      final hit = tester.hitTestOnBinding(tester.getCenter(notice.last));
+      expect(hit.path.any((entry) => entry.target == snackBar), isTrue);
+    });
+  }
+
   testWidgets('Desktop audio page leaves the title to the window bar', (
     tester,
   ) async {
