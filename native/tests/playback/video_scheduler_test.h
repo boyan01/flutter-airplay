@@ -2,6 +2,8 @@
 #pragma once
 #include "../../playback/video_scheduler.h"
 #include "../../playback/timeline.h"
+#include <chrono>
+#include <future>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -29,6 +31,27 @@ inline void video_scheduler_test() {
     check(released && !visible, "default drain clock still discards expired frames");
 
     constexpr int64_t now = 1000000000;
+    // Host release callbacks may take their own locks or query the scheduler,
+    // so discarded frames must be released after its mutex is unlocked.
+    {
+        airplay::VideoScheduler scheduler(0, 16);
+        std::vector<std::future<airplay::VideoScheduler::Stats>> queries;
+        bool blocked = false;
+        const auto release = [&](bool) {
+            queries.push_back(std::async(std::launch::async, [&] { return scheduler.stats(); }));
+            blocked |= queries.back().wait_for(std::chrono::milliseconds(200)) != std::future_status::ready;
+        };
+        scheduler.begin(1);
+        scheduler.enqueue(now, 2, release); // stale generation
+        for (int i = 0; i < 17; ++i) scheduler.enqueue(now + i, 1, release); // overflow
+        scheduler.flush();
+        scheduler.enqueue(now, 1, release);
+        scheduler.begin(2);
+        scheduler.enqueue(now, 2, release);
+        scheduler.clear();
+        for (auto &query : queries) query.wait();
+        check(queries.size() == 20 && !blocked, "discarded frames are released outside the scheduler lock");
+    }
     // A short stall is inside the late tolerance, but replaying every missed
     // picture still floods the display. Keep the latest due picture instead.
     {

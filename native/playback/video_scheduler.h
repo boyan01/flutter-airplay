@@ -25,20 +25,24 @@ public:
     ~VideoScheduler() { clear(); }
     VideoScheduler(const VideoScheduler &) = delete;
     VideoScheduler &operator=(const VideoScheduler &) = delete;
+    // Discarded frames are declared before the lock guard, so their
+    // destructors release them after the mutex is unlocked.
     void begin(uint64_t generation) {
+        std::vector<Frame> discarded;
         std::lock_guard<std::mutex> guard(lock_);
-        if (generation_ != generation) { clear_locked(); generation_ = generation; }
+        if (generation_ != generation) { discarded = take_locked(); generation_ = generation; }
     }
     void enqueue(int64_t due, uint64_t generation, std::function<void(bool)> finish) {
+        Frame discarded;
         std::lock_guard<std::mutex> guard(lock_);
-        if (generation != generation_) { finish(false); ++cancelled_; return; }
+        if (generation != generation_) { discarded = Frame(due, std::move(finish)); ++cancelled_; return; }
         frames_.push_back({due, std::move(finish)});
         ++ready_; peak_ = std::max(peak_, frames_.size());
         // A codec drain can yield a burst beyond the input watermark. Keep the
         // nearest deadlines and bound retained 4K/GPU resources even then.
         if (frames_.size() > 16) {
             auto last = std::max_element(frames_.begin(), frames_.end(), earlier);
-            last->finish(false); frames_.erase(last); ++overflow_; ++total_dropped_;
+            discarded = std::move(*last); frames_.erase(last); ++overflow_; ++total_dropped_;
         }
     }
     bool can_decode() const {
@@ -80,13 +84,15 @@ public:
         }
     }
     void clear() {
+        std::vector<Frame> discarded;
         std::lock_guard<std::mutex> guard(lock_);
-        clear_locked(); generation_ = 0;
+        discarded = take_locked(); generation_ = 0;
     }
     // Resolution changes discard completed pictures but keep the session epoch.
     void flush() {
+        std::vector<Frame> discarded;
         std::lock_guard<std::mutex> guard(lock_);
-        clear_locked();
+        discarded = take_locked();
     }
     std::string diagnostics(int64_t now = TimingSamples::now_ns()) {
         std::lock_guard<std::mutex> guard(lock_);
@@ -129,9 +135,11 @@ private:
         }
     };
     static bool earlier(const Frame &a, const Frame &b) { return a.due < b.due; }
-    void clear_locked() {
-        for (auto &frame : frames_) { frame.finish(false); ++cancelled_; }
-        frames_.clear(); last_due_ = last_submit_ = 0;
+    std::vector<Frame> take_locked() {
+        cancelled_ += frames_.size(); last_due_ = last_submit_ = 0;
+        std::vector<Frame> taken;
+        taken.swap(frames_);
+        return taken;
     }
     mutable std::mutex lock_;
     std::vector<Frame> frames_;
