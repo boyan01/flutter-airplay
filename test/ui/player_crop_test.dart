@@ -452,6 +452,53 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Android Back key sequence in preview returns to the same draft',
+    (tester) async {
+      await mount(
+        tester,
+        platform: 'android',
+        native: true,
+        television: true,
+        initialCrop: crop,
+      );
+      await edit(tester);
+      final draft = tester.getRect(find.byKey(const Key('cropSelection')));
+      await tester.tap(find.byKey(const Key('cropPreview')));
+      await tester.pumpAndSettle();
+      // Android sends the key sequence first, then system navigation.
+      for (final down in [true, false]) {
+        final handled = down
+            ? await tester.sendKeyDownEvent(
+                LogicalKeyboardKey.goBack,
+                physicalKey: PhysicalKeyboardKey.escape,
+                platform: 'android',
+              )
+            : await tester.sendKeyUpEvent(
+                LogicalKeyboardKey.goBack,
+                physicalKey: PhysicalKeyboardKey.escape,
+                platform: 'android',
+              );
+        expect(handled, isFalse);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<VideoCropEditor>(find.byType(VideoCropEditor))
+              .previewing,
+          isTrue,
+        );
+      }
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(VideoCropEditor), findsOneWidget);
+      expect(
+        tester.widget<VideoCropEditor>(find.byType(VideoCropEditor)).previewing,
+        isFalse,
+      );
+      expect(tester.getRect(find.byKey(const Key('cropSelection'))), draft);
+      expect(model.videoCrop, crop);
+    },
+  );
   testWidgets('system Back cancels crop editing without escaping the player', (
     tester,
   ) async {

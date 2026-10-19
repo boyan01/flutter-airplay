@@ -768,6 +768,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   sourceHeight: widget.model.videoHeight,
                   initialCrop: _initialCrop,
                   television: tv,
+                  platform: widget.model.platform,
                   previewing: _previewCrop != null,
                   videoBuilder: (_, crop) => _video(crop),
                   onPreviewChanged: (crop) {

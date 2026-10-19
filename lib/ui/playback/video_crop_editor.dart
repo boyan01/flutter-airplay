@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../receiver_back.dart';
 import '../tv_focus.dart';
 import 'playback_menu.dart';
 import '../widgets/receiver_strings.dart';
@@ -25,6 +26,7 @@ class VideoCropEditor extends StatefulWidget {
     required this.videoBuilder,
     this.previewing = false,
     this.television = false,
+    this.platform = '',
   }) : assert(sourceWidth > 0),
        assert(sourceHeight > 0);
 
@@ -37,6 +39,8 @@ class VideoCropEditor extends StatefulWidget {
   final Widget Function(BuildContext, Rect) videoBuilder;
   final bool previewing;
   final bool television;
+  // Android delivers Back through system navigation; see receiver_back.dart.
+  final String platform;
 
   @override
   State<VideoCropEditor> createState() => _VideoCropEditorState();
@@ -278,8 +282,7 @@ class _VideoCropEditorState extends State<VideoCropEditor> {
           return KeyEventResult.handled;
         }
         if (event is KeyDownEvent &&
-            (event.logicalKey == LogicalKeyboardKey.escape ||
-                event.logicalKey == LogicalKeyboardKey.goBack)) {
+            isReceiverBackKey(widget.platform, event.logicalKey)) {
           if (widget.previewing) {
             widget.onPreviewChanged(null);
           } else {
