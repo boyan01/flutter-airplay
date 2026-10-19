@@ -76,6 +76,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get start => 'Turn on receiver';
 
   @override
+  String get startHint =>
+      'Turn on Receive AirPlay below so your iPhone can find this device.';
+
+  @override
   String get awaitingFrame => 'Connected. Waiting for video.';
 
   @override

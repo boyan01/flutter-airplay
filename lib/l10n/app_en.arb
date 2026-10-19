@@ -22,6 +22,7 @@
   "loading": "Loading receiver status…",
   "retry": "Retry",
   "start": "Turn on receiver",
+  "startHint": "Turn on Receive AirPlay below so your iPhone can find this device.",
   "awaitingFrame": "Connected. Waiting for video.",
   "reconnectHelp": "If no picture appears, select this receiver again on your iPhone.",
   "sameWifiTv": "Connect iPhone and TV to the same Wi-Fi",

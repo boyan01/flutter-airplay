@@ -22,6 +22,7 @@
   "loading": "正在读取状态…",
   "retry": "重试",
   "start": "打开接收",
+  "startHint": "打开下方的“接收投屏”，iPhone 才能找到这台设备。",
   "awaitingFrame": "已连接，等待画面",
   "reconnectHelp": "如果长时间无画面，请在 iPhone 上重新选择。",
   "sameWifiTv": "iPhone 与电视连接同一 Wi-Fi",

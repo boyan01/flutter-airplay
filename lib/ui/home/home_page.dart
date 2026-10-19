@@ -307,6 +307,7 @@ class HomePage extends StatelessWidget {
         const Divider(height: 1),
         SwitchListTile(
           key: const Key('receiveSwitch'),
+          focusNode: model.canStart && !error ? actionFocus : null,
           contentPadding: EdgeInsets.zero,
           title: Text(
             l10n(context).receive,
@@ -427,7 +428,15 @@ class HomePage extends StatelessWidget {
       if (error)
         _errorCard(context)
       else if (model.status == 'stopped' && model.loaded)
-        _start(context)
+        // The Receive switch below is the single on/off control.
+        Text(
+          l10n(context).startHint,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            height: 1.5,
+          ),
+        )
       else
         _instructions(context),
       if (model.notice != null && !error)

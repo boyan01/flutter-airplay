@@ -76,6 +76,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get start => '打开接收';
 
   @override
+  String get startHint => '打开下方的“接收投屏”，iPhone 才能找到这台设备。';
+
+  @override
   String get awaitingFrame => '已连接，等待画面';
 
   @override

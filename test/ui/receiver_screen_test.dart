@@ -1607,6 +1607,29 @@ void main() {
     expect(backend.stops, 0);
   });
 
+  for (final platform in ['android', 'macos']) {
+    testWidgets('$platform off state has one on/off control', (tester) async {
+      final backend = await launch(
+        tester,
+        platform: platform,
+        autoStart: false,
+        locale: 'en',
+      );
+      expect(find.byKey(const Key('start')), findsNothing);
+      expect(
+        find.text(
+          'Turn on Receive AirPlay below so your iPhone can find this device.',
+        ),
+        findsOneWidget,
+      );
+      final toggle = find.byKey(const Key('receiveSwitch'));
+      expect(tester.widget<SwitchListTile>(toggle).focusNode?.hasFocus, isTrue);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(backend.starts, 1);
+    });
+  }
+
   testWidgets('TV off and error put focus on the recovery action', (
     tester,
   ) async {

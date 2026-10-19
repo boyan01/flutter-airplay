@@ -230,6 +230,12 @@ abstract class AppLocalizations {
   /// **'Turn on receiver'**
   String get start;
 
+  /// No description provided for @startHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on Receive AirPlay below so your iPhone can find this device.'**
+  String get startHint;
+
   /// No description provided for @awaitingFrame.
   ///
   /// In en, this message translates to:
