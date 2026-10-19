@@ -3,6 +3,7 @@
 #include "platform.h"
 #include "audio_decoder.h"
 #include "timing_stats.h"
+#include "video_recovery.h"
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
@@ -66,6 +67,7 @@ struct AirplayPlayer {
     std::atomic<int64_t> audio_lead_ms{0};
     std::atomic<int64_t> last_audio_receive{0}, last_video_receive{0};
     std::atomic<uint64_t> video_timestamp_rejects{0};
+    VideoRecovery recovery; // Worker thread only.
 
     AirplayPlayer(AirplayCallbacks cb, void *surface, const char *decoder, const char *fallback)
         : callbacks(cb), audio(pcm, [this](const char *text) { log(text); }) {
@@ -191,13 +193,34 @@ struct AirplayPlayer {
                   if (packet.received_ns) video_stats.queue_wait.add(monotonic_ns() - packet.received_ns);
               } }
             if (reset) {
+                recovery.clear();
                 video->reset();
                 profile_base = profile_previous = video->stats();
                 profile_at = monotonic_ns();
             }
             video->size(w, h);
-            if (!packet.bytes.empty() && packet.generation == generation && !video->decode(packet)) {
-                video->reset(); event("error", "Video decoding failed; reconnect screen mirroring");
+            if (!packet.bytes.empty() && packet.generation == generation) {
+                recovery.prepare(packet);
+                const bool accepted = video->decode(packet);
+                recovery.decoded(accepted);
+                if (!accepted) {
+                    video->reset();
+                    int64_t output;
+                    { std::lock_guard<std::mutex> guard(lock); output = last_video_output; }
+                    recovery.failed(monotonic_ns(), output);
+                    log("Video decoding failed; waiting for the next keyframe");
+                }
+            }
+            if (recovery.active()) {
+                // Check under the lock so a protocol reset cannot slip in before
+                // the error; events are queued, so emitting here cannot re-enter.
+                std::lock_guard<std::mutex> guard(lock);
+                if (!video_reset && generation == video_generation) {
+                    const auto result = recovery.check(monotonic_ns(), last_video_output, video_paused);
+                    if (result == VideoRecovery::Result::recovered) log("Video decoding recovered");
+                    else if (result == VideoRecovery::Result::timed_out)
+                        event("error", "Video decoding failed; reconnect screen mirroring");
+                }
             }
             video->drain();
             const auto now = monotonic_ns();

@@ -424,7 +424,31 @@ void check_mac_hevc() {
                 : "Mac HEVC decoded color or pixel conversion is incorrect: ") + fixture);
         }
     };
+    auto corrupt = [&] {
+        // A forbidden-zero-bit NAL makes VideoToolbox input rejection deterministic.
+        uint8_t bytes[] = {0, 0, 0, 1, 0x80, 0x01, 0xaa, 0xbb};
+        video_decode_struct data{};
+        data.data = bytes; data.data_len = int(sizeof(bytes)); data.ntp_time_local = realtime_ns() + 100000000;
+        receive.video_process(receive.cls, nullptr, &data);
+    };
+    auto picture_offset = [](const uint8_t *bytes, size_t count) {
+        for (const auto &nal : split_nal_views(bytes, count))
+            if (((nal[0] >> 1) & 63) < 32 || ((nal[0] >> 1) & 63) > 34) return size_t(nal.data() - bytes) - 4;
+        throw std::runtime_error("HEVC fixture has no picture");
+    };
+    // Longer than the fixtures' 1.5 s presentation lead; set before any failure.
+    p->recovery.timeout = 3 * kSecond;
     feed("HEVC landscape", hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape), 640, 360, 0);
+    corrupt();
+    // The sender does not repeat parameter sets with each keyframe.
+    const auto offset = picture_offset(hevc_fixtures::landscape, sizeof(hevc_fixtures::landscape));
+    feed("HEVC keyframe after decode failure", hevc_fixtures::landscape + offset,
+         sizeof(hevc_fixtures::landscape) - offset, 640, 360, 0);
+    if (progress.errors) throw std::runtime_error("a recovered decode failure ends the session");
+    corrupt();
+    const auto limit = monotonic_ns() + 5 * kSecond;
+    while (!progress.errors && monotonic_ns() < limit) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (progress.errors != 1) throw std::runtime_error("a decode failure with no following picture is not reported");
     feed("HEVC portrait", hevc_fixtures::portrait, sizeof(hevc_fixtures::portrait), 360, 640, 2);
     feed("HEVC 4K", hevc_fixtures::uhd, sizeof(hevc_fixtures::uhd), 3840, 2160, 2);
     p->reset();
@@ -434,7 +458,7 @@ void check_mac_hevc() {
     if (receive.video_set_codec(receive.cls, VIDEO_CODEC_H264) != 0)
         throw std::runtime_error("Mac receiver cannot return to H.264");
     feed("H.264 reconnect", landscape, sizeof(landscape), 640, 360, 0);
-    std::puts("PASS: Mac HEVC receive callback, decoded pixels, rotation, 4K, Main10, reset and H.264 reconnect");
+    std::puts("PASS: Mac HEVC receive callback, decoded pixels, rotation, 4K, Main10, decode failure recovery, reset and H.264 reconnect");
 }
 void check_audio_unsynchronized_burst() {
     auto p = std::make_unique<AirplayPlayer>(AirplayCallbacks{}, nullptr, nullptr, nullptr);

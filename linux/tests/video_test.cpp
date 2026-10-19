@@ -7,6 +7,7 @@
 #include "../../native/tests/fixtures/hevc_fixtures.h"
 #include "../../native/tests/playback/ffmpeg_colors_test.h"
 #include "../../native/tests/playback/video_scheduler_test.h"
+#include "../../native/tests/playback/video_recovery_test.h"
 #include <thread>
 #include <algorithm>
 #include <array>
@@ -320,6 +321,7 @@ int main(int argc, char **argv) {
     try {
         check(argc == 2, "Usage: linux_video_tests <generated-fixture-directory>");
         airplay_test::video_scheduler_test();
+        airplay_test::video_recovery_test();
         airplay_test::ffmpeg_colors_test();
         check_hevc();
         check_configuration_rotation_and_reset();

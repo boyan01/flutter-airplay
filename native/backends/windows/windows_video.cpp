@@ -51,8 +51,8 @@ public:
     bool decode(const VideoPacket &packet) override {
         const bool accepted = decode_packet(packet);
         if (!accepted && gpu_decoder_ && gpu_failed_) {
-            // Shared core treats a failed decode as a terminal receiver error.
-            // Handle GPU recovery here, preserving parameter sets until IDR.
+            // Shared core resets after a failed decode. Recover the GPU path
+            // here instead, preserving parameter sets until IDR.
             retire_gpu_decoder();
             return true;
         }

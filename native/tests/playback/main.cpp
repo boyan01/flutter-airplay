@@ -2,6 +2,7 @@
 #include "../../playback/platform.h"
 #include "../../backends/apple/apple_video.h"
 #include "video_scheduler_test.h"
+#include "video_recovery_test.h"
 #include "../../playback/audio_decoder.h"
 #include "audio_clock_tests.h"
 #include <cstdio>
@@ -23,6 +24,7 @@ void check(bool condition, const char *description) { if (!condition) throw std:
 int main() {
     try {
         airplay_test::video_scheduler_test();
+        airplay_test::video_recovery_test();
         check_audio_clock();
         check_audio_decoder();
         Timeline timeline;
