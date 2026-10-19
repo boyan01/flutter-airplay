@@ -753,11 +753,36 @@ class _PlayerPageState extends State<PlayerPage> {
                   onCancel: () => _finishCrop(null),
                 )
               else
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _visible ? _hide(force: true) : _show(),
-                  onDoubleTap: mobile ? null : widget.onFullscreen,
-                  child: _video(_displayCrop),
+                // A mouse shows the controls by moving, so it only double
+                // clicks; a tap handler would delay and undo the hover.
+                // Touch and stylus keep tap and double tap.
+                Listener(
+                  // Take focus back from the toolbar so the controls can hide.
+                  onPointerDown: (event) {
+                    if (event.kind == PointerDeviceKind.mouse) {
+                      _surfaceFocus.requestFocus();
+                    }
+                  },
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    supportedDevices: mobile
+                        ? null
+                        : const {PointerDeviceKind.mouse},
+                    onDoubleTap: mobile ? null : widget.onFullscreen,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      supportedDevices: mobile
+                          ? null
+                          : const {
+                              PointerDeviceKind.touch,
+                              PointerDeviceKind.stylus,
+                              PointerDeviceKind.invertedStylus,
+                            },
+                      onTap: () => _visible ? _hide(force: true) : _show(),
+                      onDoubleTap: mobile ? null : widget.onFullscreen,
+                      child: _video(_displayCrop),
+                    ),
+                  ),
                 ),
               IgnorePointer(
                 ignoring: !_visible || _editingCrop,

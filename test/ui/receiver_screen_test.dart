@@ -422,6 +422,56 @@ void main() {
     },
   );
 
+  testWidgets(
+    'desktop mouse clicks keep controls and double click fullscreens',
+    (tester) async {
+      final calls = <String>[];
+      final backend = await launch(
+        tester,
+        size: const Size(600, 650),
+        windowCalls: calls,
+      );
+      frame(backend);
+      await tester.pumpAndSettle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: const Offset(300, 300));
+      await mouse.moveTo(const Offset(301, 300));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      // A click must not hide the controls the pointer just showed.
+      await mouse.down(const Offset(301, 300));
+      await mouse.up();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsOneWidget);
+      // A click takes keyboard focus back from the toolbar so it can hide.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await mouse.down(const Offset(301, 300));
+      await mouse.up();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playerControls')), findsNothing);
+      calls.clear();
+      await mouse.down(const Offset(301, 300));
+      await mouse.up();
+      await tester.pump(const Duration(milliseconds: 50));
+      await mouse.down(const Offset(301, 300));
+      await mouse.up();
+      await tester.pumpAndSettle();
+      expect(calls, contains('fullscreen:true'));
+      // Desktop touch screens keep double tap.
+      calls.clear();
+      await tester.tapAt(const Offset(301, 300));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(const Offset(301, 300));
+      await tester.pumpAndSettle();
+      expect(calls, contains('fullscreen:false'));
+      expect(backend.stops, 0);
+    },
+  );
+
   for (final width in [200.0, 280.0, 600.0]) {
     testWidgets('player controls align at width $width', (tester) async {
       final backend = await launch(tester, size: Size(width, 650));
