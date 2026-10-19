@@ -242,6 +242,8 @@ class DownloadAppUpdateService extends AppUpdateService {
     if (_update == null || {'downloading', 'installing'}.contains(_status)) {
       return _snapshot();
     }
+    // The system may clear temporary files; download the update again.
+    if (_downloaded != null && !await _downloaded!.exists()) _downloaded = null;
     if (_downloaded != null) {
       // The system UI may be cancelled. Keep the verified download available
       // for another attempt, rather than claiming installation succeeded.

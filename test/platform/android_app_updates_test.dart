@@ -229,6 +229,19 @@ finally:
             await service.installUpdate();
             expect(installs, 1);
             expect((await service.showUpdate())['status'], 'ready');
+            // A cleared download is fetched again instead of failing.
+            await (files.single as File).delete();
+            expect((await service.installUpdate())['status'], 'downloading');
+            expect(installs, 1);
+            for (var i = 0; i < 100 && apkRequests < 2; i++) {
+              await Future<void>.delayed(const Duration(milliseconds: 20));
+            }
+            for (var i = 0; i < 100; i++) {
+              if ((await service.showUpdate())['status'] == 'ready') break;
+              await Future<void>.delayed(const Duration(milliseconds: 20));
+            }
+            expect(apkRequests, 2);
+            expect((await service.showUpdate())['status'], 'ready');
           }
         } finally {
           service.listen(null);
