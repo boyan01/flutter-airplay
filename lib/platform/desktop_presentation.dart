@@ -41,7 +41,11 @@ class DesktopPresentation {
   int? _trayListener, _menuListener, _windowListener, _windowId;
   Timer? _autoHide;
   Future<void> _pending = Future.value();
-  bool _ready = false, _disposed = false, _playing = false;
+  bool _ready = false, _disposed = false, _streaming = false;
+  // A sender pause clears the video, so show and fullscreen once per
+  // connection. Count ended connections as model changes arrive: queued
+  // updates read the latest state and can miss a quick reconnect.
+  int _endedSessions = 0, _presentedSession = -1, _hiddenSession = 0;
   bool _openedForSession = false, _expanded = false, _transitioning = false;
   bool _fullscreen = false, _trayVisible = false;
   bool _menuOpen = false;
@@ -62,6 +66,9 @@ class DesktopPresentation {
     if (_disposed || !model.loaded || !model.supportsWindowPreferences) {
       return Future.value();
     }
+    final streaming = model.status == 'streaming';
+    if (_streaming && !streaming) _endedSessions++;
+    _streaming = streaming;
     final geometry = _sizing.update(
       connected: model.status == 'streaming',
       width: model.hasVideo ? model.displayVideoWidth : 0,
@@ -250,7 +257,9 @@ class DesktopPresentation {
 
   Future<void> _apply() async {
     if (_disposed) return;
-    final playing = model.hasVideo;
+    // Read the connection with the state it belongs to; a disconnect during
+    // the awaits below is handled by the update it queued.
+    final playing = model.hasVideo, session = _endedSessions;
     await window.withWindow((value) {
       value.isAlwaysOnTop =
           playing &&
@@ -258,7 +267,25 @@ class DesktopPresentation {
           !value.isFullScreen &&
           model.desktopOptions['alwaysOnTop']!;
     });
-    if (playing && !_playing) {
+    if (_hiddenSession != session) {
+      _hiddenSession = session;
+      if (_openedForSession) {
+        _autoHide?.cancel();
+        _autoHide = Timer(const Duration(seconds: 3), () {
+          if (!_disposed &&
+              model.status != 'streaming' &&
+              _openedForSession &&
+              canHide) {
+            unawaited(
+              hide().catchError((Object error) {
+                if (!_disposed && error is PlatformException) onError(error);
+              }),
+            );
+          }
+        });
+      }
+    }
+    if (playing && _presentedSession != session && session == _endedSessions) {
       _autoHide?.cancel();
       bool hidden = false;
       await window.withWindow((value) {
@@ -271,19 +298,9 @@ class DesktopPresentation {
       if (model.desktopOptions['fullscreenOnConnect']!) {
         await window.execute(WindowCommand.enterFullscreen);
       }
-    } else if (!playing && _playing && _openedForSession) {
-      _autoHide?.cancel();
-      _autoHide = Timer(const Duration(seconds: 3), () {
-        if (!_disposed && !model.hasVideo && _openedForSession && canHide) {
-          unawaited(
-            hide().catchError((Object error) {
-              if (!_disposed && error is PlatformException) onError(error);
-            }),
-          );
-        }
-      });
+      // Mark it only after success so a failed show or fullscreen retries.
+      _presentedSession = session;
     }
-    _playing = playing;
     if (_disposed) return;
     _updateMenu();
     await window.setClosePolicy(canHide);
