@@ -316,7 +316,8 @@ class HomePage extends StatelessWidget {
           value: model.active,
           onChanged: transitioning ? null : (_) => onToggle(),
         ),
-        if (model.isMobile)
+        // Explains reception that is on; the switch already shows when it is off.
+        if (model.isMobile && model.active)
           Align(
             alignment: Alignment.centerLeft,
             child: Text(

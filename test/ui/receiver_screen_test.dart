@@ -2376,6 +2376,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('macWindowBar')), findsNothing);
   });
+  testWidgets('Background reception hint shows only while receiving', (
+    tester,
+  ) async {
+    await launch(tester, platform: 'android', autoStart: false);
+    expect(find.text('退到后台后仍可接收投屏'), findsNothing);
+    await tester.tap(find.byKey(const Key('receiveSwitch')));
+    await tester.pumpAndSettle();
+    expect(find.text('退到后台后仍可接收投屏'), findsOneWidget);
+  });
   testWidgets(
     'iPad uses mobile controls and states its foreground constraint',
     (tester) async {
