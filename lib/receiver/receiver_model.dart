@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 import 'dart:collection';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -361,15 +360,7 @@ class ReceiverModel extends ChangeNotifier {
     }
   });
 
-  String? validateName(String value) {
-    final clean = value.trim();
-    if (clean.isEmpty) return 'nameRequired';
-    if (utf8.encode(clean).length > 50 ||
-        clean.runes.any((r) => r < 32 || r == 127)) {
-      return 'nameInvalid';
-    }
-    return null;
-  }
+  String? validateName(String value) => receiverNameError(value);
 
   Future<void> save(
     String nextName,

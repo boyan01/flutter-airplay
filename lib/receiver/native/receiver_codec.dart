@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import 'dart:convert';
-
 import 'package:json_annotation/json_annotation.dart';
 
 import '../receiver_state.dart';
@@ -44,9 +42,7 @@ ReceiverEvent decodeReceiverEvent(Map<String, dynamic> data) =>
 ReceiverSettings validatedReceiverSettings(Map<String, dynamic> values) {
   final name = (values['name'] as String).trim();
   final path = (values['path'] as String? ?? '').trim();
-  if (name.isEmpty ||
-      utf8.encode(name).length > 50 ||
-      name.runes.any((value) => value < 32 || (value >= 127 && value <= 159))) {
+  if (receiverNameError(name) != null) {
     throw StateError('Invalid receiver name');
   }
   if (path.isNotEmpty) {

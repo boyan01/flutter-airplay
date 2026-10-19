@@ -1,7 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:convert';
+
 import 'package:json_annotation/json_annotation.dart';
 
 part 'receiver_settings.g.dart';
+
+/// The native receiver's name rule: 1-50 UTF-8 bytes after trimming, without
+/// C0 or C1 control characters. Returns an l10n message key.
+String? receiverNameError(String value) {
+  final name = value.trim();
+  if (name.isEmpty) return 'nameRequired';
+  if (utf8.encode(name).length > 50 ||
+      name.runes.any((rune) => rune < 32 || (rune >= 127 && rune <= 159))) {
+    return 'nameInvalid';
+  }
+  return null;
+}
 
 @JsonEnum(valueField: 'value')
 enum VideoQuality {

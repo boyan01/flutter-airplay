@@ -116,6 +116,8 @@ void main() {
     expect(model.validateName('接收器'), isNull);
     expect(model.validateName(List.filled(17, '器').join()), 'nameInvalid');
     expect(model.validateName('Room\nTwo'), 'nameInvalid');
+    // The native receiver also rejects C1 controls.
+    expect(model.validateName('Room\u0085Two'), 'nameInvalid');
     model.clearLogs();
     expect(model.logs, isEmpty);
     model.dispose();
