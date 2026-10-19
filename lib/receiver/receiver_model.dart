@@ -15,6 +15,8 @@ class ReceiverModel extends ChangeNotifier {
   StreamSubscription<ReceiverEvent>? _subscription;
   final _logs = <ReceiverLog>[];
   int _lastWrittenLogID = 0;
+  // Snapshots repeat the native log history; keep cleared entries hidden.
+  int _clearedLogID = 0;
   String status = 'stopped';
   String message = 'off';
   String name = 'Flutter AirPlay';
@@ -248,7 +250,7 @@ class ReceiverModel extends ChangeNotifier {
     final byID = <int, ReceiverLog>{for (final log in _logs) log.id: log};
     for (final log in data.logs) {
       _writeLog(log);
-      byID[log.id] = log;
+      if (log.id > _clearedLogID) byID[log.id] = log;
     }
     _logs
       ..clear()
@@ -309,7 +311,10 @@ class ReceiverModel extends ChangeNotifier {
       case ReceiverEventType.log:
         final entry = event.log!;
         _writeLog(entry);
-        if (!_logs.any((item) => item.id == entry.id)) _logs.add(entry);
+        if (entry.id > _clearedLogID &&
+            !_logs.any((item) => item.id == entry.id)) {
+          _logs.add(entry);
+        }
         _trim();
         _notify();
     }
@@ -453,6 +458,7 @@ class ReceiverModel extends ChangeNotifier {
   );
 
   void clearLogs() {
+    _clearedLogID = _lastWrittenLogID;
     _logs.clear();
     _notify();
   }

@@ -34,6 +34,8 @@ void main() {
       backend.controller.add({'type': 'log', 'entry': entry(2)});
       model.clearLogs();
       backend.controller.add({'type': 'snapshot', 'data': snapshot});
+      backend.controller.add({'type': 'log', 'entry': entry(2)});
+      expect(model.logs, isEmpty, reason: 'cleared logs stay cleared');
       for (var id = 3; id <= 305; id++) {
         backend.controller.add({'type': 'log', 'entry': entry(id)});
       }
