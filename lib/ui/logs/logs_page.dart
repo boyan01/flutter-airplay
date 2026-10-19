@@ -156,7 +156,12 @@ class _LogsPageState extends State<LogsPage> {
     final tv = widget.model.isTelevision;
     final colors = Theme.of(context).colorScheme;
     final style = TextStyle(
-      fontFamily: 'monospace',
+      // Only Android and Linux resolve the generic monospace family.
+      fontFamily: switch (widget.model.platform) {
+        'macos' || 'ios' => 'Menlo',
+        'windows' => 'Consolas',
+        _ => 'monospace',
+      },
       fontSize: tv ? 16 : 13,
       height: 1.65,
       color: colors.onSurface,

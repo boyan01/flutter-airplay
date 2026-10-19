@@ -1003,6 +1003,15 @@ void main() {
         tester.element(find.byType(Scaffold).first),
       ).push<void>(MaterialPageRoute(builder: (_) => LogsPage(model: model)));
       await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(
+              find.text('Decoder failed: code=-12\nRetrying decoder'),
+            )
+            .style!
+            .fontFamily,
+        'Menlo',
+      );
       String? copied;
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
