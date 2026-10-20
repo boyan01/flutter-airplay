@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.9
+
+### 中文
+
+- 视频解码出错时自动恢复，不再中断投屏。
+- 播放工具栏新增「断开」，等待画面时也能断开；桌面窗口栏新增设置按钮。
+- Android 手机和 TV 首页会提示新版本，并修复用鼠标裁剪后播放控件不自动隐藏的问题。
+
+### English
+
+- Mirroring now recovers from video decode errors instead of stopping.
+- Added Disconnect to the playback toolbar and while waiting for the first frame, and a Settings button to the desktop window bar.
+- Android phones and TVs now show available updates on the home screen, and playback controls hide again after cropping with the mouse.
+
 ## 0.1.8
 
 ### 中文
