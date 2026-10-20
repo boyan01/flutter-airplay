@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'package:flutter/material.dart';
 
+import '../../platform/app_updates.dart';
 import '../../receiver/receiver_model.dart';
+import '../widgets/app_update_indicator.dart';
+import '../widgets/app_update_strings.dart';
 import '../widgets/receiver_strings.dart';
 import '../tv_focus.dart';
 
@@ -13,10 +16,15 @@ class HomePage extends StatelessWidget {
     required this.onToggle,
     required this.onSettings,
     required this.onLogs,
+    this.updates,
+    this.onOpenUpdate,
   });
   final ReceiverModel model;
   final FocusNode actionFocus;
   final VoidCallback onToggle, onLogs;
+  // Desktop shows updates in the window bar; phone and TV show them here.
+  final AppUpdates? updates;
+  final VoidCallback? onOpenUpdate;
   final Future<void> Function({bool editName}) onSettings;
   bool get error => model.status == 'error' || model.commandError != null;
   bool get transitioning =>
@@ -335,8 +343,20 @@ class HomePage extends StatelessWidget {
     );
   }
 
+  // Shown only while an update is available or in progress.
+  bool get _showUpdate => updates?.hasUpdate == true && onOpenUpdate != null;
+
   @override
   Widget build(BuildContext context) {
+    final updates = this.updates;
+    if (updates == null) return _page(context);
+    return ListenableBuilder(
+      listenable: updates,
+      builder: (context, _) => _page(context),
+    );
+  }
+
+  Widget _page(BuildContext context) {
     if (model.isTelevision) return _television(context);
     final phone = model.isMobile;
     return Column(
@@ -353,6 +373,13 @@ class HomePage extends StatelessWidget {
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w500),
                   ),
                 ),
+                if (_showUpdate)
+                  AppUpdateIndicator(
+                    status: updates!.status,
+                    progress: updates!.progress,
+                    tooltip: updateStatusLabel(l10n(context), updates!),
+                    onPressed: onOpenUpdate!,
+                  ),
                 IconButton(
                   key: const Key('openSettings'),
                   focusNode: model.canStart ? null : actionFocus,
@@ -516,6 +543,18 @@ class HomePage extends StatelessWidget {
                             label: Text(l10n(context).logsShort),
                           ),
                         ),
+                        // Last, so its arrival keeps the other actions' focus.
+                        if (_showUpdate)
+                          TvFocus(
+                            child: OutlinedButton.icon(
+                              key: const Key('homeUpdate'),
+                              onPressed: onOpenUpdate,
+                              icon: const Icon(Icons.system_update_alt),
+                              label: Text(
+                                updateStatusLabel(l10n(context), updates!),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),

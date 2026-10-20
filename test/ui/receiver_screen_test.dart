@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_airplay/platform/launch_at_login.dart';
 import 'package:flutter_airplay/app/receiver_app.dart';
+import 'package:flutter_airplay/platform/app_updates.dart';
 import 'package:flutter_airplay/ui/logs/logs_page.dart';
 import 'package:flutter_airplay/ui/settings/settings_page.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
@@ -49,6 +50,7 @@ void main() {
     FakeReceiver? backend,
     List<String>? windowCalls,
     WindowController? controller,
+    AppUpdates? updates,
   }) async {
     await tester.binding.setSurfaceSize(size);
     tester.platformDispatcher.localesTestValue = [Locale(locale)];
@@ -71,6 +73,7 @@ void main() {
     await tester.pumpWidget(
       ReceiverApp(
         launchAtLogin: _FakeLogin(),
+        updates: updates,
         model: ReceiverModel(backend),
         window:
             controller ??
@@ -1232,6 +1235,71 @@ void main() {
       );
       final hit = tester.hitTestOnBinding(tester.getCenter(notice.last));
       expect(hit.path.any((entry) => entry.target == snackBar), isTrue);
+    });
+  }
+
+  for (final (platform, tv) in [
+    ('android', true),
+    ('android', false),
+    ('macos', false),
+  ]) {
+    testWidgets('$platform${tv ? ' TV' : ''} home offers an available update', (
+      tester,
+    ) async {
+      final updates = _FakeUpdates();
+      await launch(
+        tester,
+        platform: platform,
+        tv: tv,
+        updates: updates,
+        // A 1080p TV lays the home actions out in one row.
+        size: tv ? const Size(960, 540) : const Size(440, 650),
+      );
+      expect(find.byKey(const Key('homeUpdate')), findsNothing);
+      expect(find.byKey(const Key('appUpdateIndicator')), findsNothing);
+      Key? focused() => FocusManager.instance.primaryFocus?.context
+          ?.findAncestorWidgetOfExactType<OutlinedButton>()
+          ?.key;
+      if (tv) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        expect(focused(), const Key('openLogs'));
+      }
+
+      updates
+        ..version = '1.4.0'
+        ..status = UpdateStatus.available
+        ..notifyListeners();
+      await tester.pumpAndSettle();
+      if (tv) {
+        final update = find.byKey(const Key('homeUpdate'));
+        expect(
+          find.descendant(of: update, matching: find.text('发现新版本 1.4.0')),
+          findsOneWidget,
+        );
+        // The new action keeps the remote's focus where it was.
+        expect(focused(), const Key('openLogs'));
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        expect(focused(), const Key('homeUpdate'));
+        await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      } else {
+        // Desktop keeps a single indicator in the window bar.
+        expect(find.byKey(const Key('homeUpdate')), findsNothing);
+        expect(find.byKey(const Key('appUpdateIndicator')), findsOneWidget);
+        if (platform == 'android') {
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('homeToolbar')),
+              matching: find.byKey(const Key('appUpdateIndicator')),
+            ),
+            findsOneWidget,
+          );
+        }
+        await tester.tap(find.byKey(const Key('appUpdateIndicator')));
+      }
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('appUpdateDialog')), findsOneWidget);
     });
   }
 
@@ -2758,4 +2826,13 @@ void main() {
       },
     );
   }
+}
+
+class _FakeUpdates extends AppUpdates {
+  _FakeUpdates() : super(service: AppUpdateService()) {
+    initialized = supported = enabled = true;
+  }
+
+  @override
+  void checkIfDue() {}
 }

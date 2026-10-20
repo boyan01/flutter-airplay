@@ -423,6 +423,8 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                               onToggle: _toggleReceiver,
                               onSettings: _settings,
                               onLogs: _logs,
+                              updates: widget.updates,
+                              onOpenUpdate: _openUpdate,
                             ),
                     ),
                   ],
