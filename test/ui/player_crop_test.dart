@@ -243,17 +243,27 @@ void main() {
             native: platform == 'macos',
             initialCrop: crop,
           );
-          await edit(tester);
           final mouse = await tester.createGesture(
             kind: PointerDeviceKind.mouse,
           );
           addTearDown(mouse.removePointer);
+          // Open the editor with the mouse, which leaves the pointer over the
+          // toolbar as it disappears.
+          await mouse.addPointer(location: const Offset(400, 300));
+          await mouse.moveTo(const Offset(401, 300));
+          await tester.pumpAndSettle();
+          final entry = tester.getCenter(find.byKey(const Key('cropVideo')));
+          await mouse.moveTo(entry);
+          await mouse.down(entry);
+          await mouse.up();
+          await tester.pumpAndSettle();
+          expect(find.byType(VideoCropEditor), findsOneWidget);
           final location = exit == 'rotation'
               ? const Offset(400, 300)
               : tester.getCenter(
                   find.text(exit == 'apply' ? 'Apply crop' : 'Cancel'),
                 );
-          await mouse.addPointer(location: location);
+          await mouse.moveTo(location);
           if (exit == 'rotation') {
             frame(backend, 1080, 1920);
           } else {

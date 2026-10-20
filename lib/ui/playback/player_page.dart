@@ -76,6 +76,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _initialCrop = widget.model.videoCrop;
       _editingCrop = true;
       _visible = false;
+      // The toolbar leaves the tree without reporting a pointer exit.
+      _interacting = false;
       _editingAspect = widget.model.videoWidth / widget.model.videoHeight;
       _confirmBack = false;
     });
