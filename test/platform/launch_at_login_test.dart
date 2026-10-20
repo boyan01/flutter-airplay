@@ -1,3 +1,8 @@
+// Linux autostart entries use POSIX paths and permissions, including file
+// names that Windows does not allow.
+@TestOn('!windows')
+library;
+
 import 'dart:io';
 
 import 'package:flutter_airplay/platform/launch_at_login.dart';
