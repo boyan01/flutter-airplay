@@ -25,7 +25,7 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = providers.gradleProperty("airplay.ndkVersion").get()
 
-    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/licenseAssets").get().asFile)
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/sharedAssets").get().asFile)
     sourceSets.getByName("main").java.srcDir("../../native/backends/android/java")
 
     compileOptions {
@@ -86,9 +86,12 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-val copySharedLicenses by tasks.registering(Sync::class) {
-    from(rootProject.projectDir.parentFile.resolve("assets/licenses"))
-    into(layout.buildDirectory.dir("generated/licenseAssets/licenses"))
+val copySharedAssets by tasks.registering(Sync::class) {
+    from(rootProject.projectDir.parentFile.resolve("assets/licenses")) {
+        into("licenses")
+    }
+    from(layout.projectDirectory.file("src/main/res/drawable-xhdpi/tv_banner.png"))
+    into(layout.buildDirectory.dir("generated/sharedAssets"))
 }
 
 val prepareNativePlayer by tasks.registering(Exec::class) {
@@ -100,5 +103,5 @@ val prepareNativePlayer by tasks.registering(Exec::class) {
 
 // Run before JNI merge tasks, including their input snapshots, in every variant.
 tasks.named("preBuild") {
-    dependsOn(prepareNativePlayer, copySharedLicenses)
+    dependsOn(prepareNativePlayer, copySharedAssets)
 }

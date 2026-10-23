@@ -46,6 +46,8 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- TCL/Thunderbird launchers read a banner from the APK assets. -->
+            <meta-data android:name="beidouui_icon" android:value="tv_banner.png" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

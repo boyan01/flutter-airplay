@@ -15,6 +15,8 @@ Android、macOS、Windows、Linux 和 iPhone／iPad 共用象牙白色的屏幕�
 - Android：`android/app/src/main/res/mipmap-*/`，五种密度的传统图标，
   以及 108 dp 的透明前景和单色前景。符号宽度为 54 dp，位于 66 dp 安全区域内。
 - Android TV：`android/app/src/main/res/drawable-xhdpi/tv_banner.png`，320 × 180 px。
+  构建时将同一张横幅复制到 APK assets，通过启动 Activity 的 `beidouui_icon` 声明，
+  让 TCL／雷鸟桌面也能显示完整横幅。
 - iPhone／iPad：`ios/Runner/Assets.xcassets/AppIcon.appiconset/`，按现有
   `Contents.json` 导出全部尺寸，包括 iPad 的 76、152、167 px 图标和 1024 px
   商店图标。背景完全不透明，系统负责圆角裁切。
