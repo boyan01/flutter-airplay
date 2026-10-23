@@ -39,6 +39,18 @@ class _ExitWindow extends WindowController {
   }
 }
 
+// TV groups every setting; the other layouts fold some under Advanced.
+Future<void> expandAdvanced(WidgetTester tester, {required bool tv}) async {
+  final advanced = find.byKey(const Key('advancedSettings'));
+  if (tv) {
+    expect(advanced, findsNothing);
+    return;
+  }
+  await tester.ensureVisible(advanced);
+  await tester.tap(advanced);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   Future<FakeReceiver> launch(
     WidgetTester tester, {
@@ -560,9 +572,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-      await tester.tap(find.byKey(const Key('advancedSettings')));
-      await tester.pumpAndSettle();
+      await expandAdvanced(tester, tv: target == 'tv');
       final entry = find.byKey(const Key('playbackBuffer'));
       await tester.ensureVisible(entry);
       expect(
@@ -624,13 +634,11 @@ void main() {
           tester,
           platform: target == 'tv' ? 'android' : target,
           tv: target == 'tv',
-          size: const Size(390, 800),
+          size: target == 'tv' ? const Size(960, 540) : const Size(390, 800),
         );
         await tester.tap(find.byKey(const Key('openSettings')));
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-        await tester.tap(find.byKey(const Key('advancedSettings')));
-        await tester.pumpAndSettle();
+        await expandAdvanced(tester, tv: target == 'tv');
         final toggle = find.byKey(const Key('showPlaybackStats'));
         await tester.ensureVisible(toggle);
         backend.saveFailure = 'Could not save overlay';
@@ -749,9 +757,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-      await tester.tap(find.byKey(const Key('advancedSettings')));
-      await tester.pumpAndSettle();
+      await expandAdvanced(tester, tv: target == 'tv');
       final toggle = find.byKey(const Key('fastPairing'));
       await tester.ensureVisible(toggle);
       expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
@@ -879,8 +885,13 @@ void main() {
       final left = tester
           .getTopLeft(find.descendant(of: name, matching: find.text('设备名')))
           .dx;
+      // macOS shows Settings as a panel above the home page.
+      Finder setting(String text) => find.descendant(
+        of: find.byType(SettingsPage),
+        matching: find.text(text),
+      );
       for (final text in ['打开应用时自动接收', '投屏清晰度']) {
-        expect(tester.getTopLeft(find.text(text)).dx, closeTo(left, 0.1));
+        expect(tester.getTopLeft(setting(text)).dx, closeTo(left, 0.1));
       }
       final ring = find.byKey(const Key('tvFocusRing'));
       final decoration =
@@ -911,8 +922,8 @@ void main() {
         closeTo(tester.getTopRight(qualityArrow).dx, 0.1),
       );
       if (platform == 'macos') {
-        for (final text in ['关闭窗口后保留在菜单栏', '收到投屏时显示窗口', '通用']) {
-          expect(tester.getTopLeft(find.text(text)).dx, closeTo(left, 0.1));
+        for (final text in ['关闭窗口后保留在菜单栏', '收到投屏时显示窗口', '接收']) {
+          expect(tester.getTopLeft(setting(text)).dx, closeTo(left, 0.1));
         }
       }
       expect(tester.takeException(), isNull);
@@ -968,9 +979,7 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-      await tester.tap(find.byKey(const Key('advancedSettings')));
-      await tester.pumpAndSettle();
+      await expandAdvanced(tester, tv: false);
       await tester.ensureVisible(find.byKey(const Key('audioOutput')));
       expectLeft(chinese ? '音频输出' : 'Audio output');
       await tester.tap(find.byKey(const Key('audioOutput')));
@@ -1377,7 +1386,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(backend.stops, 1);
       expect(backend.starts, 2);
-      expect(find.text('等待 iPhone 连接'), findsOneWidget);
+      expect(find.text('等待连接'), findsOneWidget);
     },
   );
 
@@ -1937,9 +1946,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-      await tester.tap(find.byKey(const Key('advancedSettings')));
-      await tester.pumpAndSettle();
+      await expandAdvanced(tester, tv: tv);
       await tester.ensureVisible(find.byKey(const Key('audioOutput')));
       await tester.tap(find.byKey(const Key('audioOutput')));
       await tester.pumpAndSettle();
@@ -2107,9 +2114,7 @@ void main() {
         );
         await tester.tap(find.byKey(const Key('openSettings')));
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.byKey(const Key('advancedSettings')));
-        await tester.tap(find.byKey(const Key('advancedSettings')));
-        await tester.pumpAndSettle();
+        await expandAdvanced(tester, tv: tv);
         final entry = find.byKey(const Key('playbackBuffer'));
         await tester.ensureVisible(entry);
         await tester.tap(entry);
@@ -2160,13 +2165,7 @@ void main() {
         await tester.tap(find.byKey(const Key('openSettings')));
         await tester.pumpAndSettle();
         if (page != 'settings') {
-          if (page == 'audio') {
-            await tester.ensureVisible(
-              find.byKey(const Key('advancedSettings')),
-            );
-            await tester.tap(find.byKey(const Key('advancedSettings')));
-            await tester.pumpAndSettle();
-          }
+          if (page == 'audio') await expandAdvanced(tester, tv: tv);
           final entry = switch (page) {
             'logs' => find.text('接收日志'),
             'audio' => find.byKey(const Key('audioOutput')),
@@ -2305,7 +2304,109 @@ void main() {
       });
     }
   }
-  testWidgets('TV D-pad reaches Disconnect after Continue and Crop', (
+  bool focusedIn(String key) {
+    final focus = FocusManager.instance.primaryFocus?.context;
+    return focus != null &&
+        find
+            .descendant(
+              of: find.byKey(Key(key)),
+              matching: find.byElementPredicate((e) => e == focus),
+              matchRoot: true,
+            )
+            .evaluate()
+            .isNotEmpty;
+  }
+
+  testWidgets('TV home picture card saves for the next connection', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(focusedIn('homeLatency'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(focusedIn('homeQuality'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('picturePanel')), findsOneWidget);
+    expect(focusedIn('pictureQualityauto'), isTrue);
+    // Selecting the current choice changes nothing.
+    final saves = backend.saves;
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.saves, saves);
+    await tester.tap(find.byKey(const Key('pictureQuality720')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('pictureLatency40')));
+    await tester.tap(find.byKey(const Key('pictureLatency40')));
+    await tester.pumpAndSettle();
+    expect(backend.savedVideoQuality, '720');
+    expect(backend.savedPlaybackBufferMs, 40);
+    // Waiting receivers apply at once, so there is nothing to reconnect.
+    expect(find.byKey(const Key('pictureApplyHint')), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('picturePanel')), findsNothing);
+    expect(focusedIn('homeQuality'), isTrue);
+    expect(find.text('流畅 · 720p'), findsOneWidget);
+    expect(find.text('低延迟，适合操作桌面'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TV playback picture panel reconnects to apply changes', (
+    tester,
+  ) async {
+    final backend = await launch(
+      tester,
+      platform: 'android',
+      tv: true,
+      size: const Size(960, 540),
+    );
+    frame(backend);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 2; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+    }
+    expect(focusedIn('pictureOptions'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(focusedIn('pictureQualityauto'), isTrue);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('picturePanel')), findsNothing);
+    expect(find.byKey(const Key('playerControls')), findsOneWidget);
+    expect(focusedIn('pictureOptions'), isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pictureApplyHint')), findsNothing);
+    await tester.ensureVisible(find.byKey(const Key('pictureLatency150')));
+    await tester.tap(find.byKey(const Key('pictureLatency150')));
+    await tester.pumpAndSettle();
+    expect(backend.savedPlaybackBufferMs, 150);
+    expect(find.text('重新投屏后生效'), findsOneWidget);
+    // The panel stays open over the video until the user leaves.
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('picturePanel')), findsOneWidget);
+    expect(backend.stops, 0);
+    await tester.tap(find.byKey(const Key('pictureReconnect')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('picturePanel')), findsNothing);
+    expect(backend.stops, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('TV D-pad reaches Disconnect after Continue, Crop and Picture', (
     tester,
   ) async {
     final backend = await launch(
@@ -2335,6 +2436,9 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pumpAndSettle();
     expect(focused('cropVideo'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(focused('pictureOptions'), isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pumpAndSettle();
     expect(focused('disconnect'), isTrue);

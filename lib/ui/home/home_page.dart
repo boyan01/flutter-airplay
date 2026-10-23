@@ -6,6 +6,8 @@ import '../../receiver/receiver_model.dart';
 import '../widgets/app_update_indicator.dart';
 import '../widgets/app_update_strings.dart';
 import '../widgets/receiver_strings.dart';
+import '../settings/picture_panel.dart';
+import '../settings/settings_labels.dart';
 import '../tv_focus.dart';
 
 class HomePage extends StatelessWidget {
@@ -18,6 +20,7 @@ class HomePage extends StatelessWidget {
     required this.onLogs,
     this.updates,
     this.onOpenUpdate,
+    this.onPicture,
   });
   final ReceiverModel model;
   final FocusNode actionFocus;
@@ -26,6 +29,8 @@ class HomePage extends StatelessWidget {
   final AppUpdates? updates;
   final VoidCallback? onOpenUpdate;
   final Future<void> Function({bool editName}) onSettings;
+  // TV only: opens the picture panel for the next connection.
+  final VoidCallback? onPicture;
   bool get error => model.status == 'error' || model.commandError != null;
   bool get transitioning =>
       !model.loaded ||
@@ -478,92 +483,161 @@ class HomePage extends StatelessWidget {
     ],
   );
 
-  Widget _television(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) => SingleChildScrollView(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: constraints.maxHeight),
-        child: Padding(
-          padding: const EdgeInsets.all(48),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.airplay_rounded,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 28),
-                  Expanded(child: _identity(context)),
-                ],
+  Widget _pictureCard(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    Widget row(String key, String title, String value) => TvFocus(
+      child: ListTile(
+        key: Key(key),
+        title: Text(title),
+        subtitle: Text(value),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onPicture,
+      ),
+    );
+    return Material(
+      key: const Key('homePicture'),
+      color: colors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text(
+                l10n(context).picture,
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 28),
-              Text(
-                l10n(context).tvHeading,
-                style: const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w500,
-                ),
+            ),
+            if (model.supportsVideoQuality)
+              row(
+                'homeQuality',
+                l10n(context).videoQuality,
+                qualityLabel(context, model.videoQuality),
               ),
-              const SizedBox(height: 20),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: error ? _errorCard(context) : _instructions(context),
-              ),
-              SizedBox(
-                height: (constraints.maxHeight - 440).clamp(24, 160).toDouble(),
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 12,
-                      children: [
-                        if (model.canStart) TvFocus(child: _start(context)),
-                        if (awaitingFrame)
-                          TvFocus(child: _disconnect(context, outlined: true)),
-                        TvFocus(
-                          child: OutlinedButton.icon(
-                            key: const Key('openSettings'),
-                            focusNode: model.canStart || awaitingFrame
-                                ? null
-                                : actionFocus,
-                            onPressed: () => onSettings(),
-                            icon: const Icon(Icons.settings_outlined),
-                            label: Text(l10n(context).settings),
-                          ),
-                        ),
-                        TvFocus(
-                          child: OutlinedButton.icon(
-                            key: const Key('openLogs'),
-                            onPressed: onLogs,
-                            icon: const Icon(Icons.receipt_long_outlined),
-                            label: Text(l10n(context).logsShort),
-                          ),
-                        ),
-                        // Last, so its arrival keeps the other actions' focus.
-                        if (_showUpdate)
-                          TvFocus(
-                            child: OutlinedButton.icon(
-                              key: const Key('homeUpdate'),
-                              onPressed: onOpenUpdate,
-                              icon: const Icon(Icons.system_update_alt),
-                              label: Text(
-                                updateStatusLabel(l10n(context), updates!),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            row(
+              'homeLatency',
+              l10n(context).latency,
+              latencyLabel(context, model),
+            ),
+          ],
         ),
       ),
-    ),
+    );
+  }
+
+  Widget _television(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final card = onPicture == null ? null : _pictureCard(context);
+      final columns =
+          card != null &&
+          constraints.maxWidth >=
+              840 * MediaQuery.textScalerOf(context).scale(1);
+      final guide = error ? _errorCard(context) : _instructions(context);
+      // Actions stay on screen; larger text scrolls the content above them.
+      return Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.airplay_rounded,
+                          size: 64,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 28),
+                        Expanded(child: _identity(context)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      l10n(context).tvHeading,
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (columns)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: guide),
+                          const SizedBox(width: 48),
+                          SizedBox(width: 380, child: card),
+                        ],
+                      )
+                    else ...[
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 760),
+                        child: guide,
+                      ),
+                      if (card != null) ...[
+                        const SizedBox(height: 28),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: card,
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                if (model.canStart) TvFocus(child: _start(context)),
+                if (awaitingFrame)
+                  TvFocus(child: _disconnect(context, outlined: true)),
+                TvFocus(
+                  child: OutlinedButton.icon(
+                    key: const Key('openSettings'),
+                    focusNode: model.canStart || awaitingFrame
+                        ? null
+                        : actionFocus,
+                    onPressed: () => onSettings(),
+                    icon: const Icon(Icons.settings_outlined),
+                    label: Text(l10n(context).settings),
+                  ),
+                ),
+                TvFocus(
+                  child: OutlinedButton.icon(
+                    key: const Key('openLogs'),
+                    onPressed: onLogs,
+                    icon: const Icon(Icons.receipt_long_outlined),
+                    label: Text(l10n(context).logsShort),
+                  ),
+                ),
+                // Last, so its arrival keeps the other actions' focus.
+                if (_showUpdate)
+                  TvFocus(
+                    child: OutlinedButton.icon(
+                      key: const Key('homeUpdate'),
+                      onPressed: onOpenUpdate,
+                      icon: const Icon(Icons.system_update_alt),
+                      label: Text(updateStatusLabel(l10n(context), updates!)),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+    },
   );
 }

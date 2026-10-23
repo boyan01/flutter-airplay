@@ -82,7 +82,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get reconnectHelp => '如果长时间无画面，请在 iPhone 上重新选择。';
 
   @override
-  String get sameWifiTv => 'iPhone 与电视连接同一 Wi-Fi';
+  String get sameWifiTv => '设备与电视连接同一 Wi-Fi';
 
   @override
   String get sameWifi => 'iPhone 与本机连接同一 Wi-Fi';
@@ -100,7 +100,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get rename => '修改设备名';
 
   @override
-  String get tvHeading => '用 iPhone 投屏到这台电视';
+  String get tvHeading => '用 iPhone、iPad 或 Mac 投屏到这台电视';
 
   @override
   String get logsShort => '日志';
@@ -177,6 +177,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playbackBufferSmooth => '更流畅，适合看视频';
 
   @override
+  String get picture => '画面';
+
+  @override
+  String get latency => '延迟';
+
+  @override
+  String get latencyStandard => '标准';
+
+  @override
+  String get pictureApplyAfterReconnect => '重新投屏后生效';
+
+  @override
+  String get pictureReconnect => '断开，稍后重新投屏';
+
+  @override
+  String get receiving => '接收';
+
+  @override
+  String get sound => '声音';
+
+  @override
   String get settingsApplyHelp => '等待连接时自动生效；已有连接时，结束后自动生效。';
 
   @override
@@ -236,7 +257,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get discoverable => '等待 iPhone 连接';
+  String get discoverable => '等待连接';
 
   @override
   String get openControlCenter => '打开 iPhone 控制中心';

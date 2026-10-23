@@ -30,6 +30,7 @@ class PlayerPage extends StatefulWidget {
     this.onCropEditingChanged,
     this.controlsInteraction,
     this.onWindowAction,
+    this.onPicture,
     this.window = const WindowController(),
   });
   final WindowController window;
@@ -40,6 +41,7 @@ class PlayerPage extends StatefulWidget {
   final ValueListenable<bool>? controlsInteraction;
   final ValueChanged<bool>? onControlsVisibility;
   final ValueChanged<bool>? onCropEditingChanged;
+  final Future<void> Function()? onPicture;
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
@@ -49,7 +51,7 @@ class _PlayerPageState extends State<PlayerPage> {
   final _continueFocus = FocusNode(debugLabel: 'Continue watching');
   Timer? _timer, _backTimer;
   bool _visible = false, _confirmBack = false, _interacting = false;
-  bool _windowMenuOpen = false;
+  bool _windowMenuOpen = false, _pictureOpen = false;
   bool _editingCrop = false;
   Rect? _previewCrop;
   final _cropEntryFocus = FocusNode(debugLabel: 'Crop video');
@@ -108,6 +110,18 @@ class _PlayerPageState extends State<PlayerPage> {
         _cropEntryFocus.requestFocus();
       }
     });
+  }
+
+  // Controls stay up behind the panel, so closing it returns to its button.
+  Future<void> _openPicture() async {
+    _pictureOpen = true;
+    _timer?.cancel();
+    try {
+      await widget.onPicture!();
+    } finally {
+      _pictureOpen = false;
+      if (mounted) _scheduleHide();
+    }
   }
 
   void _schedulePresentation() {
@@ -176,6 +190,7 @@ class _PlayerPageState extends State<PlayerPage> {
       (widget.controlsInteraction?.value ?? false) ||
       _interacting ||
       _windowMenuOpen ||
+      _pictureOpen ||
       _editingCrop;
   bool get tv => widget.model.isTelevision;
   bool get mobile => widget.model.isMobile;
@@ -503,6 +518,13 @@ class _PlayerPageState extends State<PlayerPage> {
                     _editCrop,
                     focusNode: _cropEntryFocus,
                   ),
+                  if (widget.onPicture != null)
+                    action(
+                      'pictureOptions',
+                      strings.picture,
+                      Icons.tune_rounded,
+                      _openPicture,
+                    ),
                   if (!mobile)
                     action(
                       'playerFullscreen',

@@ -275,7 +275,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onGenerated: _save,
             onSubmitted: _save,
           ),
-        const SizedBox(height: 12),
+        if (!tv) const SizedBox(height: 12),
         if (tv)
           TvFocus(
             child: SwitchListTile(
@@ -377,6 +377,81 @@ class _SettingsPageState extends State<SettingsPage> {
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
       ];
+      final bufferTile = TvFocus(
+        child: ListTile(
+          key: const Key('playbackBuffer'),
+          focusNode: _playbackBufferFocus,
+          contentPadding:
+              ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
+          title: Text(l10n(context).playbackBuffer),
+          subtitle: Text(_bufferLabel(context, model.playbackBufferMs)),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: model.editable ? _editPlaybackBuffer : null,
+        ),
+      );
+      final fastPairingTile = TvFocus(
+        child: SwitchListTile(
+          key: const Key('fastPairing'),
+          contentPadding:
+              ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
+          title: Text(l10n(context).fastPairing),
+          subtitle: Text(l10n(context).fastPairingHelp),
+          value: model.fastPairing,
+          onChanged: model.editable
+              ? (value) async {
+                  await _save();
+                  if (!mounted) return;
+                  await model.save(model.name, model.path, fastPairing: value);
+                }
+              : null,
+        ),
+      );
+      final statsTile = TvFocus(
+        child: SwitchListTile(
+          key: const Key('showPlaybackStats'),
+          contentPadding:
+              ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
+          title: Text(l10n(context).showPlaybackStats),
+          subtitle: Text(l10n(context).showPlaybackStatsHelp),
+          value: model.showPlaybackStats,
+          onChanged: model.editable
+              ? (value) async {
+                  await _save();
+                  if (!mounted) return;
+                  await model.save(
+                    model.name,
+                    model.path,
+                    showPlaybackStats: value,
+                  );
+                }
+              : null,
+        ),
+      );
+      final audioTile = TvFocus(
+        child: ListTile(
+          key: const Key('audioOutput'),
+          contentPadding:
+              ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
+          focusNode: _audioOutputFocus,
+          title: Text(l10n(context).audioOutput),
+          subtitle: Text(audioOutputLabel(context, model.audioOutput)),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: model.editable
+              ? () async {
+                  await _save();
+                  if (!context.mounted) return;
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => AudioOutputPage(model: model),
+                    ),
+                  );
+                  if (mounted && model.isTelevision) {
+                    _audioOutputFocus.requestFocus();
+                  }
+                }
+              : null,
+        ),
+      );
       final advancedEntries = <Widget>[
         ExpansionTile(
           key: const Key('advancedSettings'),
@@ -385,87 +460,10 @@ class _SettingsPageState extends State<SettingsPage> {
               ? const EdgeInsets.symmetric(horizontal: 16)
               : EdgeInsets.zero,
           children: [
-            TvFocus(
-              child: ListTile(
-                key: const Key('playbackBuffer'),
-                focusNode: _playbackBufferFocus,
-                contentPadding:
-                    ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
-                title: Text(l10n(context).playbackBuffer),
-                subtitle: Text(_bufferLabel(context, model.playbackBufferMs)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: model.editable ? _editPlaybackBuffer : null,
-              ),
-            ),
-            TvFocus(
-              child: SwitchListTile(
-                key: const Key('fastPairing'),
-                contentPadding:
-                    ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
-                title: Text(l10n(context).fastPairing),
-                subtitle: Text(l10n(context).fastPairingHelp),
-                value: model.fastPairing,
-                onChanged: model.editable
-                    ? (value) async {
-                        await _save();
-                        if (!mounted) return;
-                        await model.save(
-                          model.name,
-                          model.path,
-                          fastPairing: value,
-                        );
-                      }
-                    : null,
-              ),
-            ),
-            TvFocus(
-              child: SwitchListTile(
-                key: const Key('showPlaybackStats'),
-                contentPadding:
-                    ListTileTheme.of(context).contentPadding ?? EdgeInsets.zero,
-                title: Text(l10n(context).showPlaybackStats),
-                subtitle: Text(l10n(context).showPlaybackStatsHelp),
-                value: model.showPlaybackStats,
-                onChanged: model.editable
-                    ? (value) async {
-                        await _save();
-                        if (!mounted) return;
-                        await model.save(
-                          model.name,
-                          model.path,
-                          showPlaybackStats: value,
-                        );
-                      }
-                    : null,
-              ),
-            ),
-            if (model.platform == 'android')
-              TvFocus(
-                child: ListTile(
-                  key: const Key('audioOutput'),
-                  contentPadding:
-                      ListTileTheme.of(context).contentPadding ??
-                      EdgeInsets.zero,
-                  focusNode: _audioOutputFocus,
-                  title: Text(l10n(context).audioOutput),
-                  subtitle: Text(audioOutputLabel(context, model.audioOutput)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: model.editable
-                      ? () async {
-                          await _save();
-                          if (!context.mounted) return;
-                          await Navigator.of(context).push<void>(
-                            MaterialPageRoute(
-                              builder: (_) => AudioOutputPage(model: model),
-                            ),
-                          );
-                          if (mounted && model.isTelevision) {
-                            _audioOutputFocus.requestFocus();
-                          }
-                        }
-                      : null,
-                ),
-              ),
+            bufferTile,
+            fastPairingTile,
+            statsTile,
+            if (model.platform == 'android') audioTile,
             if (model.supportsExecutablePath) ...[
               TextField(
                 key: const Key('receiverPath'),
@@ -540,7 +538,21 @@ class _SettingsPageState extends State<SettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (desktop) ...[
+          // TV has room for every setting; group them instead of folding some away.
+          if (tv) ...[
+            _settingsGroup(context, l10n(context).receiving, [
+              ...generalEntries,
+              fastPairingTile,
+              ...systemEntries,
+            ]),
+            _settingsGroup(context, l10n(context).picture, [
+              ...playbackEntries,
+              bufferTile,
+              statsTile,
+            ]),
+            if (model.platform == 'android')
+              _settingsGroup(context, l10n(context).sound, [audioTile]),
+          ] else if (desktop) ...[
             _settingsGroup(context, l10n(context).general, generalEntries),
             _settingsGroup(context, l10n(context).playback, playbackEntries),
             if (advancedEntries.isNotEmpty)
@@ -560,7 +572,7 @@ class _SettingsPageState extends State<SettingsPage> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
-          if (!desktop) ...advancedEntries,
+          if (!desktop && !tv) ...advancedEntries,
           if (model.commandError != null)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
@@ -569,7 +581,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          if (desktop)
+          if (desktop || tv)
             _settingsGroup(context, l10n(context).about, aboutEntries)
           else
             ...aboutEntries,
@@ -624,7 +636,16 @@ class _SettingsPageState extends State<SettingsPage> {
                     Expanded(
                       child: SingleChildScrollView(
                         padding: EdgeInsets.all(tv ? 48 : 24),
-                        child: entries,
+                        child: tv
+                            ? Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 760,
+                                  ),
+                                  child: entries,
+                                ),
+                              )
+                            : entries,
                       ),
                     ),
                   ],

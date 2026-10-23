@@ -16,6 +16,7 @@ import 'widgets/receiver_strings.dart';
 import 'home/home_page.dart';
 import 'playback/audio_page.dart';
 import 'playback/player_page.dart';
+import 'settings/picture_panel.dart';
 import 'settings/settings_page.dart';
 import 'logs/logs_page.dart';
 import 'updates/app_update_dialog.dart';
@@ -53,7 +54,7 @@ class ReceiverScreen extends StatefulWidget {
 class _ReceiverScreenState extends State<ReceiverScreen> {
   WindowController get _window => widget.window;
   final _homeFocus = FocusNode(debugLabel: 'Home action');
-  bool _dialogOpen = false, _updateDialogOpen = false;
+  bool _dialogOpen = false, _updateDialogOpen = false, _pictureOpen = false;
   late final DesktopPresentation _desktop;
   bool _playing = false;
   String _orientationMode = '';
@@ -304,7 +305,11 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   void _restoreFocus() {
-    if (mounted && !_dialogOpen && !_updateDialogOpen && !model.hasVideo) {
+    if (mounted &&
+        !_dialogOpen &&
+        !_updateDialogOpen &&
+        !_pictureOpen &&
+        !model.hasVideo) {
       _homeFocus.requestFocus();
     }
   }
@@ -406,6 +411,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                 dialogOpen: _dialogOpen || _updateDialogOpen,
                 controlsInteraction: widget.controlsInteraction,
                 onControlsVisibility: widget.onControlsVisibility,
+                onPicture: model.isTelevision ? _picture : null,
               )
             : SafeArea(
                 child: Column(
@@ -425,6 +431,7 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
                               onLogs: _logs,
                               updates: widget.updates,
                               onOpenUpdate: _openUpdate,
+                              onPicture: model.isTelevision ? _picture : null,
                             ),
                     ),
                   ],
@@ -464,8 +471,26 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     }
   }
 
+  // The panel keeps the page behind it, so its route restores that focus.
+  Future<void> _picture() async {
+    if (_dialogOpen || _updateDialogOpen || _pictureOpen || !model.loaded) {
+      return;
+    }
+    final playing = model.hasVideo;
+    _pictureOpen = true;
+    try {
+      await showPicturePanel(context, model);
+    } finally {
+      _pictureOpen = false;
+      // Opened over the player, but closed after it ended.
+      if (mounted && playing != model.hasVideo) _restoreFocus();
+    }
+  }
+
   Future<void> _settings({bool editName = false}) async {
-    if (_dialogOpen || _updateDialogOpen || !model.loaded) return;
+    if (_dialogOpen || _updateDialogOpen || _pictureOpen || !model.loaded) {
+      return;
+    }
     setState(() => _dialogOpen = true);
     widget.onDialogVisibility?.call(true);
     var openLogs = false;

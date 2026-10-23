@@ -245,7 +245,7 @@ abstract class AppLocalizations {
   /// No description provided for @sameWifiTv.
   ///
   /// In en, this message translates to:
-  /// **'Connect iPhone and TV to the same Wi-Fi'**
+  /// **'Connect your device and TV to the same Wi-Fi'**
   String get sameWifiTv;
 
   /// No description provided for @sameWifi.
@@ -281,7 +281,7 @@ abstract class AppLocalizations {
   /// No description provided for @tvHeading.
   ///
   /// In en, this message translates to:
-  /// **'Mirror your iPhone to this TV'**
+  /// **'Mirror an iPhone, iPad or Mac to this TV'**
   String get tvHeading;
 
   /// No description provided for @logsShort.
@@ -422,6 +422,48 @@ abstract class AppLocalizations {
   /// **'Smoother, for watching video'**
   String get playbackBufferSmooth;
 
+  /// No description provided for @picture.
+  ///
+  /// In en, this message translates to:
+  /// **'Picture'**
+  String get picture;
+
+  /// No description provided for @latency.
+  ///
+  /// In en, this message translates to:
+  /// **'Latency'**
+  String get latency;
+
+  /// No description provided for @latencyStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'Standard'**
+  String get latencyStandard;
+
+  /// No description provided for @pictureApplyAfterReconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Takes effect after you mirror again'**
+  String get pictureApplyAfterReconnect;
+
+  /// No description provided for @pictureReconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect, then mirror again'**
+  String get pictureReconnect;
+
+  /// No description provided for @receiving.
+  ///
+  /// In en, this message translates to:
+  /// **'Receiving'**
+  String get receiving;
+
+  /// No description provided for @sound.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound'**
+  String get sound;
+
   /// No description provided for @settingsApplyHelp.
   ///
   /// In en, this message translates to:
@@ -539,7 +581,7 @@ abstract class AppLocalizations {
   /// No description provided for @discoverable.
   ///
   /// In en, this message translates to:
-  /// **'Waiting for iPhone'**
+  /// **'Waiting for a connection'**
   String get discoverable;
 
   /// No description provided for @openControlCenter.

@@ -84,7 +84,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'If no picture appears, select this receiver again on your iPhone.';
 
   @override
-  String get sameWifiTv => 'Connect iPhone and TV to the same Wi-Fi';
+  String get sameWifiTv => 'Connect your device and TV to the same Wi-Fi';
 
   @override
   String get sameWifi => 'Connect iPhone and this device to the same Wi-Fi';
@@ -102,7 +102,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get rename => 'Rename device';
 
   @override
-  String get tvHeading => 'Mirror your iPhone to this TV';
+  String get tvHeading => 'Mirror an iPhone, iPad or Mac to this TV';
 
   @override
   String get logsShort => 'Logs';
@@ -179,6 +179,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get playbackBufferSmooth => 'Smoother, for watching video';
 
   @override
+  String get picture => 'Picture';
+
+  @override
+  String get latency => 'Latency';
+
+  @override
+  String get latencyStandard => 'Standard';
+
+  @override
+  String get pictureApplyAfterReconnect =>
+      'Takes effect after you mirror again';
+
+  @override
+  String get pictureReconnect => 'Disconnect, then mirror again';
+
+  @override
+  String get receiving => 'Receiving';
+
+  @override
+  String get sound => 'Sound';
+
+  @override
   String get settingsApplyHelp =>
       'Applies automatically while waiting, or after the current connection ends.';
 
@@ -241,7 +263,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get discoverable => 'Waiting for iPhone';
+  String get discoverable => 'Waiting for a connection';
 
   @override
   String get openControlCenter => 'Open iPhone Control Center';
