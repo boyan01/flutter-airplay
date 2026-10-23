@@ -150,7 +150,8 @@ class PlaybackHost(private val context: Context, private val emit: (Map<String, 
             "physical=${mode?.physicalWidth}x${mode?.physicalHeight}, " +
             "framework=${frameworkMode?.physicalWidth}x${frameworkMode?.physicalHeight}, " +
             "app=${metrics.widthPixels}x${metrics.heightPixels}, density=${metrics.density}, " +
-            "refreshHz=${display?.refreshRate}, rotation=${display?.rotation}")
+            "refreshHz=${display?.refreshRate}, rotation=${display?.rotation}, " +
+            "minimalPostProcessing=${if (Build.VERSION.SDK_INT >= 30) display?.isMinimalPostProcessingSupported else "unavailable"}")
         diagnostic("Display modes: ${modes?.joinToString { "${it.toMode()?.modeId}:${it.physicalWidth}x${it.physicalHeight}@${it.toMode()?.refreshRate}" }}")
         diagnostic("Build: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TIME}")
     }

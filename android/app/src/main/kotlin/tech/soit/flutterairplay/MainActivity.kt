@@ -171,13 +171,15 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
                     return@setMethodCallHandler
                 }
                 if (call.method != "setPlaybackOrientation") { result.notImplemented(); return@setMethodCallHandler }
-                updateOrientation(call.argument<Int>("width") ?: 0,
+                updatePlaybackWindow(call.argument<Int>("width") ?: 0,
                     call.argument<Int>("height") ?: 0, call.argument<Boolean>("playing") == true)
                 result.success(null)
             }
         }
     }
-    private fun updateOrientation(width: Int, height: Int, playing: Boolean) {
+    private fun updatePlaybackWindow(width: Int, height: Int, playing: Boolean) {
+        // Ask the display for its low-latency (game) mode only while mirroring.
+        if (Build.VERSION.SDK_INT >= 30) window.setPreferMinimalPostProcessing(playing)
         val television = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
             .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         if (!television) {
@@ -199,7 +201,7 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
         bridge?.snapshot()?.let {
             val width = (it["videoWidth"] as Number).toInt()
             val height = (it["videoHeight"] as Number).toInt()
-            updateOrientation(width, height, width > 0 && height > 0)
+            updatePlaybackWindow(width, height, width > 0 && height > 0)
         }
     }
     override fun onConfigurationChanged(newConfig: Configuration) {

@@ -20,6 +20,7 @@ public:
           fallback_(fallback ? fallback : ""), callbacks_(std::move(callbacks)) {
         if (!window_) throw std::runtime_error("Missing Android playback surface");
         ANativeWindow_acquire(window_);
+        vote_frame_rate(window_);
     }
     ~AndroidVideo() override { reset(); ANativeWindow_release(window_); }
     VideoScheduler::Stats stats() const override { return scheduler_.stats(); }
@@ -44,6 +45,7 @@ public:
         }
         ANativeWindow_release(window_);
         window_ = next;
+        vote_frame_rate(window_);
         callbacks_.log("Android video surface switched without decoder reset");
         return true;
     }
@@ -194,6 +196,20 @@ private:
         // Optional API 33 symbol: keep the shared library loadable on API 26-32.
         static auto setter = reinterpret_cast<SetFrameRendered>(dlsym(RTLD_DEFAULT, "AMediaCodec_setOnFrameRenderedCallback"));
         return setter;
+    }
+    // Mirroring requests 60 FPS. The default strategy only switches display
+    // modes seamlessly, so a 50 Hz panel never blanks mid-session.
+    void vote_frame_rate(ANativeWindow *window) {
+        using SetFrameRate = int32_t (*)(ANativeWindow *, float, int8_t);
+        // libnativewindow is not a direct dependency, so RTLD_DEFAULT cannot see it.
+        static auto setter = [] {
+            auto *library = dlopen("libnativewindow.so", RTLD_NOW);
+            return library ? reinterpret_cast<SetFrameRate>(dlsym(library, "ANativeWindow_setFrameRate")) : nullptr;
+        }();
+        if (!setter) return;
+        char message[96];
+        std::snprintf(message, sizeof(message), "Android surface frame rate vote: fps=60 status=%d", int(setter(window, 60.f, 0)));
+        callbacks_.log(message);
     }
     static void on_frame_rendered(AMediaCodec *, void *userdata, int64_t media_us, int64_t rendered_ns) {
         auto *self = static_cast<AndroidVideo *>(userdata);
