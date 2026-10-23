@@ -148,6 +148,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 key: Key('playbackBuffer$value'),
                 autofocus: value == model.playbackBufferMs,
                 title: Text(_bufferLabel(context, value)),
+                subtitle: switch (value) {
+                  40 => Text(l10n(context).playbackBufferLowLatency),
+                  150 => Text(l10n(context).playbackBufferSmooth),
+                  _ => null,
+                },
                 selected: value == model.playbackBufferMs,
                 trailing: Icon(
                   value == model.playbackBufferMs

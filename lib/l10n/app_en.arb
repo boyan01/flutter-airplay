@@ -65,7 +65,9 @@
       }
     }
   },
-  "playbackBufferHelp": "Lower values reduce delay but may cause stuttering or audio dropouts. Audio and video share this buffer. This is not the total mirroring delay.",
+  "playbackBufferHelp": "Lower values reduce picture delay but may stutter on an unstable network. On devices with slow audio output, sound may trail the picture slightly. This is not the total mirroring delay.",
+  "playbackBufferLowLatency": "Low latency, for desktop control",
+  "playbackBufferSmooth": "Smoother, for watching video",
   "settingsApplyHelp": "Applies automatically while waiting, or after the current connection ends.",
   "nameHelp": "Shown in iPhone Screen Mirroring",
   "confirm": "Confirm",

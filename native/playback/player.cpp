@@ -6,7 +6,7 @@ void AirplayPlayer::receive_video(const uint8_t* bytes, int size, int64_t local_
     if (p->closing || size < 5 || size > 4 * 1024 * 1024) return;
     const auto now = monotonic_ns();
     p->last_video_receive = now;
-    const auto due = p->timeline.deadline(local_pts ? int64_t(local_pts) : realtime_ns(), now);
+    const auto due = p->timeline.video(local_pts ? int64_t(local_pts) : realtime_ns(), now);
     if (due > now + 2 * kSecond) {
         if (p->video_timestamp_rejects.fetch_add(1) == 0)
             p->log("Rejected out-of-window video timestamp; see Playback pipeline video_timestamp_rejects_total");
@@ -27,16 +27,17 @@ void AirplayPlayer::receive_video(const uint8_t* bytes, int size, int64_t local_
     if (p->video_arrival_ns) p->video_gap_ns = std::max(p->video_gap_ns, now - p->video_arrival_ns);
     p->video_arrival_ns = now;
     ++p->video_received;
+    p->video_arrival_headroom.add(due - now);
     p->video_peak_queue = std::max(p->video_peak_queue, p->packets.size());
     if (now - p->video_report_ns >= 5 * kSecond) {
-        char message[256];
+        char message[512];
         std::snprintf(message, sizeof(message),
-            "Video receive stats: interval_ms=%lld packets=%llu max_arrival_gap_ms=%.1f queued=%zu peak_queued=%zu queued_bytes=%zu",
+            "Video receive stats: interval_ms=%lld packets=%llu max_arrival_gap_ms=%.1f queued=%zu peak_queued=%zu queued_bytes=%zu%s",
             static_cast<long long>((now - p->video_report_ns) / 1000000),
             static_cast<unsigned long long>(p->video_received), p->video_gap_ns / 1000000.0,
-            p->packets.size(), p->video_peak_queue, p->queued_bytes);
+            p->packets.size(), p->video_peak_queue, p->queued_bytes, p->video_arrival_headroom.text("arrival_headroom").c_str());
         p->log(message);
-        p->video_report_ns = now; p->video_received = 0; p->video_gap_ns = 0;
+        p->video_report_ns = now; p->video_received = 0; p->video_gap_ns = 0; p->video_arrival_headroom = {};
         p->video_peak_queue = p->packets.size();
     }
     p->wake.notify_all();
@@ -47,7 +48,7 @@ void AirplayPlayer::receive_audio(const uint8_t* bytes, int size, int ct, int64_
     ++p->audio_packets; p->audio_bytes.fetch_add(size);
     const auto now = monotonic_ns();
     p->last_audio_receive = now;
-    const auto due = p->timeline.deadline(p->audio_pts(int64_t(local_pts), rtp), now);
+    const auto due = p->timeline.audio(p->audio_pts(int64_t(local_pts), rtp), p->pcm->read_lead(), now);
     p->audio_lead_ms.store((due - now) / 1000000);
     if (due < now - kSecond || due > now + 2 * kSecond) { ++p->audio_timestamp_rejects; return; }
     const auto generation = p->pcm->generation();

@@ -39,31 +39,107 @@ inline int64_t host_time_to_monotonic(int64_t host_time, int64_t host_now, int64
     return now + (host_time - host_now);
 }
 
-// One session anchor for both media streams, including packets arriving audio-first.
+// One session clock for both media streams, including packets arriving audio-first.
+// The first packet only seeds the offset: its transit can be far slower than
+// steady state. Video then keeps the latest packet of each window `delay` ahead
+// of its deadline. Audio follows video unless the output device needs more lead;
+// it then plays late by the shortfall instead of dropping PCM.
 class Timeline {
 public:
+    static constexpr int64_t kVideoWindowNs = 2000000000, kVideoMaxStepNs = 50000000, kVideoToleranceNs = 5000000;
+    static constexpr int64_t kAudioWindowNs = 1000000000, kAudioMarginNs = 15000000, kAudioSlackNs = 10000000,
+        kAudioHysteresisNs = 20000000, kAudioMaxBehindNs = 500000000;
+    static constexpr uint64_t kMinWindowPackets = 10;
     explicit Timeline(int64_t delay = 80000000) : delay_(delay) {}
+    // Fixed mapping on the shared video clock; no adaptation.
     int64_t deadline(int64_t local_pts, int64_t now = monotonic_ns()) {
         std::lock_guard<std::mutex> guard(lock_);
-        if (!anchored_) { offset_ = now + delay_ - local_pts; anchored_ = true; }
+        anchor_locked(local_pts, now);
         return local_pts + offset_;
     }
-    void set_delay(int64_t delay) {
-        std::lock_guard<std::mutex> guard(lock_); delay_ = delay; anchored_ = false;
+    // Fixed mapping on the audio clock; no adaptation.
+    int64_t audio_deadline(int64_t local_pts, int64_t now = monotonic_ns()) {
+        std::lock_guard<std::mutex> guard(lock_);
+        anchor_locked(local_pts, now);
+        return local_pts + (audio_anchored_ ? audio_offset_ : offset_);
     }
-    void reset() { std::lock_guard<std::mutex> guard(lock_); anchored_ = false; }
+    int64_t video(int64_t local_pts, int64_t now = monotonic_ns()) {
+        std::lock_guard<std::mutex> guard(lock_);
+        anchor_locked(local_pts, now);
+        // Senders can repeat an old timestamp after an idle screen; it says nothing about transit.
+        if (local_pts <= last_video_pts_) return local_pts + offset_;
+        last_video_pts_ = local_pts;
+        if (!video_window_.add(local_pts + offset_ - now, now)) return local_pts + offset_;
+        const auto error = video_window_.min - delay_;
+        if (error > kVideoToleranceNs || error < -kVideoToleranceNs) {
+            const auto step = std::clamp<int64_t>(error / 2, -kVideoMaxStepNs, kVideoMaxStepNs);
+            offset_ -= step; ++video_adjustments_;
+        }
+        video_window_ = {};
+        return local_pts + offset_;
+    }
+    // output_lead is how far ahead of now the device consumes PCM.
+    int64_t audio(int64_t local_pts, int64_t output_lead, int64_t now = monotonic_ns()) {
+        std::lock_guard<std::mutex> guard(lock_);
+        anchor_locked(local_pts, now);
+        if (!audio_anchored_) { audio_offset_ = offset_; audio_anchored_ = true; }
+        const auto need = std::max<int64_t>(0, output_lead) + kAudioMarginNs;
+        const auto lead = local_pts + audio_offset_ - now;
+        if (lead < need) {
+            // Late PCM is dropped by the output; start later now rather than lose it.
+            const auto target = std::min(audio_offset_ + need - lead + kAudioSlackNs, offset_ + kAudioMaxBehindNs);
+            if (target > audio_offset_) move_audio_locked(target);
+        } else if (audio_window_.add(lead - need, now)) {
+            // Return toward video sync once the device lead allows it.
+            const auto target = std::clamp(audio_offset_ - audio_window_.min + kAudioSlackNs, offset_, offset_ + kAudioMaxBehindNs);
+            if (target > audio_offset_ + kAudioHysteresisNs || target < audio_offset_ - kAudioHysteresisNs)
+                move_audio_locked(target);
+            audio_window_ = {};
+        }
+        return local_pts + audio_offset_;
+    }
+    void set_delay(int64_t delay) {
+        std::lock_guard<std::mutex> guard(lock_); delay_ = delay; reset_locked();
+    }
+    void reset() { std::lock_guard<std::mutex> guard(lock_); reset_locked(); }
     std::string diagnostics() {
         std::lock_guard<std::mutex> guard(lock_);
-        char text[160];
-        std::snprintf(text, sizeof(text), "timeline_anchored=%d timeline_delay_ms=%.1f timeline_offset_ms=%.1f",
-            int(anchored_), delay_ / 1e6, anchored_ ? offset_ / 1e6 : 0);
+        char text[256];
+        std::snprintf(text, sizeof(text),
+            "timeline_anchored=%d timeline_delay_ms=%.1f timeline_offset_ms=%.1f video_adjustments=%llu audio_behind_video_ms=%.1f audio_adjustments=%llu",
+            int(anchored_), delay_ / 1e6, anchored_ ? offset_ / 1e6 : 0,
+            static_cast<unsigned long long>(video_adjustments_),
+            audio_anchored_ ? (audio_offset_ - offset_) / 1e6 : 0, static_cast<unsigned long long>(audio_adjustments_));
         return text;
     }
 private:
+    // Minimum over a window of at least kMinWindowPackets; add returns true when it closes.
+    struct Window {
+        int64_t start = 0, min = 0;
+        uint64_t count = 0;
+        bool add(int64_t value, int64_t now, int64_t length) {
+            if (!count++) { start = now; min = value; }
+            else min = std::min(min, value);
+            return count >= kMinWindowPackets && now - start >= length;
+        }
+    };
+    struct VideoWindow : Window { bool add(int64_t value, int64_t now) { return Window::add(value, now, kVideoWindowNs); } };
+    struct AudioWindow : Window { bool add(int64_t value, int64_t now) { return Window::add(value, now, kAudioWindowNs); } };
+    void anchor_locked(int64_t local_pts, int64_t now) {
+        if (!anchored_) { offset_ = now + delay_ - local_pts; anchored_ = true; }
+    }
+    void move_audio_locked(int64_t offset) { audio_offset_ = offset; ++audio_adjustments_; audio_window_ = {}; }
+    void reset_locked() {
+        anchored_ = audio_anchored_ = false; last_video_pts_ = INT64_MIN;
+        video_window_ = {}; audio_window_ = {}; video_adjustments_ = audio_adjustments_ = 0;
+    }
     std::mutex lock_;
     int64_t delay_;
-    bool anchored_ = false;
-    int64_t offset_ = 0;
+    bool anchored_ = false, audio_anchored_ = false;
+    int64_t offset_ = 0, audio_offset_ = 0, last_video_pts_ = INT64_MIN;
+    VideoWindow video_window_;
+    AudioWindow audio_window_;
+    uint64_t video_adjustments_ = 0, audio_adjustments_ = 0;
 };
 
 // Bounded SPSC PCM queue. Only the decoder writes; one output callback or writer reads.
@@ -81,6 +157,8 @@ public:
     uint64_t late_drops() const { return late_drops_.load(std::memory_order_relaxed); }
     uint64_t stale_drops() const { return stale_drops_.load(std::memory_order_relaxed); }
     float volume_db() const { return volume_db_.load(std::memory_order_relaxed); }
+    // How far ahead of a read its last frame is due. PCM must arrive at least this early.
+    int64_t read_lead() const { return read_lead_.load(std::memory_order_relaxed); }
     float gain() const {
         const auto db = volume_db();
         return db <= -144 ? 0.f : std::pow(10.f, db / 20.f);
@@ -94,13 +172,13 @@ public:
         const auto now = monotonic_ns(), written = last_write_.load(), pulled = last_pull_.load();
         char text[768];
         std::snprintf(text, sizeof(text),
-            "PCM queue: generation=%llu queued_frames=%llu queued_ms=%.1f capacity=%zu write_drop_total=%llu played_frames_total=%llu empty_silence_frames_total=%llu future_silence_frames_total=%llu late_drop_total=%llu stale_drop_total=%llu last_future_lead_ms=%.1f output_time_lead_ms=%.1f last_write_age_ms=%.1f last_pull_age_ms=%.1f gain=%.3f",
+            "PCM queue: generation=%llu queued_frames=%llu queued_ms=%.1f capacity=%zu write_drop_total=%llu played_frames_total=%llu empty_silence_frames_total=%llu future_silence_frames_total=%llu late_drop_total=%llu stale_drop_total=%llu last_future_lead_ms=%.1f output_time_lead_ms=%.1f read_lead_ms=%.1f last_write_age_ms=%.1f last_pull_age_ms=%.1f gain=%.3f",
             static_cast<unsigned long long>(generation()), static_cast<unsigned long long>(queued),
             double(queued) * 1000 / kSampleRate, capacity_,
             static_cast<unsigned long long>(write_drops_.load()), static_cast<unsigned long long>(played_.load()),
             static_cast<unsigned long long>(empty_.load()), static_cast<unsigned long long>(future_.load()),
             static_cast<unsigned long long>(late_drops()), static_cast<unsigned long long>(stale_drops()),
-            future_lead_.load() / 1e6, output_lead_.load() / 1e6,
+            future_lead_.load() / 1e6, output_lead_.load() / 1e6, read_lead_.load() / 1e6,
             written ? (now - written) / 1e6 : -1, pulled ? (now - pulled) / 1e6 : -1, gain());
         return text;
     }
@@ -154,6 +232,7 @@ public:
         if (future) future_lead_.store(future_lead, std::memory_order_relaxed);
         const auto now = monotonic_ns();
         output_lead_.store(output_time - now, std::memory_order_relaxed);
+        read_lead_.store(output_time + int64_t(count) * kSecond / kSampleRate - now, std::memory_order_relaxed);
         last_pull_.store(now, std::memory_order_relaxed);
     }
 private:
@@ -165,7 +244,7 @@ private:
     std::atomic<float> volume_db_{0};
     std::atomic<uint64_t> late_drops_{0}, stale_drops_{0};
     std::atomic<uint64_t> write_drops_{0}, played_{0}, empty_{0}, future_{0};
-    std::atomic<int64_t> last_write_{0}, last_pull_{0}, future_lead_{0}, output_lead_{0};
+    std::atomic<int64_t> last_write_{0}, last_pull_{0}, future_lead_{0}, output_lead_{0}, read_lead_{0};
 };
 #ifdef _MSC_VER
 #pragma warning(pop)

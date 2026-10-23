@@ -44,9 +44,71 @@ inline void check_audio_queue_diagnostics() {
     }
 }
 
+// Video packets every 1/60 s whose transit is `transit(i)`; returns the last arrival headroom.
+template<class Transit> int64_t feed_video(airplay::Timeline &timeline, int64_t &pts, int64_t &now,
+                                           int seconds, Transit transit) {
+    int64_t headroom = 0, previous = 0;
+    for (int i = 0; i < seconds * 60; ++i) {
+        pts += airplay::kSecond / 60; now = pts + transit(i);
+        const auto due = timeline.video(pts, now);
+        // Adjustments are bounded steps, never a reversal of more than one step.
+        if (previous && due - previous < airplay::kSecond / 60 - airplay::Timeline::kVideoMaxStepNs)
+            throw std::runtime_error("timeline adjustment jumps video backwards");
+        previous = due; headroom = due - now;
+    }
+    return headroom;
+}
+
+inline void check_timeline_adaptation() {
+    using namespace airplay;
+    const auto near = [](int64_t value, int64_t target) { return value >= target - 8000000 && value <= target + 8000000; };
+    constexpr int64_t delay = 40000000, base = 10 * kSecond;
+    Timeline timeline(delay);
+    // A slow first packet (100 ms transit vs 40 ms) no longer holds every later frame.
+    int64_t pts = 0, now = base + 100000000;
+    if (timeline.video(pts, now) != now + delay) throw std::runtime_error("first video packet does not seed the buffer");
+    pts = 0;
+    if (!near(feed_video(timeline, pts, now, 20, [&](int) { return base + 40000000; }), delay))
+        throw std::runtime_error("slow first packet keeps extra video delay");
+    // Slower steady transit restores the configured headroom instead of presenting late.
+    if (!near(feed_video(timeline, pts, now, 20, [&](int) { return base + 70000000; }), delay))
+        throw std::runtime_error("slower transit leaves video late");
+    // A repeated timestamp after an idle screen is not a transit sample.
+    now += 30 * kSecond; timeline.video(pts - kSecond, now);
+    if (!near(feed_video(timeline, pts, now, 4, [&](int) { return base + 70000000; }), delay))
+        throw std::runtime_error("repeated idle timestamp moves the video clock");
+
+    // Audio stays on the video clock while the device lead allows it.
+    int64_t audio_pts = pts;
+    const auto audio = [&](int64_t lead, int64_t read_lead, int packets) {
+        int64_t due = 0;
+        for (int i = 0; i < packets; ++i) {
+            audio_pts += kSecond / 100;
+            due = timeline.audio(audio_pts, read_lead, timeline.deadline(audio_pts) - lead);
+        }
+        return due - timeline.deadline(audio_pts);
+    };
+    if (audio(120000000, 20000000, 300) != 0) throw std::runtime_error("fast audio output leaves video sync");
+    // A 140 ms device needs more lead than video sync gives; play late, never drop.
+    const auto behind = audio(100000000, 140000000, 300);
+    if (behind < 140000000 + Timeline::kAudioMarginNs - 100000000 || behind > 100000000)
+        throw std::runtime_error("slow audio output is not delayed by its shortfall");
+    if (audio(120000000, 20000000, 300) != 0) throw std::runtime_error("audio does not return to video sync");
+    // An implausible device lead cannot push audio arbitrarily far behind the picture.
+    if (audio(120000000, 2 * kSecond, 300) != Timeline::kAudioMaxBehindNs)
+        throw std::runtime_error("audio delay behind video is unbounded");
+
+    // Audio first, as on a session reset: the output lead still applies immediately.
+    Timeline first(delay);
+    const auto audio_due = first.audio(5 * kSecond, 140000000, base);
+    if (audio_due - base < 140000000 + Timeline::kAudioMarginNs)
+        throw std::runtime_error("audio-first anchor schedules PCM the device has already passed");
+}
+
 inline void check_audio_clock() {
     check_audio_host_clock();
     check_audio_queue_diagnostics();
+    check_timeline_adaptation();
     using namespace airplay;
     constexpr int total = kSampleRate, callback = 192;
     constexpr int64_t start = kSecond;

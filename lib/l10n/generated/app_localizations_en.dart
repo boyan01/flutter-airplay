@@ -170,7 +170,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get playbackBufferHelp =>
-      'Lower values reduce delay but may cause stuttering or audio dropouts. Audio and video share this buffer. This is not the total mirroring delay.';
+      'Lower values reduce picture delay but may stutter on an unstable network. On devices with slow audio output, sound may trail the picture slightly. This is not the total mirroring delay.';
+
+  @override
+  String get playbackBufferLowLatency => 'Low latency, for desktop control';
+
+  @override
+  String get playbackBufferSmooth => 'Smoother, for watching video';
 
   @override
   String get settingsApplyHelp =>

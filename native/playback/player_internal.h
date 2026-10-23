@@ -54,6 +54,7 @@ struct AirplayPlayer {
     int64_t video_report_ns = 0, video_arrival_ns = 0, video_gap_ns = 0;
     uint64_t video_received = 0;
     size_t video_peak_queue = 0;
+    DeadlineSamples video_arrival_headroom; // Playback deadline minus arrival.
     struct VideoStats {
         uint64_t ready = 0, submitted = 0, late_drop = 0, cancelled = 0, nonpositive_pts_step = 0;
         TimingSamples queue_wait, ready_late, submit_late, submit_gap, pts_gap, host_call;
@@ -150,7 +151,7 @@ struct AirplayPlayer {
           last_video_decode = last_video_output = 0;
           video_no_output_started = 0;
           video_report_ns = video_arrival_ns = video_gap_ns = 0;
-          video_received = 0; video_peak_queue = 0;
+          video_received = 0; video_peak_queue = 0; video_arrival_headroom = {};
           last_audio_receive = 0; last_video_receive = 0;
           audio_playing = false; audio_ct = 0; audio_rtp_anchored = false;
           timeline.reset(); audio.flush();

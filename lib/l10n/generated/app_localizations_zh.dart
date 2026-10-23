@@ -168,7 +168,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get playbackBufferHelp =>
-      '较低的值可减少延迟，但可能增加卡顿或音频断续。音频和视频共用此缓冲。此数值不代表完整投屏延迟。';
+      '缓冲越小，画面延迟越低，但网络不稳时可能卡顿。设备出声较慢时，声音可能略晚于画面。此数值不代表完整投屏延迟。';
+
+  @override
+  String get playbackBufferLowLatency => '低延迟，适合操作桌面';
+
+  @override
+  String get playbackBufferSmooth => '更流畅，适合看视频';
 
   @override
   String get settingsApplyHelp => '等待连接时自动生效；已有连接时，结束后自动生效。';

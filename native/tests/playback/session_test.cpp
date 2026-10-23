@@ -285,7 +285,7 @@ void check_mac_video_interruption() {
             data.rtp_time = uint32_t(audio_packets * 352);
             receive.audio_process(receive.cls, nullptr, &data);
             int16_t pcm[352 * 2]{};
-            p->pcm->read(pcm, 352, p->timeline.deadline(data.ntp_time_local));
+            p->pcm->read(pcm, 352, p->timeline.audio_deadline(data.ntp_time_local));
             if (!std::any_of(std::begin(pcm), std::end(pcm), [](int16_t value) { return value != 0; }))
                 throw std::runtime_error("continuing audio has no signal during video interruption");
             ++audio_packets;
@@ -478,7 +478,7 @@ void check_audio_unsynchronized_burst() {
             data.ntp_time_local = session == 2 ? pts + int64_t(i) * 352 * kSecond / kSampleRate : 0;
             const auto before = monotonic_ns();
             receive.audio_process(receive.cls, nullptr, &data);
-            if (!i) first_due = session == 2 ? p->timeline.deadline(pts) : before + p->audio_lead_ms.load() * 1000000;
+            if (!i) first_due = session == 2 ? p->timeline.audio_deadline(pts) : before + p->audio_lead_ms.load() * 1000000;
         }
         const auto late_before = p->pcm->late_drops();
         std::vector<int16_t> output(frames * 2);

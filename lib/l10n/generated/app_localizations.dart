@@ -407,8 +407,20 @@ abstract class AppLocalizations {
   /// No description provided for @playbackBufferHelp.
   ///
   /// In en, this message translates to:
-  /// **'Lower values reduce delay but may cause stuttering or audio dropouts. Audio and video share this buffer. This is not the total mirroring delay.'**
+  /// **'Lower values reduce picture delay but may stutter on an unstable network. On devices with slow audio output, sound may trail the picture slightly. This is not the total mirroring delay.'**
   String get playbackBufferHelp;
+
+  /// No description provided for @playbackBufferLowLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Low latency, for desktop control'**
+  String get playbackBufferLowLatency;
+
+  /// No description provided for @playbackBufferSmooth.
+  ///
+  /// In en, this message translates to:
+  /// **'Smoother, for watching video'**
+  String get playbackBufferSmooth;
 
   /// No description provided for @settingsApplyHelp.
   ///

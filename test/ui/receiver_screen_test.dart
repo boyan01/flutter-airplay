@@ -582,6 +582,8 @@ void main() {
       for (final value in [0, 40, 60, 80, 100, 120, 150, 200, 300]) {
         expect(find.byKey(Key('playbackBuffer$value')), findsOneWidget);
       }
+      expect(find.text('低延迟，适合操作桌面'), findsOneWidget);
+      expect(find.text('更流畅，适合看视频'), findsOneWidget);
       if (target == 'tv') {
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await tester.sendKeyEvent(LogicalKeyboardKey.enter);
