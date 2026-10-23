@@ -14,6 +14,7 @@ import android.os.Build
 import android.util.Log
 import android.view.Display
 import android.view.Surface
+import androidx.core.view.DisplayCompat
 import tech.soit.flutterairplay.renderer.DecoderSelector
 import org.json.JSONObject
 import org.json.JSONArray
@@ -92,7 +93,8 @@ class PlaybackHost(private val context: Context, private val emit: (Map<String, 
             ?.areSizeAndRateSupported(width, height, 60.0) == true
     }.getOrDefault(false)
     fun videoMetadata(): Map<String, Any> {
-        val mode = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(Display.DEFAULT_DISPLAY)?.mode
+        val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(Display.DEFAULT_DISPLAY)
+        val mode = display?.let { DisplayCompat.getMode(context, it) }
         val metrics = context.resources.displayMetrics
         val height = mode?.physicalHeight ?: metrics.heightPixels
         return mapOf("buildTime" to BuildConfig.BUILD_TIME,
@@ -139,14 +141,17 @@ class PlaybackHost(private val context: Context, private val emit: (Map<String, 
         val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
             .getDisplay(Display.DEFAULT_DISPLAY)
         val metrics = context.resources.displayMetrics
-        val mode = display?.mode
+        val mode = display?.let { DisplayCompat.getMode(context, it) }
+        val frameworkMode = display?.mode
+        val modes = display?.let { DisplayCompat.getSupportedModes(context, it) }
         val debug = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         diagnostic("Display: model=${Build.MODEL}, API=${Build.VERSION.SDK_INT}, " +
             "build=${if (debug) "debug" else "release"}, " +
             "physical=${mode?.physicalWidth}x${mode?.physicalHeight}, " +
+            "framework=${frameworkMode?.physicalWidth}x${frameworkMode?.physicalHeight}, " +
             "app=${metrics.widthPixels}x${metrics.heightPixels}, density=${metrics.density}, " +
             "refreshHz=${display?.refreshRate}, rotation=${display?.rotation}")
-        diagnostic("Display modes: ${display?.supportedModes?.joinToString { "${it.modeId}:${it.physicalWidth}x${it.physicalHeight}@${it.refreshRate}" }}")
+        diagnostic("Display modes: ${modes?.joinToString { "${it.toMode()?.modeId}:${it.physicalWidth}x${it.physicalHeight}@${it.toMode()?.refreshRate}" }}")
         diagnostic("Build: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TIME}")
     }
     private fun logAudioSystemInfo() {
