@@ -175,7 +175,11 @@ extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regre
         output->stop();
         output = make_android_audio_output(std::make_shared<AudioBuffer>(), 0);
         check(output->start(), "auto AAudio start failed");
+        const bool mmap = output->diagnostics().find(" mmap=1 ") != std::string::npos;
         android_audio_test_failure(*output, int(oboe::Result::ErrorTimeout));
+        // An MMAP timeout first retries AAudio on the legacy path.
+        check(!mmap || output->diagnostics().find("actual=AAudio") != std::string::npos &&
+              output->diagnostics().find(" mmap=0 ") != std::string::npos, "MMAP timeout did not reopen AAudio without MMAP");
         android_audio_test_failure(*output, int(oboe::Result::ErrorTimeout));
         auto report = output->diagnostics();
         check(report.find("actual=AudioTrack") != std::string::npos && report.find("fallbacks=1") != std::string::npos && report.find("state=running") != std::string::npos,
@@ -205,5 +209,5 @@ extern "C" JNIEXPORT jstring JNICALL Java_tech_soit_flutterairplay_player_1regre
     } catch (const std::exception &error) {
         return env->NewStringUTF((std::string("FAIL: ") + error.what()).c_str());
     }
-    return env->NewStringUTF("PASS: video restart, audio PCM/clock, AAudio/AudioTrack consumption/restart, open/timeout fallback, sticky selection, forced selection, stop races");
+    return env->NewStringUTF("PASS: video restart, audio PCM/clock, AAudio/AudioTrack consumption/restart, open/timeout fallback, MMAP timeout retry, sticky selection, forced selection, stop races");
 }

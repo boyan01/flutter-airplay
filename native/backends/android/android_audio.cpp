@@ -2,6 +2,7 @@
 #include "android_audio.h"
 #include "../../playback/audio_clock.h"
 #include <oboe/Oboe.h>
+#include <oboe/OboeExtensions.h>
 #include <condition_variable>
 #include <deque>
 #include <future>
@@ -14,6 +15,9 @@ JavaVM *vm = nullptr;
 jclass sink_class = nullptr;
 jmethodID constructor, write_pcm, presentation, interrupt_sink, release_sink, sample_rate, buffer_frames, underruns;
 std::mutex java_lock;
+// Some MediaTek TV HALs freeze the MMAP position and AAudio times out. The
+// policy is per process, so later streams use the legacy low-latency path.
+std::atomic<bool> mmap_disabled{false};
 struct Env {
     JNIEnv *env = nullptr;
     bool attached = false;
@@ -102,7 +106,7 @@ public:
         out << "Android audio output: selected=" << (mode_ == 0 ? "auto" : mode_ == 1 ? "AAudio" : "AudioTrack")
             << " actual=" << backend_ << " state=" << (active_ ? "running" : "closed")
             << " rate=" << rate_ << " channels=2 buffer_frames=" << size_ << " burst_frames=" << burst_
-            << " performance=" << performance_ << " fallbacks=" << fallbacks_ << " restarts=" << restarts_
+            << " performance=" << performance_ << " mmap=" << int(mmap_) << " fallbacks=" << fallbacks_ << " restarts=" << restarts_
             << " write_errors=" << write_errors_.load() << " written_frames=" << written_.load();
         if (stream_) {
             auto xruns = stream_->getXRunCount();
@@ -166,17 +170,18 @@ private:
         }
         stream_->setBufferSizeInFrames(stream_->getFramesPerBurst() * 3);
         rate_ = stream_->getSampleRate(); size_ = stream_->getBufferSizeInFrames(); burst_ = stream_->getFramesPerBurst();
+        mmap_ = oboe::OboeExtensions::isMMapUsed(stream_.get());
         performance_ = oboe::convertToText(stream_->getPerformanceMode());
         auto started = stream_->requestStart();
         active_ = started == oboe::Result::OK;
         report(std::string("AAudio start: ") + oboe::convertToText(started) + " api=AAudio rate=" +
             std::to_string(rate_) + " buffer_frames=" + std::to_string(size_) +
-            " burst_frames=" + std::to_string(burst_) + " performance=" + performance_);
+            " burst_frames=" + std::to_string(burst_) + " performance=" + performance_ + " mmap=" + std::to_string(int(mmap_)));
         if (!active_) closeOutput();
         return active_;
     }
     bool openTrack() {
-        backend_ = "AudioTrack"; pull_ = newPull(); performance_ = "None"; burst_ = 0;
+        backend_ = "AudioTrack"; pull_ = newPull(); performance_ = "None"; burst_ = 0; mmap_ = false;
         Env scope;
         if (!scope.env || !sink_class) { report("AudioTrack JNI unavailable"); return false; }
         auto local = scope.env->NewObject(sink_class, constructor);
@@ -243,6 +248,12 @@ private:
         if (stopped_ || generation != generation_ || backend_ != "AAudio") return;
         std::string reason = oboe::convertToText(error);
         closeOutput();
+        if (error == oboe::Result::ErrorTimeout && mmap_ && !mmap_disabled.exchange(true)) {
+            oboe::OboeExtensions::setMMapEnabled(false);
+            ++restarts_;
+            if (openAAudio()) { report("AAudio MMAP timeout; reopened without MMAP: OK"); return; }
+            if (mode_ == 0) { fallback(reason + " without MMAP"); return; }
+        }
         if (mode_ == 0 && error == oboe::Result::ErrorTimeout) { fallback(reason); return; }
         if (error == oboe::Result::ErrorDisconnected) {
             ++restarts_;
@@ -262,7 +273,7 @@ private:
     std::atomic<bool> writer_stop_{true}, inject_write_error_{false};
     std::atomic<int> write_limit_{882};
     std::atomic<uint64_t> write_errors_{0}, written_{0};
-    bool stopped_ = true, active_ = false, compatibility_ = false, fail_open_ = false;
+    bool stopped_ = true, active_ = false, compatibility_ = false, fail_open_ = false, mmap_ = false;
     uint64_t generation_ = 0, fallbacks_ = 0, restarts_ = 0;
     int rate_ = 0, size_ = 0, burst_ = 0;
     std::string backend_ = "none", performance_ = "none", last_result_ = "none";
