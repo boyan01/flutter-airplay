@@ -46,7 +46,6 @@ class ReceiverCapabilities {
     this.supportsExecutablePath = false,
     this.supportsLaunchAtLogin = false,
     this.supportsAacEld = false,
-    this.isTelevision = false,
     this.nativeVideoSurface = false,
     this.foregroundOnly = false,
   });
@@ -57,7 +56,6 @@ class ReceiverCapabilities {
   final bool supportsExecutablePath;
   final bool supportsLaunchAtLogin;
   final bool supportsAacEld;
-  final bool isTelevision;
   final bool nativeVideoSurface;
   final bool foregroundOnly;
 }

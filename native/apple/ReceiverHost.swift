@@ -212,7 +212,6 @@ final class ReceiverHost {
             "supportsExecutablePath": value.supports_executable_path,
             "supportsLaunchAtLogin": value.supports_launch_at_login,
             "supportsAacEld": value.supports_aac_eld,
-            "isTelevision": value.is_television,
             "nativeVideoSurface": value.native_video_surface,
             "foregroundOnly": value.foreground_only]
         result["videoQualities"] = qualities.enumerated().filter { value.video_quality_mask & (1 << UInt32($0.offset)) != 0 }.map { $0.element }

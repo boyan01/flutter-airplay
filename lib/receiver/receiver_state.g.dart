@@ -19,7 +19,6 @@ ReceiverCapabilities _$ReceiverCapabilitiesFromJson(
   supportsExecutablePath: json['supportsExecutablePath'] as bool? ?? false,
   supportsLaunchAtLogin: json['supportsLaunchAtLogin'] as bool? ?? false,
   supportsAacEld: json['supportsAacEld'] as bool? ?? false,
-  isTelevision: json['isTelevision'] as bool? ?? false,
   nativeVideoSurface: json['nativeVideoSurface'] as bool? ?? false,
   foregroundOnly: json['foregroundOnly'] as bool? ?? false,
 );

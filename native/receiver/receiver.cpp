@@ -671,7 +671,6 @@ AirplayReceiverSnapshot* metadata_snapshot(plist_t value) {
     out->supports_executable_path = boolean(capabilities, "supportsExecutablePath");
     out->supports_launch_at_login = boolean(capabilities, "supportsLaunchAtLogin");
     out->supports_aac_eld = boolean(capabilities, "supportsAacEld");
-    out->is_television = boolean(capabilities, "isTelevision");
     out->native_video_surface = boolean(capabilities, "nativeVideoSurface");
     out->foreground_only = boolean(capabilities, "foregroundOnly");
     out->screen_width = integer(value, "screenWidth", 1920);

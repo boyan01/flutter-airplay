@@ -15,6 +15,11 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 /** Platform bootstrap and Android foreground-service/surface integration. */
+// Android TVs get the TV interface and keep the screen on while the app is in front.
+internal val Context.isTelevision: Boolean
+    get() = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType ==
+        Configuration.UI_MODE_TYPE_TELEVISION
+
 internal class ReceiverBridge(private val context: Context, engine: FlutterEngine) : AutoCloseable {
     private val preferences = context.getSharedPreferences("receiver", Context.MODE_PRIVATE)
     private var closed = false
@@ -52,8 +57,7 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
 
     fun snapshot(): Map<String, Any> = data
     private fun publish() {
-        val caps = data["capabilities"] as? Map<*, *>
-        val awake = foreground && (caps?.get("isTelevision") == true || isActive)
+        val awake = foreground && (context.isTelevision || isActive)
         activity?.window?.let { window ->
             if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -76,10 +80,9 @@ internal class ReceiverBridge(private val context: Context, engine: FlutterEngin
         try {
             when (call.method) {
                 "bootstrap" -> {
-                    val television = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
                     val metadata = mapOf("defaultName" to defaultName(), "foreground" to foreground,
                         "capabilities" to mapOf("platform" to "android", "supportsExecutablePath" to false,
-                            "supportsLaunchAtLogin" to false, "isTelevision" to television, "nativeVideoSurface" to true))
+                            "supportsLaunchAtLogin" to false, "nativeVideoSurface" to true))
                     result.success(mapOf("handle" to host.bootstrap(metadata)))
                 }
                 "prepareReception" -> {

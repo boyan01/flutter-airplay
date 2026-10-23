@@ -41,13 +41,9 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 600));
     backend = FakeReceiver(
       autoStart: false,
-      capabilities: {
-        'platform': platform,
-        'nativeVideoSurface': native,
-        'isTelevision': television,
-      },
+      capabilities: {'platform': platform, 'nativeVideoSurface': native},
     );
-    model = ReceiverModel(backend);
+    model = ReceiverModel(backend, isTelevision: television);
     await model.initialize();
     frame(backend, 1920, 1080);
     model.setVideoCrop(initialCrop);

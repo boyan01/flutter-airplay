@@ -43,7 +43,7 @@ typedef struct {
     int32_t status; // AirplayReceiverStatus values.
     const char *message, *client_name, *receiving_name, *default_name, *build_time, *platform;
     bool supports_executable_path, supports_launch_at_login, supports_aac_eld;
-    bool is_television, native_video_surface, foreground_only;
+    bool native_video_surface, foreground_only;
     uint32_t video_quality_mask;
     int32_t screen_width, screen_height, auto_video_height, video_width, video_height;
     bool audio_playing, video_paused;

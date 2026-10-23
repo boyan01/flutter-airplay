@@ -3,7 +3,6 @@ package tech.soit.flutterairplay
 
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -145,6 +144,7 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
         bridge = ReceiverService.bridge(this)
         presentation = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tech.soit.flutterairplay/window").also { channel ->
             channel.setMethodCallHandler { call, result ->
+                if (call.method == "isTelevision") { result.success(isTelevision); return@setMethodCallHandler }
                 if (call.method == "setVideoPresentation") {
                     try {
                         videoPresentation = VideoPresentation.parse(call.arguments)
@@ -180,9 +180,7 @@ class MainActivity : FlutterActivity(), SurfaceHolder.Callback {
     private fun updatePlaybackWindow(width: Int, height: Int, playing: Boolean) {
         // Ask the display for its low-latency (game) mode only while mirroring.
         if (Build.VERSION.SDK_INT >= 30) window.setPreferMinimalPostProcessing(playing)
-        val television = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
-            .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        if (!television) {
+        if (!isTelevision) {
             requestedOrientation = if (!playing) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 else if (width > height) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT

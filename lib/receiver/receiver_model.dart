@@ -9,8 +9,10 @@ import 'package:mixin_logger/mixin_logger.dart';
 import 'receiver_repository.dart';
 
 class ReceiverModel extends ChangeNotifier {
-  ReceiverModel(this.repository);
+  ReceiverModel(this.repository, {this.isTelevision = false});
   final ReceiverRepository repository;
+  // A fixed device fact, known before the first frame.
+  final bool isTelevision;
   StreamSubscription<ReceiverEvent>? _subscription;
   final _logs = <ReceiverLog>[];
   int _lastWrittenLogID = 0;
@@ -140,13 +142,6 @@ class ReceiverModel extends ChangeNotifier {
   bool get supportsWindowPreferences =>
       {'macos', 'windows', 'linux'}.contains(platform);
   bool get isMobile => platform == 'android' || platform == 'ios';
-  // Keep native capabilities intact while previewing TV UI on a desktop host.
-  bool get isTelevision =>
-      _isTelevision ||
-      (kDebugMode &&
-          platform == 'macos' &&
-          const bool.fromEnvironment('AIRPLAY_DEBUG_TV'));
-  bool _isTelevision = false;
   bool get supportsExecutablePath => _supportsExecutablePath ?? false;
   bool? _supportsExecutablePath;
 
@@ -200,7 +195,6 @@ class ReceiverModel extends ChangeNotifier {
     _videoGeneration = data.generation;
     final capabilities = data.capabilities;
     if (capabilities.platform.isNotEmpty) _platform = capabilities.platform;
-    _isTelevision = capabilities.isTelevision;
     _supportsExecutablePath = capabilities.supportsExecutablePath;
     usesNativeVideo = capabilities.nativeVideoSurface;
     supportsLaunchAtLogin = capabilities.supportsLaunchAtLogin;

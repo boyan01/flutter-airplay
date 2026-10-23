@@ -63,7 +63,6 @@ void main() {
       autoStart: autoStart,
       capabilities: {
         'platform': platform,
-        'isTelevision': tv,
         'nativeVideoSurface': platform == 'android' || platform == 'macos',
         'supportsExecutablePath': platform == 'macos',
         'supportsLaunchAtLogin': platform == 'windows',
@@ -74,7 +73,7 @@ void main() {
       ReceiverApp(
         launchAtLogin: _FakeLogin(),
         updates: updates,
-        model: ReceiverModel(backend),
+        model: ReceiverModel(backend, isTelevision: tv),
         window:
             controller ??
             WindowController(withWindow: (action) async => action(window)),
@@ -871,7 +870,7 @@ void main() {
         size: const Size(960, 900),
         backend: FakeReceiver(
           enableVideoQuality: true,
-          capabilities: {'platform': platform, 'isTelevision': true},
+          capabilities: {'platform': platform},
         ),
       );
       await tester.tap(find.byKey(const Key('openSettings')));
@@ -1933,9 +1932,7 @@ void main() {
         tester,
         platform: 'android',
         tv: tv,
-        backend: FakeReceiver(
-          capabilities: {'platform': 'android', 'isTelevision': tv},
-        ),
+        backend: FakeReceiver(capabilities: {'platform': 'android'}),
         size: tv ? const Size(960, 540) : const Size(390, 800),
       );
       await tester.tap(find.byKey(const Key('openSettings')));

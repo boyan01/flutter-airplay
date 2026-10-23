@@ -8,6 +8,7 @@ import 'package:mixin_logger/mixin_logger.dart';
 
 import 'app/app_logging.dart';
 import 'platform/launch_at_login.dart';
+import 'platform/television.dart';
 import 'receiver/receiver_model.dart';
 import 'receiver/receiver_repository.dart';
 import 'app/receiver_app.dart';
@@ -24,6 +25,7 @@ void main() {
       e('Cannot upgrade the existing login startup entry', error, stack);
     }
     final systemFonts = await SystemFonts.initialize();
+    final television = await isTelevisionDevice();
     LicenseRegistry.addLicense(() async* {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
       for (final path in manifest.listAssets().where(
@@ -35,7 +37,10 @@ void main() {
     });
     runApp(
       ReceiverApp(
-        model: ReceiverModel(NativeReceiverRepository()),
+        model: ReceiverModel(
+          NativeReceiverRepository(),
+          isTelevision: television,
+        ),
         systemFonts: systemFonts,
       ),
     );
