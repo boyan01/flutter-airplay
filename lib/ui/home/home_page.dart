@@ -144,21 +144,17 @@ class HomePage extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (transitioning || model.status == 'streaming')
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: color,
-                  ),
-                )
-              else
-                Icon(
-                  model.active ? Icons.circle : Icons.circle_outlined,
-                  size: 8,
-                  color: color,
-                ),
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: transitioning || model.status == 'streaming'
+                    ? CircularProgressIndicator(strokeWidth: 2, color: color)
+                    : Icon(
+                        model.active ? Icons.circle : Icons.circle_outlined,
+                        size: 8,
+                        color: color,
+                      ),
+              ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
@@ -489,9 +485,13 @@ class HomePage extends StatelessWidget {
       child: ListTile(
         key: Key(key),
         title: Text(title),
-        subtitle: Text(value),
+        subtitle: Text(
+          model.loaded ? value : l10n(context).loading,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: onPicture,
+        onTap: model.loaded ? onPicture : null,
       ),
     );
     return Material(
@@ -514,7 +514,8 @@ class HomePage extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
-            if (model.supportsVideoQuality)
+            // Keep the TV card stable until the first capability snapshot.
+            if (!model.loaded || model.supportsVideoQuality)
               row(
                 'homeQuality',
                 l10n(context).videoQuality,
