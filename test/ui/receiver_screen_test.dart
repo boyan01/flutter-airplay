@@ -881,18 +881,6 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('openSettings')));
       await tester.pumpAndSettle();
-      final name = find.byKey(const Key('tvName'));
-      final left = tester
-          .getTopLeft(find.descendant(of: name, matching: find.text('设备名')))
-          .dx;
-      // macOS shows Settings as a panel above the home page.
-      Finder setting(String text) => find.descendant(
-        of: find.byType(SettingsPage),
-        matching: find.text(text),
-      );
-      for (final text in ['打开应用时自动接收', '投屏清晰度']) {
-        expect(tester.getTopLeft(setting(text)).dx, closeTo(left, 0.1));
-      }
       final ring = find.byKey(const Key('tvFocusRing'));
       final decoration =
           tester
@@ -908,6 +896,21 @@ void main() {
         (decoration.borderRadius! as BorderRadius).topLeft.x,
         greaterThanOrEqualTo(12),
       );
+      // Focus growth shifts the focused row; compare the resting layout.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      final name = find.byKey(const Key('tvName'));
+      final left = tester
+          .getTopLeft(find.descendant(of: name, matching: find.text('设备名')))
+          .dx;
+      // macOS shows Settings as a panel above the home page.
+      Finder setting(String text) => find.descendant(
+        of: find.byType(SettingsPage),
+        matching: find.text(text),
+      );
+      for (final text in ['打开应用时自动接收', '投屏清晰度']) {
+        expect(tester.getTopLeft(setting(text)).dx, closeTo(left, 0.1));
+      }
       final quality = find.byKey(const Key('videoQuality'));
       final nameArrow = find.descendant(
         of: name,

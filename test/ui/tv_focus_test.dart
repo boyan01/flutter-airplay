@@ -240,7 +240,9 @@ void main() {
     expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
-  testWidgets('reduced motion snaps to the next target', (tester) async {
+  testWidgets('TV focus keeps animating when the system disables motion', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
@@ -251,10 +253,12 @@ void main() {
           body: Row(
             children: [
               TextButton(
+                key: const Key('first'),
                 autofocus: true,
                 onPressed: () {},
                 child: const Text('First'),
               ),
+              const SizedBox(width: 80),
               TextButton(
                 key: const Key('second'),
                 onPressed: () {},
@@ -266,14 +270,139 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final ring = find.byKey(const Key('tvFocusRing'));
+    final first = tester.getRect(ring);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getRect(ring).left, greaterThan(first.left));
     expect(
-      tester.getRect(find.byKey(const Key('tvFocusRing'))),
-      buttonBounds(tester, 'second'),
+      tester.getRect(ring).left,
+      lessThan(buttonBounds(tester, 'second').left),
     );
     await tester.pumpAndSettle();
+    expect(tester.getRect(ring), buttonBounds(tester, 'second'));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('D-pad scrolling animates and the ring lands on the target', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              height: 200,
+              child: SingleChildScrollView(
+                controller: scroll,
+                child: Column(
+                  children: [
+                    TextButton(
+                      autofocus: true,
+                      onPressed: () {},
+                      child: const Text('Top'),
+                    ),
+                    const SizedBox(height: 300),
+                    TextButton(
+                      key: const Key('below'),
+                      onPressed: () {},
+                      child: const Text('Below'),
+                    ),
+                    const SizedBox(height: 300),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(scroll.offset, greaterThan(0));
+    final scrolling = scroll.offset;
+    await tester.pumpAndSettle();
+    expect(scroll.offset, greaterThan(scrolling));
+    expect(
+      tester.getRect(find.byKey(const Key('tvFocusRing'))),
+      buttonBounds(tester, 'below'),
+    );
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('TvFocus grows compact targets more than wide rows', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final enabled = ValueNotifier(true);
+    addTearDown(enabled.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => ValueListenableBuilder<bool>(
+          valueListenable: enabled,
+          builder: (_, value, _) => TvFocusScope(enabled: value, child: child!),
+        ),
+        home: Scaffold(
+          body: Column(
+            children: [
+              TvFocus(
+                child: FilledButton(
+                  key: const Key('button'),
+                  autofocus: true,
+                  onPressed: () {},
+                  child: const Text('Start'),
+                ),
+              ),
+              TvFocus(
+                child: ListTile(
+                  key: const Key('row'),
+                  title: const Text('Settings'),
+                  onTap: () {},
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    Size layoutSize(String key) =>
+        tester.renderObject<RenderBox>(find.byKey(Key(key))).size;
+    double growth(String key) =>
+        tester.getRect(find.byKey(Key(key))).width / layoutSize(key).width;
+
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(growth('button'), greaterThan(1));
+    expect(growth('button'), lessThan(1.06));
+    await tester.pumpAndSettle();
+    expect(growth('button'), closeTo(1.06, 0.001));
+    expect(
+      tester.getRect(find.byKey(const Key('tvFocusRing'))),
+      buttonBounds(tester, 'button'),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(growth('button'), 1);
+    expect(growth('row'), closeTo(1 + 16 / 800, 0.001));
+    expect(
+      tester.getRect(find.byKey(const Key('tvFocusRing'))),
+      tester.getRect(find.byKey(const Key('row'))).inflate(3),
+    );
+
+    enabled.value = false;
+    await tester.pumpAndSettle();
+    expect(growth('row'), 1);
     expect(tester.binding.hasScheduledFrame, isFalse);
   });
 

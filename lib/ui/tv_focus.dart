@@ -1,17 +1,161 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+// TV navigation feedback keeps animating when Android reports disabled
+// transition animations: some launchers ship with that scale set to zero.
+const _motionDuration = Duration(milliseconds: 220);
+const _curve = Curves.easeOutCubic;
+
 /// Marks a custom focus target without adding another traversal stop.
-class TvFocus extends StatelessWidget {
-  const TvFocus({super.key, this.borderRadius, required this.child});
+///
+/// On TV the target grows slightly while it contains focus.
+class TvFocus extends StatefulWidget {
+  const TvFocus({
+    super.key,
+    this.borderRadius,
+    this.scales = true,
+    required this.child,
+  });
   final Widget child;
 
   /// Overrides the outline for custom controls without a Material shape.
   final BorderRadius? borderRadius;
 
+  /// Disables growth for targets whose bounds carry meaning, such as a crop.
+  final bool scales;
+
   @override
-  Widget build(BuildContext context) => child;
+  State<TvFocus> createState() => _TvFocusState();
+}
+
+class _TvFocusState extends State<TvFocus> with SingleTickerProviderStateMixin {
+  late final _scale = AnimationController(
+    vsync: this,
+    duration: _motionDuration,
+  );
+  late final _progress = CurvedAnimation(parent: _scale, curve: _curve);
+  bool _focused = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(TvFocus oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  @override
+  void dispose() {
+    _progress.dispose();
+    _scale.dispose();
+    super.dispose();
+  }
+
+  void _focusChanged(bool focused) {
+    _focused = focused;
+    _sync();
+  }
+
+  void _sync() {
+    final enabled =
+        widget.scales &&
+        (context
+                .dependOnInheritedWidgetOfExactType<_TvFocusEnabled>()
+                ?.enabled ??
+            false);
+    if (!enabled) {
+      _scale.value = 0;
+    } else if (_focused) {
+      _scale.forward();
+    } else {
+      _scale.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    canRequestFocus: false,
+    skipTraversal: true,
+    includeSemantics: false,
+    onFocusChange: _focusChanged,
+    child: _FocusScale(progress: _progress, child: widget.child),
+  );
+}
+
+class _TvFocusEnabled extends InheritedWidget {
+  const _TvFocusEnabled({required this.enabled, required super.child});
+  final bool enabled;
+
+  @override
+  bool updateShouldNotify(_TvFocusEnabled oldWidget) =>
+      enabled != oldWidget.enabled;
+}
+
+/// Grows each edge by at most 8 logical pixels, so wide rows barely move.
+class _FocusScale extends SingleChildRenderObjectWidget {
+  const _FocusScale({required this.progress, super.child});
+  final Animation<double> progress;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderFocusScale(progress);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderFocusScale renderObject,
+  ) {
+    renderObject.progress = progress;
+  }
+}
+
+class _RenderFocusScale extends RenderTransform {
+  _RenderFocusScale(this._progress)
+    : super(transform: Matrix4.identity(), alignment: Alignment.center);
+
+  Animation<double> _progress;
+  set progress(Animation<double> value) {
+    if (value == _progress) return;
+    if (attached) {
+      _progress.removeListener(_update);
+      value.addListener(_update);
+    }
+    _progress = value;
+    _update();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _progress.addListener(_update);
+  }
+
+  @override
+  void detach() {
+    _progress.removeListener(_update);
+    super.detach();
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    _update();
+  }
+
+  void _update() {
+    if (!hasSize) return;
+    final side = size.longestSide;
+    final growth = side > 0 ? math.min(16 / side, 0.06) : 0.0;
+    final scale = 1 + growth * _progress.value;
+    transform = Matrix4.diagonal3Values(scale, scale, 1);
+  }
 }
 
 /// One passive focus ring for all TV routes, dialogs and playback controls.
@@ -32,10 +176,37 @@ typedef _FocusTarget = ({
   BorderRadius radius,
 });
 
-class _TvFocusScopeState extends State<TvFocusScope> {
+typedef _Outline = ({Rect rect, Rect viewport, BorderRadius radius});
+
+class _TvFocusScopeState extends State<TvFocusScope>
+    with SingleTickerProviderStateMixin {
   final _surface = GlobalKey();
+  // Scroll the next D-pad target into view instead of jumping to it.
+  final _tvTraversal = ReadingOrderTraversalPolicy(
+    requestFocusCallback:
+        (node, {alignment, alignmentPolicy, curve, duration}) {
+          node.requestFocus();
+          Scrollable.ensureVisible(
+            node.context!,
+            alignment: alignment ?? 1,
+            alignmentPolicy:
+                alignmentPolicy ?? ScrollPositionAlignmentPolicy.explicit,
+            duration: duration ?? _motionDuration,
+            curve: curve ?? _curve,
+          );
+        },
+  );
+  final _defaultTraversal = ReadingOrderTraversalPolicy();
+  late final _motion = AnimationController(
+    vsync: this,
+    duration: _motionDuration,
+    value: 1,
+  );
+  late final _progress = CurvedAnimation(parent: _motion, curve: _curve);
   _FocusTarget? _target;
-  bool _animate = false;
+
+  /// Where the ring was drawn when focus moved; it eases toward the live target.
+  _Outline? _from;
 
   @override
   void initState() {
@@ -53,6 +224,8 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   @override
   void dispose() {
     FocusManager.instance.removeListener(_schedule);
+    _progress.dispose();
+    _motion.dispose();
     super.dispose();
   }
 
@@ -67,18 +240,45 @@ class _TvFocusScopeState extends State<TvFocusScope> {
   void _trackGeometry(Duration _) {
     if (!mounted) return;
     final next = _focusedBounds();
-    if (next != _target) {
+    final previous = _target;
+    if (next != previous) {
+      final sameRoute =
+          next != null && previous != null && next.route == previous.route;
+      final moved = sameRoute && next.element != previous.element;
       setState(() {
-        // Scroll, resize and route transitions stay attached to the control.
-        _animate =
-            next != null &&
-            _target != null &&
-            next.route == _target!.route &&
-            next.element != _target!.element;
+        // Scroll, resize and growth keep easing toward the moving control;
+        // route transitions and hidden targets snap.
+        if (moved) {
+          _from = _outline(previous);
+        } else if (!sameRoute) {
+          _from = null;
+        }
         _target = next;
       });
+      if (moved) {
+        _motion.forward(from: 0);
+      } else if (!sameRoute) {
+        _motion.value = 1;
+      }
     }
     WidgetsBinding.instance.addPostFrameCallback(_trackGeometry);
+  }
+
+  _Outline _outline(_FocusTarget target) {
+    final from = _from;
+    final t = _progress.value;
+    if (from == null || t == 1) {
+      return (
+        rect: target.rect,
+        viewport: target.viewport,
+        radius: target.radius,
+      );
+    }
+    return (
+      rect: Rect.lerp(from.rect, target.rect, t)!,
+      viewport: Rect.lerp(from.viewport, target.viewport, t)!,
+      radius: BorderRadius.lerp(from.radius, target.radius, t)!,
+    );
   }
 
   _FocusTarget? _focusedBounds() {
@@ -108,6 +308,8 @@ class _TvFocusScopeState extends State<TvFocusScope> {
     if (target == null) return null;
     final element = target!;
     var box = element.findRenderObject();
+    // Measure the grown child rather than the layout slot.
+    if (box is _RenderFocusScale) box = box.child;
     ShapeBorder? shape;
     // Read the resolved Material shape, including widget state and theme overrides.
     // Use its painted bounds rather than the larger minimum touch target.
@@ -208,46 +410,51 @@ class _TvFocusScopeState extends State<TvFocusScope> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      key: _surface,
-      fit: StackFit.expand,
-      children: [
-        widget.child,
-        if (widget.enabled && _target != null) _ring(context, _target!),
-      ],
+    return _TvFocusEnabled(
+      enabled: widget.enabled,
+      child: FocusTraversalGroup(
+        policy: widget.enabled ? _tvTraversal : _defaultTraversal,
+        child: Stack(
+          key: _surface,
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            if (widget.enabled && _target != null) _ring(),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _ring(BuildContext context, _FocusTarget target) {
-    final duration = _animate && !MediaQuery.disableAnimationsOf(context)
-        ? const Duration(milliseconds: 220)
-        : Duration.zero;
+  Widget _ring() {
     return Positioned.fill(
       child: IgnorePointer(
-        child: ClipRect(
-          clipper: _FocusViewport(target.viewport),
-          child: Stack(
-            key: ValueKey(target.route),
-            children: [
-              AnimatedPositioned(
-                duration: duration,
-                curve: Curves.easeOutCubic,
-                left: target.rect.left,
-                top: target.rect.top,
-                width: target.rect.width,
-                height: target.rect.height,
-                child: AnimatedContainer(
-                  key: const Key('tvFocusRing'),
-                  duration: duration,
-                  curve: Curves.easeOutCubic,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white, width: 3),
-                    borderRadius: target.radius,
+        child: AnimatedBuilder(
+          animation: _progress,
+          builder: (context, _) {
+            final target = _target;
+            if (target == null) return const SizedBox.shrink();
+            final outline = _outline(target);
+            return ClipRect(
+              clipper: _FocusViewport(outline.viewport),
+              child: Stack(
+                children: [
+                  Positioned.fromRect(
+                    rect: outline.rect,
+                    child: SizedBox.expand(
+                      key: const Key('tvFocusRing'),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.white, width: 3),
+                          borderRadius: outline.radius,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

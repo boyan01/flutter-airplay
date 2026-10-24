@@ -665,6 +665,7 @@ class _VideoCropEditorState extends State<VideoCropEditor> {
             rect: selection,
             child: TvFocus(
               borderRadius: BorderRadius.zero,
+              scales: false,
               child: Focus(
                 focusNode: _cropFocus,
                 autofocus: !widget.television,
