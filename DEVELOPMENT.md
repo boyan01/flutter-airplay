@@ -70,7 +70,8 @@ Apple Silicon Mac、Xcode、CMake、Python 3 和 Perl。支持 iPadOS 15+ 和 ar
 ### Windows
 
 Windows x64、Visual Studio 2022（C++ 桌面开发、Windows SDK、Clang tools）、
-CMake、Git Bash、Python 3.10+ 和 Perl。工具应在 PATH 中可用。
+CMake、Git Bash、Python 3.10+ 和原生 Windows Perl（如 Strawberry Perl，不能用 Git Bash/MSYS 自带的 Perl）。
+工具应在 PATH 中可用。
 FFmpeg 构建使用 MSYS2/Cygwin GNU Make，缺失时脚本下载锁定版本。
 自定义工具路径使用 `AIRPLAY_BASH` 和 `AIRPLAY_MAKE`。
 
