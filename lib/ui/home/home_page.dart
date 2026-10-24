@@ -29,8 +29,8 @@ class HomePage extends StatelessWidget {
   final AppUpdates? updates;
   final VoidCallback? onOpenUpdate;
   final Future<void> Function({bool editName}) onSettings;
-  // TV only: opens the picture panel for the next connection.
-  final VoidCallback? onPicture;
+  // TV only: opens one picture setting for the next connection.
+  final ValueChanged<PictureSection>? onPicture;
   bool get error => model.status == 'error' || model.commandError != null;
   bool get transitioning =>
       !model.loaded ||
@@ -481,7 +481,12 @@ class HomePage extends StatelessWidget {
 
   Widget _pictureCard(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    Widget row(String key, String title, String value) => TvFocus(
+    Widget row(
+      String key,
+      PictureSection section,
+      String title,
+      String value,
+    ) => TvFocus(
       child: ListTile(
         key: Key(key),
         title: Text(title),
@@ -491,7 +496,7 @@ class HomePage extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: model.loaded ? onPicture : null,
+        onTap: model.loaded ? () => onPicture?.call(section) : null,
       ),
     );
     return Material(
@@ -518,11 +523,13 @@ class HomePage extends StatelessWidget {
             if (!model.loaded || model.supportsVideoQuality)
               row(
                 'homeQuality',
+                PictureSection.quality,
                 l10n(context).videoQuality,
                 qualityLabel(context, model.videoQuality),
               ),
             row(
               'homeLatency',
+              PictureSection.latency,
               l10n(context).latency,
               latencyLabel(context, model),
             ),

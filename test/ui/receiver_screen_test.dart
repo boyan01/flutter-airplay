@@ -2320,7 +2320,7 @@ void main() {
             .isNotEmpty;
   }
 
-  testWidgets('TV home picture card saves for the next connection', (
+  testWidgets('TV home picture rows open one setting and close on choice', (
     tester,
   ) async {
     final backend = await launch(
@@ -2332,33 +2332,45 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await tester.pumpAndSettle();
     expect(focusedIn('homeLatency'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('picturePanel')), findsOneWidget);
+    expect(find.byKey(const Key('pictureQualityauto')), findsNothing);
+    expect(focusedIn('pictureLatency0'), isTrue);
+    // Confirming the current choice closes without saving.
+    final saves = backend.saves;
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.saves, saves);
+    expect(find.byKey(const Key('picturePanel')), findsNothing);
+    expect(focusedIn('homeLatency'), isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(focusedIn('pictureLatency40'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.savedPlaybackBufferMs, 40);
+    expect(find.byKey(const Key('picturePanel')), findsNothing);
+    expect(focusedIn('homeLatency'), isTrue);
+    expect(find.text('低延迟，适合操作桌面'), findsOneWidget);
+
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await tester.pumpAndSettle();
     expect(focusedIn('homeQuality'), isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.select);
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('picturePanel')), findsOneWidget);
+    expect(find.byKey(const Key('pictureLatency40')), findsNothing);
     expect(focusedIn('pictureQualityauto'), isTrue);
-    // Selecting the current choice changes nothing.
-    final saves = backend.saves;
-    await tester.sendKeyEvent(LogicalKeyboardKey.select);
-    await tester.pumpAndSettle();
-    expect(backend.saves, saves);
     await tester.tap(find.byKey(const Key('pictureQuality720')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('pictureLatency40')));
-    await tester.tap(find.byKey(const Key('pictureLatency40')));
-    await tester.pumpAndSettle();
     expect(backend.savedVideoQuality, '720');
-    expect(backend.savedPlaybackBufferMs, 40);
     // Waiting receivers apply at once, so there is nothing to reconnect.
-    expect(find.byKey(const Key('pictureApplyHint')), findsNothing);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
     expect(find.byKey(const Key('picturePanel')), findsNothing);
     expect(focusedIn('homeQuality'), isTrue);
     expect(find.text('流畅 · 720p'), findsOneWidget);
-    expect(find.text('低延迟，适合操作桌面'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -2397,6 +2409,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(backend.savedPlaybackBufferMs, 150);
     expect(find.text('重新投屏后生效'), findsOneWidget);
+    expect(focusedIn('pictureReconnect'), isTrue);
     // The panel stays open over the video until the user leaves.
     await tester.pump(const Duration(seconds: 10));
     await tester.pumpAndSettle();

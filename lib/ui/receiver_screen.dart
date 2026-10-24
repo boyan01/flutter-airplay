@@ -285,7 +285,17 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
     if (model.loaded && action != _homeAction) {
       _homeAction = action;
       if (!playing) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _restoreFocus());
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Keep focus on another home control, such as a picture row whose
+          // choice restarted the receiver.
+          final focus = FocusManager.instance.primaryFocus;
+          if (focus == null ||
+              focus == _homeFocus ||
+              focus is FocusScopeNode ||
+              focus.context == null) {
+            _restoreFocus();
+          }
+        });
       }
     }
   }
@@ -472,14 +482,14 @@ class _ReceiverScreenState extends State<ReceiverScreen> {
   }
 
   // The panel keeps the page behind it, so its route restores that focus.
-  Future<void> _picture() async {
+  Future<void> _picture([PictureSection? section]) async {
     if (_dialogOpen || _updateDialogOpen || _pictureOpen || !model.loaded) {
       return;
     }
     final playing = model.hasVideo;
     _pictureOpen = true;
     try {
-      await showPicturePanel(context, model);
+      await showPicturePanel(context, model, section: section);
     } finally {
       _pictureOpen = false;
       // Opened over the player, but closed after it ended.
