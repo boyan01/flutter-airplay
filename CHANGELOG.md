@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.10
+
+### 中文
+
+- 降低投屏延迟；Android TV 会请求低延迟画面模式，部分联发科电视的音频不再退回高延迟输出。
+- Android TV 自动画质可识别 4K 面板，不再被限制在 1080p。
+- Android TV 首页新增画面设置，启动时不再闪白屏或闪现手机布局，TCL 和雷鸟桌面显示应用横幅。
+
+### English
+
+- Lower mirroring latency; Android TVs request low-latency picture mode, and some MediaTek TVs no longer fall back to high-latency audio output.
+- Auto quality on Android TVs now detects 4K panels instead of capping at 1080p.
+- Added picture settings to the Android TV home screen, removed the white or phone-layout flash at launch, and show the app banner on TCL and Thunderbird launchers.
+
 ## 0.1.9
 
 ### 中文
