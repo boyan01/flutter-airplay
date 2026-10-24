@@ -243,26 +243,32 @@ void main() {
   testWidgets('TV focus keeps animating when the system disables motion', (
     tester,
   ) async {
+    // Android reports transition_animation_scale=0 as this platform feature,
+    // which also shortens default AnimationControllers.
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
     await tester.pumpWidget(
       MaterialApp(
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(disableAnimations: true),
-          child: TvFocusScope(enabled: true, child: child!),
-        ),
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
         home: Scaffold(
           body: Row(
             children: [
-              TextButton(
-                key: const Key('first'),
-                autofocus: true,
-                onPressed: () {},
-                child: const Text('First'),
+              TvFocus(
+                child: TextButton(
+                  key: const Key('first'),
+                  autofocus: true,
+                  onPressed: () {},
+                  child: const Text('First'),
+                ),
               ),
               const SizedBox(width: 80),
-              TextButton(
-                key: const Key('second'),
-                onPressed: () {},
-                child: const Text('Second'),
+              TvFocus(
+                child: TextButton(
+                  key: const Key('second'),
+                  onPressed: () {},
+                  child: const Text('Second'),
+                ),
               ),
             ],
           ),
@@ -281,6 +287,14 @@ void main() {
       tester.getRect(ring).left,
       lessThan(buttonBounds(tester, 'second').left),
     );
+    final second = tester.renderObject<RenderBox>(
+      find.byKey(const Key('second')),
+    );
+    final growth =
+        tester.getRect(find.byKey(const Key('second'))).width /
+        second.size.width;
+    expect(growth, greaterThan(1));
+    expect(growth, lessThan(1.06));
     await tester.pumpAndSettle();
     expect(tester.getRect(ring), buttonBounds(tester, 'second'));
     expect(tester.binding.hasScheduledFrame, isFalse);
@@ -331,9 +345,14 @@ void main() {
     final scrolling = scroll.offset;
     await tester.pumpAndSettle();
     expect(scroll.offset, greaterThan(scrolling));
+    final ring = tester.getRect(find.byKey(const Key('tvFocusRing')));
+    expect(ring, buttonBounds(tester, 'below'));
+    // The target scrolls in with room for its outline.
     expect(
-      tester.getRect(find.byKey(const Key('tvFocusRing'))),
-      buttonBounds(tester, 'below'),
+      ring.bottom,
+      lessThanOrEqualTo(
+        tester.getRect(find.byType(SingleChildScrollView)).bottom,
+      ),
     );
     expect(tester.binding.hasScheduledFrame, isFalse);
   });
@@ -448,13 +467,53 @@ void main() {
     final clip = tester.widget<ClipRect>(
       find.ancestor(of: ring, matching: find.byType(ClipRect)).first,
     );
+    final list = tester.getRect(find.byType(SingleChildScrollView));
     expect(
       clip.clipper!.getClip(const Size(800, 600)),
-      tester.getRect(find.byType(SingleChildScrollView)),
+      Rect.fromLTRB(0, list.top, 800, list.bottom),
     );
     scroll.jumpTo(200);
     await tester.pumpAndSettle();
     expect(ring, findsNothing);
+  });
+
+  testWidgets('a vertical list clips the ring only above and below', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (_, child) => TvFocusScope(enabled: true, child: child!),
+        home: Scaffold(
+          body: Padding(
+            padding: const EdgeInsets.all(48),
+            child: SingleChildScrollView(
+              child: TvFocus(
+                child: ListTile(
+                  key: const Key('row'),
+                  autofocus: true,
+                  title: const Text('Latency'),
+                  onTap: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ring = find.byKey(const Key('tvFocusRing'));
+    final list = tester.getRect(find.byType(SingleChildScrollView));
+    expect(tester.getRect(ring).right, greaterThan(list.right));
+    final clip = tester.widget<ClipRect>(
+      find.ancestor(of: ring, matching: find.byType(ClipRect)).first,
+    );
+    final visible = clip.clipper!.getClip(const Size(800, 600));
+    expect(visible.left, 0);
+    expect(visible.right, 800);
+    expect(visible.top, list.top);
+    expect(visible.bottom, list.bottom);
   });
 
   testWidgets('dialog focus stays on its route and restores the trigger', (

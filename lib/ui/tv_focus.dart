@@ -6,8 +6,13 @@ import 'package:flutter/rendering.dart';
 
 // TV navigation feedback keeps animating when Android reports disabled
 // transition animations: some launchers ship with that scale set to zero.
+// Controllers opt out with AnimationBehavior.preserve; the default behavior
+// shortens them to 5%.
 const _motionDuration = Duration(milliseconds: 220);
 const _curve = Curves.easeOutCubic;
+
+// Room kept around a target scrolled into view for its growth and outline.
+const _scrollMargin = 16.0;
 
 /// Marks a custom focus target without adding another traversal stop.
 ///
@@ -35,6 +40,7 @@ class _TvFocusState extends State<TvFocus> with SingleTickerProviderStateMixin {
   late final _scale = AnimationController(
     vsync: this,
     duration: _motionDuration,
+    animationBehavior: AnimationBehavior.preserve,
   );
   late final _progress = CurvedAnimation(parent: _scale, curve: _curve);
   bool _focused = false;
@@ -181,16 +187,16 @@ typedef _Outline = ({Rect rect, Rect viewport, BorderRadius radius});
 class _TvFocusScopeState extends State<TvFocusScope>
     with SingleTickerProviderStateMixin {
   final _surface = GlobalKey();
-  // Scroll the next D-pad target into view instead of jumping to it.
+  // Scroll the next D-pad target into view with room for its outline,
+  // animating instead of jumping to it.
   final _tvTraversal = ReadingOrderTraversalPolicy(
     requestFocusCallback:
         (node, {alignment, alignmentPolicy, curve, duration}) {
           node.requestFocus();
-          Scrollable.ensureVisible(
-            node.context!,
-            alignment: alignment ?? 1,
-            alignmentPolicy:
-                alignmentPolicy ?? ScrollPositionAlignmentPolicy.explicit,
+          final box = node.context?.findRenderObject();
+          if (box is! RenderBox || !box.hasSize) return;
+          box.showOnScreen(
+            rect: (Offset.zero & box.size).inflate(_scrollMargin),
             duration: duration ?? _motionDuration,
             curve: curve ?? _curve,
           );
@@ -201,6 +207,7 @@ class _TvFocusScopeState extends State<TvFocusScope>
     vsync: this,
     duration: _motionDuration,
     value: 1,
+    animationBehavior: AnimationBehavior.preserve,
   );
   late final _progress = CurvedAnimation(parent: _motion, curve: _curve);
   _FocusTarget? _target;
@@ -385,14 +392,35 @@ class _TvFocusScopeState extends State<TvFocusScope>
       if (ancestor is RenderAnimatedOpacity && ancestor.opacity.value == 0) {
         return null;
       }
-      if (ancestor is RenderBox &&
-          ancestor is RenderAbstractViewport &&
-          ancestor.hasSize) {
-        viewport = viewport.intersect(
-          ancestor.localToGlobal(Offset.zero, ancestor: surface) &
-              ancestor.size,
-        );
-      }
+    }
+    // Clip only along each scroll axis: a vertical list hides what scrolled
+    // above or below it, while growth may extend past its sides.
+    for (
+      var scrollable = Scrollable.maybeOf(element);
+      scrollable != null;
+      scrollable = Scrollable.maybeOf(scrollable.context)
+    ) {
+      final box = scrollable.context.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+      final bounds = MatrixUtils.transformRect(
+        box.getTransformTo(surface),
+        Offset.zero & box.size,
+      );
+      viewport = switch (axisDirectionToAxis(scrollable.axisDirection)) {
+        Axis.vertical => Rect.fromLTRB(
+          viewport.left,
+          math.max(viewport.top, bounds.top),
+          viewport.right,
+          math.min(viewport.bottom, bounds.bottom),
+        ),
+        Axis.horizontal => Rect.fromLTRB(
+          math.max(viewport.left, bounds.left),
+          viewport.top,
+          math.min(viewport.right, bounds.right),
+          viewport.bottom,
+        ),
+      };
+      if (viewport.isEmpty) return null;
     }
     if (!rect.overlaps(viewport)) return null;
     return (
