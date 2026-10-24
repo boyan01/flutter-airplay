@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.11
+
+### 中文
+
+- Android TV 用遥控器切换时，焦点框平滑移动，选中项轻微放大，列表也会平滑滚动。
+- Android TV 首页的清晰度和延迟各自打开对应选项，选好后自动返回。
+
+### English
+
+- On Android TV, the focus outline now glides between items, the focused item grows slightly, and lists scroll smoothly.
+- On the Android TV home screen, quality and latency each open their own options and return once you choose.
+
 ## 0.1.10
 
 ### 中文
