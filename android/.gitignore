@@ -14,9 +14,4 @@ key.properties
 **/*.keystore
 **/*.jks
 
-# Rebuilt from the pinned source dependencies; never commit native binaries.
-/app/src/main/jniLibs/
 /build/
-
-# Pinned native dependency sources and local builds.
-/.cache/

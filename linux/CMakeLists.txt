@@ -57,10 +57,8 @@ pkg_check_modules(AVAHI REQUIRED IMPORTED_TARGET avahi-client)
 
 # The shared receive/playback core only prepares TXT records. This GTK host
 # publishes them with Avahi and reports discovery failure back to the shared UI.
-set(UXPLAY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../vendor/UxPlay")
 set(AIRPLAY_DNS_STUB ON)
 set(AIRPLAY_BUILD_TESTS OFF)
-add_subdirectory("../native" "native")
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
@@ -82,6 +80,12 @@ set_target_properties(${BINARY_NAME}
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
+
+# The player links the core the lychee_player plugin builds and bundles.
+add_library(lychee::lychee ALIAS lychee)
+add_subdirectory("../native" "native")
+# Executables linking the player resolve lychee's FFmpeg, beside the core.
+target_link_options(airplay_player INTERFACE "LINKER:-rpath-link,$<TARGET_FILE_DIR:lychee>")
 
 
 # === Installation ===

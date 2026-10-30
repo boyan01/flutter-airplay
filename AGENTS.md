@@ -1,7 +1,8 @@
 # Flutter AirPlay
 
 One Flutter/C++ application serves macOS, Android phones/TV, iPad, Windows and Linux.
-Extend the existing model, repository and native core; keep playback inside the application.
+Extend the existing model, repository and native core. Decoding, audio output and A/V timing belong to
+the lychee_player pub package; fix playback there rather than adding a player here.
 
 ## References
 
@@ -18,8 +19,8 @@ Extend the existing model, repository and native core; keep playback inside the 
 | `lib/receiver/native/`, `native/ffi/` | FFI transport, JSON conversion and Dart subscriptions |
 | `native/receiver/` | Receiver state, desired/active settings and serial lifecycle |
 | `native/protocol/` | UxPlay callbacks, connections and discovery records |
-| `native/playback/` | Media queues, clocks, scheduling and recovery |
-| `native/backends/` | Platform codecs, audio devices and media output |
+| `native/playback/` | Adapter from UxPlay's streams to the lychee_player live C ABI, and frame hand-off to hosts |
+| `native/backends/windows/` | Windows DNS-SD and video frame descriptors |
 | `lib/platform/`, platform hosts | Window control, discovery, video surfaces and OS lifecycle; Apple hosts share `native/apple/` |
 
 Widgets use typed model state and own presentation and transient UI state.
@@ -63,6 +64,16 @@ Keep the default native suite small and select device/codec matrices explicitly.
 Add fixtures to the relevant suite, with generators beside their test sources.
 Shared native tests live in `native/tests/`; real host, window and device tests live in platform projects.
 Report checks performed and platform/device coverage. Use CI results for the submitted revision.
+
+## Commits
+
+Write commit messages for someone scanning `git log`:
+
+- Subject: one imperative line under 72 characters naming the result, e.g. `Build every host from Flutter`.
+- Body only when the subject needs it: at most about five short lines or bullets on why, and on
+  changes a developer must act on (new requirements, removed scripts, migration steps).
+- Leave out file inventories, implementation walkthroughs, verification results and evidence paths;
+  report those in the task response.
 
 ## Releases
 

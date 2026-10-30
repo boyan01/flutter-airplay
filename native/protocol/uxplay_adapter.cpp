@@ -3,6 +3,8 @@
 #include "uxplay_adapter.h"
 #include "uxplay_callbacks.h"
 #include "../playback/player_internal.h"
+#include <cstring>
+#include <string>
 extern "C" {
 #include "dnssd.h"
 #include "logger.h"
@@ -43,7 +45,7 @@ void client(void *cls, char *, char *, char *name, bool *admit) {
     player(cls)->event("client", clean.c_str());
 }
 void mirror(void *cls, bool running) { if (running) player(cls)->event("connecting", "Sender connected"); }
-double volume(void *cls) { return player(cls)->pcm->volume_db(); }
+double volume(void *cls) { return player(cls)->volume_db(); }
 void volume_set(void *cls, float db) { player(cls)->set_volume(db); }
 int codec(void *cls, video_codec_t c) {
     if (c != VIDEO_CODEC_H264 && c != VIDEO_CODEC_H265) return -1;
@@ -125,19 +127,16 @@ bool ProtocolAdapter::start( const char *name, const uint8_t identity[6], const 
     dnssd_set_airplay_features(impl_->dns, 0, 0); dnssd_set_airplay_features(impl_->dns, 4, 0);
     dnssd_set_airplay_features(impl_->dns, 7, 1);
     dnssd_set_airplay_features(impl_->dns, 27, p->fast_pairing ? 0 : 1);
-    dnssd_set_airplay_features(impl_->dns, 42, p->video->supports_hevc() ? 1 : 0);
+    dnssd_set_airplay_features(impl_->dns, 42, p->supports_hevc() ? 1 : 0);
     raop_set_plist(impl_->receiver, "width", p->requested_width); raop_set_plist(impl_->receiver, "height", p->requested_height); raop_set_plist(impl_->receiver, "maxFPS", 60);
     if (raop_start_httpd(impl_->receiver, &impl_->port) < 0 || !impl_->port) return fail("Cannot bind AirPlay listener");
     raop_set_port(impl_->receiver, impl_->port);
     if (dnssd_register_raop(impl_->dns, impl_->port) || dnssd_register_airplay(impl_->dns, impl_->port)) return fail("Cannot register discovery services");
     p->log(p->fast_pairing ? "Fast pairing: enabled; legacy pairing advertisement disabled"
                            : "Fast pairing: disabled; legacy pairing advertisement enabled");
-#if defined(__APPLE__) && TARGET_OS_OSX
-    p->log("macOS playback buffer: 120 ms; shared audio/video timeline");
-#endif
-    p->log(p->video->supports_hevc()
-        ? "Shared C++ player: H.264 / HEVC / AAC / ALAC, 60 FPS capability, common monotonic timeline"
-        : "Shared C++ player: H.264 / AAC / ALAC, 60 FPS capability, common monotonic timeline");
+    p->log(p->supports_hevc()
+        ? "lychee player: H.264 / HEVC / AAC / ALAC, 60 FPS capability"
+        : "lychee player: H.264 / AAC / ALAC, 60 FPS capability");
     return true;
 }
 

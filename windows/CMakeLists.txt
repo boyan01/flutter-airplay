@@ -66,7 +66,11 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# AirPlay's AAC-ELD audio needs lychee's FFmpeg decoder on Windows.
+set(LYCHEE_WITH_FFMPEG ON)
 include(flutter/generated_plugins.cmake)
+# The ClangCL native player, linking the lychee_player plugin's core.
+include(cmake/NativePlayer.cmake)
 
 
 # === Installation ===

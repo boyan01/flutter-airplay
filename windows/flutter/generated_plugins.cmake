@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  lychee_player
   share_plus
   url_launcher_windows
 )

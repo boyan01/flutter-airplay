@@ -9,28 +9,21 @@ Usage: ./scripts/test_native.sh [target] [suite] [arguments]
 
 Without a target, run the current OS's basic native suite.
   macos [player|all|host|texture|rtp]
-      player is the default; all adds host, texture and RTP tests.
+      player is the default; all adds host, texture and RTP/crypto tests.
       player accepts CTest arguments, e.g. macos player -R playback.
-  linux [player|video|gpu|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
-      player is the default; all includes available Flutter host and texture tests.
-      Argument-free all also runs standalone ALAC tests.
-  windows [player|video|texture|all] [CTest arguments]
-      player is the default; video checks platform and FFmpeg decoders.
-      Run existing fixtures prepared by build_native.ps1 -Tests.
+  linux [player|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
+      player is the default; all includes the available Flutter host test.
+  windows [player|texture|all] [CTest arguments]
+      player is the default.
+      Builds the fixtures in the nested native build of flutter build windows --debug.
       Argument-free all includes texture; extra arguments select native CTest only.
       texture uses windows_texture_test built in the Flutter Windows project.
       installer <setup.exe> checks install, upgrade, startup and uninstall.
       Invoke this script with Bash from the configured Windows toolchain.
-  android [host|rtp|player [--full]|kotlin]
+  android [host|rtp|kotlin]
       host is the default; RTP is separate to avoid duplicate host runs.
-      player tests selected decoders; --full restores the decoder/size matrix.
-      player requires an authorized arm64 device.
   ios
       XCTest on an existing iPad simulator (IOS_TEST_DESTINATION optional).
-  alac
-      Standalone decoder (ALAC_SANITIZE=ON optional).
-  ffmpeg
-      Shared video adapter (FFMPEG_SANITIZE=ON optional).
   receiver
       Shared control without Dart SDK, protocol or media backends.
   build
@@ -49,9 +42,9 @@ require_macos_player() {
 
 macos_player() {
     require_macos_player
-    cmake -S "$project_root/native" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
-    cmake --build "$project_root/build/macos-native" --target player_tests session_tests receiver_control_tests receiver_tests --parallel 8
-    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -L 'receiver|ffi|playback' "$@"
+    cmake -S "$project_root/native/apple" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
+    cmake --build "$project_root/build/macos-native" --target receiver_control_tests receiver_tests --parallel 8
+    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -L 'receiver|ffi' "$@"
 }
 
 macos_host() (
@@ -83,34 +76,15 @@ macos_texture() (
 
 macos_rtp() (
     require_macos_player
-    cmake -S "$project_root/native" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
-    cmake --build "$project_root/build/macos-native" --target protocol_rtp_tests --parallel 8
-    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -R '^rtp$'
-)
-
-alac_tests() (
-    output="$project_root/build/alac-tests"
-    cmake -S "$project_root/native/tests" -B "$output" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DAIRPLAY_SANITIZE="${ALAC_SANITIZE:-OFF}" -DAIRPLAY_TEST_FFMPEG=OFF
-    cmake --build "$output" --target alac_tests --parallel 8
-    ctest --test-dir "$output" --output-on-failure --no-tests=error
-)
-
-ffmpeg_tests() (
-    output="$project_root/build/ffmpeg-video-tests"
-    cmake -S "$project_root/native/tests" -B "$output" -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DAIRPLAY_SANITIZE="${FFMPEG_SANITIZE:-OFF}" -DAIRPLAY_TEST_FFMPEG=ON
-    cmake --build "$output" --target ffmpeg_video_tests --parallel 8
-    ctest --test-dir "$output" --output-on-failure --no-tests=error
+    cmake -S "$project_root/native/apple" -B "$project_root/build/macos-native" -DAIRPLAY_BUILD_TESTS=ON
+    cmake --build "$project_root/build/macos-native" --target protocol_rtp_tests protocol_crypto_tests --parallel 8
+    ctest --test-dir "$project_root/build/macos-native" --output-on-failure --no-tests=error -R '^(rtp|crypto)$'
 )
 
 android_host() (
-    python3 "$project_root/scripts/fetch_native_deps.py"
     mkdir -p "$project_root/artifacts/android"
     cmake -S "$project_root/android/tests" -B "$project_root/build/android-core-host" -DCMAKE_BUILD_TYPE=Debug \
-        -DHOST_SANITIZE="${HOST_SANITIZE:-OFF}" \
-        -DUXPLAY_SOURCE="$project_root/vendor/UxPlay" \
-        -DPLIST_SOURCE="$project_root/build/native-deps/libplist" -DCRYPTO_PREFIX="${HOST_CRYPTO_PREFIX:-}"
+        -DHOST_SANITIZE="${HOST_SANITIZE:-OFF}"
     if [[ "${1:-host}" == rtp ]]; then
         cmake --build "$project_root/build/android-core-host" --target rtp_test -j8 > "$project_root/artifacts/android/native-host.log" 2>&1 || {
             cat "$project_root/artifacts/android/native-host.log" >&2; exit 1;
@@ -122,74 +96,6 @@ android_host() (
         }
         "$project_root/build/android-core-host/receiver_test" | tee "$project_root/artifacts/android/core-test.log"
     fi
-)
-
-android_player() (
-    case "$(uname -s)" in
-        Darwin) ndk_host=darwin-x86_64; default_sdk="$HOME/Library/Android/sdk" ;;
-        Linux)
-            [[ "$(uname -m)" == x86_64 ]] || fail 'The Linux NDK host tools require x86_64.'
-            ndk_host=linux-x86_64; default_sdk="$HOME/Android/Sdk"
-            ;;
-        *) fail 'Build Android fixtures on macOS or Linux x86_64.' ;;
-    esac
-    sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$default_sdk}}
-    ndk_version=$(sed -n 's/^airplay\.ndkVersion=//p' "$project_root/android/gradle.properties")
-    [[ "$ndk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'Set airplay.ndkVersion in android/gradle.properties.'
-    ndk="$sdk/ndk/$ndk_version"
-    toolchain="$ndk/toolchains/llvm/prebuilt/$ndk_host/bin"
-    tools="$sdk/build-tools/36.0.0"
-    output="$project_root/build/android-player-tests"
-    mkdir -p "$output/classes" "$output/lib/arm64-v8a" "$project_root/artifacts/android"
-    ndk_version=$(sed -n 's/^airplay\.ndkVersion=//p' "$project_root/android/gradle.properties")
-    native_output="$project_root/build/android-native-arm64-$ndk_version"
-    [[ -f "$native_output/CMakeCache.txt" ]] || fail 'Build the Android native player first.'
-    cmake="$sdk/cmake/3.22.1/bin/cmake"
-    "$cmake" -S "$project_root/android/app/src/main/cpp" -B "$native_output" -DAIRPLAY_ANDROID_BUILD_TESTS=ON
-    "$cmake" --build "$native_output" --target player_regression --parallel 8
-    cp "$native_output/libplayer_regression.so" "$output/lib/arm64-v8a/"
-    cp "$project_root/android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so" "$output/lib/arm64-v8a/"
-    javac -source 17 -target 17 -cp "$sdk/platforms/android-36/android.jar" \
-        -d "$output/classes" "$project_root/android/tests/player/"*.java \
-        "$project_root/native/backends/android/java/tech/soit/flutterairplay/audio/"*.java
-    "$tools/d8" --min-api 26 --output "$output" "$output/classes/tech/soit/flutterairplay/player_regression/"*.class \
-        "$output/classes/tech/soit/flutterairplay/audio/"*.class
-    cat > "$output/AndroidManifest.xml" <<'MANIFEST'
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="tech.soit.flutterairplay.player_regression">
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
-    <application android:label="Native playback fixtures" android:extractNativeLibs="true">
-        <activity android:name=".TestActivity" android:exported="true">
-            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-        </activity>
-    </application>
-</manifest>
-MANIFEST
-    "$tools/aapt2" link -I "$sdk/platforms/android-36/android.jar" --manifest "$output/AndroidManifest.xml" -o "$output/unsigned.apk"
-    (cd "$output" && zip -q unsigned.apk classes.dex lib/arm64-v8a/*.so)
-    "$tools/zipalign" -f -p 4 "$output/unsigned.apk" "$output/aligned.apk"
-    if [[ ! -f "$output/test.keystore" ]]; then
-        keytool -genkeypair -keystore "$output/test.keystore" -storepass android -keypass android \
-            -alias test -dname 'CN=Native playback fixtures' -keyalg RSA -validity 3650 > /dev/null 2>&1
-    fi
-    "$tools/apksigner" sign --ks "$output/test.keystore" --ks-pass pass:android --out "$output/player-tests.apk" "$output/aligned.apk"
-    started=$("$sdk/platform-tools/adb" shell "date '+%m-%d %H:%M:%S.000'")
-    if [[ ${AIRPLAY_AUDIO_ONLY:-0} == 1 || "${1:-}" == --full ]]; then
-        launch_args=(--ez fullMatrix false)
-        if [[ "${1:-}" == --full ]]; then launch_args=(--ez fullMatrix true); fi
-        if [[ ${AIRPLAY_AUDIO_ONLY:-0} == 1 ]]; then launch_args+=(--ez audioOnly true); fi
-        android install --apks="$output/player-tests.apk"
-        "$sdk/platform-tools/adb" shell am start -S -n tech.soit.flutterairplay.player_regression/.TestActivity "${launch_args[@]}"
-    else
-        android run --apks="$output/player-tests.apk"
-    fi
-    # Poll only this fixture's log tag; the timeout is bounded and output is local.
-    for attempt in {1..120}; do
-        "$sdk/platform-tools/adb" logcat -d -T "$started" -s PlayerRegression:I '*:S' > "$project_root/artifacts/android/player-device-tests.log"
-        if rg -q 'COMPLETE: (PASS:|FAIL:)' "$project_root/artifacts/android/player-device-tests.log"; then break; fi
-        sleep 1
-    done
-    cat "$project_root/artifacts/android/player-device-tests.log"
-    rg -q 'COMPLETE: PASS:' "$project_root/artifacts/android/player-device-tests.log"
 )
 
 ios_tests() (
@@ -212,6 +118,8 @@ sys.exit("No installed iPad simulator is available")')
     result="$project_root/artifacts/ios/player-tests.xcresult"
     [[ ! -e "$result" ]] || result="$project_root/artifacts/ios/player-tests-$(date +%Y%m%d-%H%M%S).xcresult"
     cd "$project_root"
+    # Regenerates the plugins' Swift package for the app's deployment target.
+    flutter build ios --config-only --simulator --debug
     xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug \
         -sdk iphonesimulator -destination "$destination" -derivedDataPath "$project_root/build/ios-tests" \
         -resultBundlePath "$result" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
@@ -224,15 +132,9 @@ linux_tests() (
     test_args=(--no-tests=error)
     case "$suite" in
         player)
-            targets=(linux_player_tests linux_session_tests linux_audio_decoder_tests linux_audio_output_tests receiver_control_tests)
-            test_args+=(-R '^(linux_(playback|sender_resume|audio_decode_recovery|audio_unavailable_cleanup)|receiver_control)$')
+            targets=(receiver_control_tests receiver_tests protocol_crypto_tests)
+            test_args+=(-R '^(crypto|receiver_(control|lifecycle))$')
             ;;
-        gpu)
-            targets=(linux_gpu_tests)
-            if [[ -f "$project_root/linux/flutter/ephemeral/libflutter_linux_gtk.so" ]]; then targets+=(linux_gl_texture_tests linux_synthetic_demo); fi
-            test_args+=(-R '^linux_gpu_')
-            ;;
-        video) targets=(linux_video_tests); test_args+=(-R '^linux_video_reorder_recovery$') ;;
         host) targets=(linux_host_tests); test_args+=(-R '^linux_flutter_host_lifecycle$') ;;
         all) ;;
         *) fail "Unknown Linux suite: $suite. Use --help." ;;
@@ -272,15 +174,10 @@ macos_tests() {
 android_tests() {
     local suite="${1:-host}"
     if [[ $# -gt 0 ]]; then shift; fi
-    if [[ "$suite" == player ]]; then
-        [[ $# -eq 0 || ( $# -eq 1 && "$1" == --full ) ]] || fail 'Android player accepts only --full.'
-    else
-        [[ $# -eq 0 ]] || fail 'Only Android player accepts --full.'
-    fi
+    [[ $# -eq 0 ]] || fail 'Android suites take no arguments.'
     case "$suite" in
         host) android_host ;;
         rtp) android_host rtp ;;
-        player) android_player "$@" ;;
         kotlin)
             : "${GRADLE_BIN:?Set GRADLE_BIN to the configured Gradle executable}"
             "$GRADLE_BIN" -p "$project_root/android" :app:testDebugUnitTest -Ptarget-platform=android-arm64
@@ -305,14 +202,19 @@ windows_tests() {
         return
     fi
     case "$suite" in
-        player) test_args+=(-R '^(windows_(pixels|compat|httpd|audio_clock|audio_decode_recovery|startup)|receiver_(control|lifecycle))$') ;;
-        video) test_args+=(-R '^windows_(video|video_gpu|hevc_software)$') ;;
+        player) test_args+=(-R '^(crypto|windows_(compat|httpd|startup)|receiver_(control|lifecycle))$') ;;
         all) ;;
         *) fail "Unknown Windows suite: $suite. Use --help." ;;
     esac
-    [[ -f "$project_root/build/windows-native/CTestTestfile.cmake" ]] ||
-        fail 'Build Windows fixtures with windows/scripts/build_native.ps1 -Tests first.'
-    ctest --test-dir "$project_root/build/windows-native" -C Release --output-on-failure "${test_args[@]}" "$@"
+    # The Flutter build configures the nested native player build and builds
+    # lychee_player.dll, which the fixtures load.
+    local native="$project_root/build/windows/x64/native"
+    local runtime="$project_root/build/windows/x64/runner/Debug"
+    [[ -f "$native/CMakeCache.txt" && -f "$runtime/lychee_player.dll" ]] ||
+        fail 'Prepare the Windows host with flutter build windows --debug first.'
+    cmake -S "$project_root/windows/player" -B "$native" -DAIRPLAY_WINDOWS_BUILD_TESTS=ON
+    cmake --build "$native" --config Release --parallel
+    PATH="$runtime:$PATH" ctest --test-dir "$native" -C Release --output-on-failure "${test_args[@]}" "$@"
     if [[ "$suite" == all && $# -eq 0 ]]; then windows_tests texture; fi
 }
 
@@ -349,26 +251,17 @@ case "$target" in
             MINGW*|MSYS*|CYGWIN*) receiver_configure+=(-G 'Visual Studio 17 2022' -A x64 -T ClangCL) ;;
         esac
         "${receiver_configure[@]}" \
-            -DCMAKE_BUILD_TYPE=Debug -DAIRPLAY_CONTROL_ONLY=ON \
-            -DUXPLAY_SOURCE="$project_root/vendor/UxPlay" \
-            -DPLIST_SOURCE="$project_root/build/native-deps/libplist"
+            -DCMAKE_BUILD_TYPE=Debug -DAIRPLAY_CONTROL_ONLY=ON
         cmake --build "$project_root/build/receiver-control" --config Debug --target receiver_tests --parallel 8
         ctest --test-dir "$project_root/build/receiver-control" -C Debug --output-on-failure --no-tests=error
         ;;
     macos) macos_tests "$@" ;;
-    linux)
-        linux_tests "$@"
-        if [[ "${1:-}" == all && $# -eq 1 ]]; then alac_tests; fi
-        ;;
+    linux) linux_tests "$@" ;;
     windows) windows_tests "$@" ;;
     android) android_tests "$@" ;;
-    ios|alac|ffmpeg)
+    ios)
         [[ $# -eq 0 ]] || fail "$target does not accept extra arguments. Use --help."
-        case "$target" in
-            ios) ios_tests ;;
-            alac) alac_tests ;;
-            ffmpeg) ffmpeg_tests ;;
-        esac
+        ios_tests
         ;;
     *) fail "Unknown target: $target. Use --help." ;;
 esac

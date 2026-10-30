@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "../../../../../native/include/airplay/receiver.h"
-#include "../../../../../native/backends/android/android_audio.h"
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
@@ -70,7 +69,7 @@ jbyteArray bytes(JNIEnv *env, const char *text) { return bytes(env, reinterpret_
 }
 extern "C" JNIEXPORT jlong JNICALL Java_tech_soit_flutterairplay_PlaybackHost_createNative(
     JNIEnv *env, jobject target, jstring metadata, jbyteArray identity, jstring key) {
-    if (env->GetArrayLength(identity) != 6 || !airplay::initialize_android_audio(env)) { fail(env, "Cannot initialize native audio"); return 0; }
+    if (env->GetArrayLength(identity) != 6) { fail(env, "Invalid receiver identity"); return 0; }
     auto host = std::make_shared<Host>(); env->GetJavaVM(&host->vm); host->target = env->NewGlobalRef(target);
     auto cls = env->GetObjectClass(target);
     host->event = env->GetMethodID(cls, "onNativeEvent", "([B)V");

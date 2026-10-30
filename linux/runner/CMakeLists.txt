@@ -27,8 +27,7 @@ target_compile_features(${BINARY_NAME} PRIVATE cxx_std_17)
 add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 
 # Add dependency libraries. Add any application-specific dependencies here.
-pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
-target_link_libraries(${BINARY_NAME} PRIVATE flutter PkgConfig::EPOXY)
+target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::AVAHI airplay_player)
 

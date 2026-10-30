@@ -17,7 +17,7 @@ and renderer provenance is recorded separately in `NOTICE`. The adapter preserve
 generation rather than using the reference project's newer UxPlay structures.
 
 Native dependencies are pinned in `../native/dependencies.lock.json`: libplist 2.6.0
-(LGPL-2.1-or-later), OpenSSL 3.6.4 (Apache-2.0). Their corresponding source can
-be fetched with `../scripts/fetch_native_deps.py`. License texts are packaged in APK assets. Redistributing the application
+(LGPL-2.1-or-later), BoringSSL 0.20261020.0 (Apache-2.0). The build downloads their
+source release archives listed there. License texts are packaged in APK assets. Redistributing the application
 requires the corresponding source and applicable license obligations; the APK
 alone is not a source distribution.

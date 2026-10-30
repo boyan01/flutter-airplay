@@ -75,7 +75,6 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   std::function<void(FlValue*)> on_snapshot;
   uint64_t handle = 0;
   Discovery discovery;
-  AirplayCallbacks video_callbacks{};
   GKeyFile* preferences = g_key_file_new();
   std::string config_directory, preferences_path, key_path, config_error;
   int screen_width = 1920, screen_height = 1080;
@@ -110,23 +109,13 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
       if (self->texture_id < 0) { snprintf(error, capacity, "Flutter video texture is unavailable"); return static_cast<AirplayPlayer*>(nullptr); }
       std::string detail;
       if (!Discovery::Check(&detail)) { snprintf(error, capacity, "%s", detail.c_str()); return static_cast<AirplayPlayer*>(nullptr); }
-      self->video_callbacks = callbacks;
-      AirplayLinuxVideoOptions options{};
-      return airplay_player_create(callbacks, &options, nullptr, nullptr);
+      return airplay_player_create(callbacks, nullptr, nullptr, nullptr);
     };
     hooks.texture_id = [](void* context) { return static_cast<State*>(context)->texture_id.load(); };
     hooks.end_video = [](void* context, bool) { static_cast<State*>(context)->ClearFrame(); };
     hooks.clear_video = [](void* context) { static_cast<State*>(context)->ClearFrame(); };
     hooks.frame = [](void* context, void* frame, int64_t) {
       auto* self = static_cast<State*>(context);
-      if (frame && !self->closing) {
-        const auto error = self->texture->TakeError();
-        if (!error.empty()) {
-          if (self->video_callbacks.log) self->video_callbacks.log(self->video_callbacks.context, 3, error.c_str());
-          if (self->video_callbacks.event) self->video_callbacks.event(self->video_callbacks.context, "error", error.c_str(), 0, 0);
-          return;
-        }
-      }
       if (frame && !self->closing && self->texture->Receive(*static_cast<AirplayLinuxVideoFrame*>(frame))) self->NotifyFrame();
     };
     hooks.publish = [](void* context, uint64_t epoch, const char* name, const uint8_t* identity, uint16_t port,
@@ -260,7 +249,7 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   }
   void Install(FlBinaryMessenger* messenger, FlTextureRegistrar* registrar) {
     this->messenger = messenger;
-    UpdateScreenSize(); texture = std::make_unique<FrameTexture>(registrar, true, true);
+    UpdateScreenSize(); texture = std::make_unique<FrameTexture>(registrar);
     try { Create(); } catch (const std::exception& error) { config_error = error.what(); }
     g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
     methods = fl_method_channel_new(messenger, "org.airplayreceiver/platform", FL_METHOD_CODEC(codec));

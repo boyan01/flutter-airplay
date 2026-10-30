@@ -13,10 +13,9 @@ The shared receive core is maintained in `vendor/UxPlay/`. Upstream provenance
 and local modifications are recorded in [UPSTREAM.md](vendor/UxPlay/UPSTREAM.md).
 Original copyright and license notices remain with the source.
 
-## Shared C++ player and Android reference
+## Android decoder selector
 
-The shared player retains derived AirPlay audio configuration and device-loss
-handling. The Android decoder selector also derives from
+The Android decoder selector derives from
 https://github.com/jqssun/android-airplay-server.
 Copied paths and the upstream commit are recorded in
 [dependencies.lock.json](native/dependencies.lock.json).
@@ -24,34 +23,17 @@ Source notices are retained in [NOTICE](android/NOTICE),
 [CORE_NOTICE.md](android/CORE_NOTICE.md) and the bundled
 [license assets](assets/licenses/).
 
-## Apple ALAC decoder
+## lychee_player
 
-Source: https://github.com/macosforge/alac
-Base commit: c38887c5c5e64a4b31108733bd79ca9b2496d987
-License: Apache-2.0
+Source: https://github.com/boyan01/lychee_player
+License: MIT
 
-Decoder sources are maintained in `vendor/alac/` and linked on Android, Windows
-and Linux.
-The encoder and conversion utility are excluded. Original copyright and license
-notices remain with the source. Local input-bound checks are recorded in
-[UPSTREAM.md](vendor/alac/UPSTREAM.md). The license is bundled in
-[ALAC-Apache-2.0.txt](assets/licenses/ALAC-Apache-2.0.txt).
-
-## FFmpeg media decoding
-
-Windows and Linux share `native/backends/ffmpeg/ffmpeg_audio_decoder.cpp` and
-`native/backends/ffmpeg/ffmpeg_video.cpp`. Windows builds
-FFmpeg n7.1.5 from source commit `3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587`,
-pinned in [dependencies.lock.json](native/dependencies.lock.json).
-Source: https://github.com/FFmpeg/FFmpeg.
-The Windows configuration enables the native float AAC and HEVC decoders in shared
-libavcodec, libavutil, libswresample and libswscale, without GPL/nonfree components
-or external codecs. HEVC software decoding backs up the system Media Foundation
-decoder. The upstream source is unmodified. Build options are recorded in
-[build_ffmpeg.sh](windows/scripts/build_ffmpeg.sh) and included in Windows packages.
-The LGPL-2.1-or-later license and source/build notices are bundled in the existing
-[license assets](assets/licenses/).
-Redistributions must retain the corresponding source and exact build configuration.
+Every platform decodes, outputs audio and times frames through the lychee_player
+C ABI, taken from its Flutter plugin (DEVELOPMENT.md). Apple platforms and
+Android link its FFmpeg-free core. Windows and Linux ship the LGPL-2.1-or-later
+FFmpeg its release pins, built without GPL or nonfree components and linked
+dynamically. lychee_player's own notices, including FFmpeg's, are bundled in
+[lychee_player-NOTICES.txt](assets/licenses/lychee_player-NOTICES.txt).
 
 ## Sparkle macOS updates
 
@@ -63,10 +45,22 @@ Sparkle's MIT license and bundled components' BSD, MIT and zlib notices are
 retained in [sparkle.txt](assets/licenses/sparkle.txt). Its upstream binary
 package checksum is verified by Swift Package Manager.
 
+## libplist and BoringSSL
+
+Sources: https://github.com/libimobiledevice/libplist and
+https://boringssl.googlesource.com/boringssl (GitHub mirror google/boringssl).
+Versions, archives and SHA-256 are pinned in
+[dependencies.lock.json](native/dependencies.lock.json); builds download and
+compile the unmodified release sources. Every host compiles in libplist
+(LGPL-2.1-or-later). Android, Windows, macOS and iPad compile in BoringSSL's
+libcrypto (Apache-2.0); Linux uses the distribution's OpenSSL 3. Their licenses
+are retained in [libplist-LGPL-2.1.txt](assets/licenses/libplist-LGPL-2.1.txt)
+and [BoringSSL-LICENSE.txt](assets/licenses/BoringSSL-LICENSE.txt).
+
 ## Linux system dependencies
 
-The Linux host links distribution-provided FFmpeg, GTK/GLib, PulseAudio, Avahi,
-OpenSSL and libplist libraries. It does not vendor those sources or use FDK-AAC.
+The Linux host links distribution-provided GTK/GLib, PulseAudio, Avahi and
+OpenSSL libraries. It does not vendor those sources or use FDK-AAC.
 Dependency licensing and distribution requirements are recorded in
 [NOTICE](linux/NOTICE). Preserve the exact notices and licenses of any packages
 included in a distribution; installed system libraries remain runtime dependencies.

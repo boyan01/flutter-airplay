@@ -9,6 +9,16 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+// srp.c includes wincrypt.h, whose macros collide with BoringSSL's typedefs.
+// Include it first so the later include is a no-op, then drop the macros.
+#include <wincrypt.h>
+#undef X509_NAME
+#undef X509_EXTENSIONS
+#undef X509_CERT_PAIR
+#undef PKCS7_ISSUER_AND_SERIAL
+#undef PKCS7_SIGNER_INFO
+#undef OCSP_REQUEST
+#undef OCSP_RESPONSE
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>

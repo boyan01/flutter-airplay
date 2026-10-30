@@ -89,7 +89,7 @@ def validate_bundle(root, bundle, version, build_number):
         raise ValueError("Bundle version/build number does not match pubspec.yaml. Rebuild without --skip-build.")
     for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "linux/NOTICE",
                  f"linux/icons/{APP_ID}.png", f"linux/{APP_ID}.desktop",
-                 "vendor/UxPlay/UPSTREAM.md", "vendor/alac/UPSTREAM.md"):
+                 "vendor/UxPlay/UPSTREAM.md"):
         require_file(root / name)
     licenses = root / "assets/licenses"
     if not licenses.is_dir() or not any(licenses.iterdir()):
@@ -126,8 +126,7 @@ def stage_bundle(root, bundle, destination):
     notices.mkdir(exist_ok=True)
     shutil.copytree(root / "assets/licenses", notices / "assets", dirs_exist_ok=True)
     shutil.copy2(root / "linux/NOTICE", notices / "linux-NOTICE")
-    for vendor in ("UxPlay", "alac"):
-        shutil.copy2(root / f"vendor/{vendor}/UPSTREAM.md", notices / f"{vendor}-UPSTREAM.md")
+    shutil.copy2(root / "vendor/UxPlay/UPSTREAM.md", notices / "UxPlay-UPSTREAM.md")
     # Include desktop integration even for an older otherwise-valid bundle.
     desktop = destination / f"share/applications/{APP_ID}.desktop"
     desktop.parent.mkdir(parents=True, exist_ok=True)

@@ -68,8 +68,8 @@ https://github.com/user-attachments/assets/1c935c08-dd36-4b4c-be52-38eb88ff2adc
 | macOS | 支持 | macOS 12+，Apple Silicon。打开 DMG，将应用拖入 Applications。登录启动需 macOS 13+。 |
 | Android 手机 / TV | 支持 | Android 8.0+，arm64。安装 APK。 |
 | Windows | 实验性 | Windows 10+，x64。运行 Setup；Windows N 还需安装 Media Feature Pack。 |
-| Linux | 实验性 | x64 桌面，GTK 3、FFmpeg 6+、Avahi、PulseAudio/PipeWire。安装 `.deb` 或使用 bundle。 |
-| iPad | 实验性 | iPadOS 15+。[从源码构建](DEVELOPMENT.md#ipad)，保持应用在前台接收。 |
+| Linux | 实验性 | x64 桌面，GTK 3、Avahi、PulseAudio/PipeWire。安装 `.deb` 或使用 bundle。 |
+| iPad | 实验性 | iPadOS 16+。[从源码构建](DEVELOPMENT.md#ipad)，保持应用在前台接收。 |
 
 Linux 需要 OpenGL 3.2+ 或 OpenGL ES 3+。`.deb` 在 Ubuntu 24.04 上构建，
 bundle 使用系统库。macOS 包使用 ad-hoc 签名，尚未公证；Windows 安装包尚未签名。

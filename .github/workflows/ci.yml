@@ -156,7 +156,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev \
             libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
             libpulse-dev libavahi-client-dev libepoxy-dev libffmpeg-nvenc-dev \
-            libssl-dev libplist-dev libx11-dev libxi-dev ffmpeg \
+            libssl-dev libx11-dev libxi-dev ffmpeg \
             xvfb xauth dbus-x11 at-spi2-core openbox xdotool x11-utils
       - name: Run Dart tests
         run: flutter test --no-pub
@@ -275,11 +275,6 @@ jobs:
               throw 'Media Foundation runtime is unavailable after installation.'
             }
           }
-      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
-        id: msys2
-        with:
-          msystem: MSYS
-          install: make diffutils
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
@@ -311,14 +306,11 @@ jobs:
           "image=$env:ImageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           # Runner image updates alone do not change these compiled dependencies.
           "version=$version-msvc$env:VCToolsVersion-sdk$sdk" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-      - name: Cache Windows native dependencies
+      - name: Cache Windows native dependency sources
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: |
-            build/windows-deps/crypto
-            build/windows-deps/ffmpeg-aac
-            build/native-preparation/windows-dependencies.txt
-          key: windows-native-deps-v2-windows2022-x64-${{ steps.native-toolchain.outputs.version }}-${{ hashFiles('native/dependencies.lock.json', 'windows/scripts/build_dependencies.ps1', 'windows/scripts/build_ffmpeg.sh', 'windows/scripts/build_native.ps1', 'scripts/ensure_native.py') }}
+          path: ~/AppData/Local/flutter-airplay
+          key: native-sources-v1-${{ hashFiles('native/dependencies.lock.json') }}
       - name: Cache Windows Dart native assets
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
@@ -330,18 +322,11 @@ jobs:
       - name: Run desktop integration suite
         timeout-minutes: 15
         shell: bash
-        env:
-          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
-          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
         run: |
           mkdir -p artifacts/windows
           flutter.bat test --no-pub -d windows integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/windows/desktop.log
       - name: Build native fixtures using integration build output
-        env:
-          AIRPLAY_BASH: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe
-          AIRPLAY_MAKE: ${{ steps.msys2.outputs.msys2-location }}/usr/bin/make.exe
         run: |
-          ./windows/scripts/build_native.ps1 -Tests
           # The integration build already produced Flutter and its wrappers.
           # Reuse them without rerunning Flutter's temporary test entrypoint.
           cmake --build build/windows/x64 --config Debug --target windows_texture_test -- /p:BuildProjectReferences=false
@@ -354,7 +339,7 @@ jobs:
           name: windows-test-logs
           path: |
             artifacts/windows/
-            build/windows-native/Testing/Temporary/
+            build/windows/x64/native/Testing/Temporary/
             build/windows/x64/Testing/Temporary/
           retention-days: 7
 
@@ -371,7 +356,7 @@ jobs:
       - name: Install host build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build perl python3 libssl-dev
+          sudo apt-get install -y build-essential cmake ninja-build python3 libssl-dev
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin

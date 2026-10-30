@@ -30,7 +30,7 @@ class LinuxPackagingTest(unittest.TestCase):
         self.bundle = self.root / "build/linux/x64/release/bundle"
         self.put("pubspec.yaml", "name: flutter_airplay\nversion: 1.2.3+4\n")
         for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "linux/NOTICE",
-                     "vendor/UxPlay/UPSTREAM.md", "vendor/alac/UPSTREAM.md"):
+                     "vendor/UxPlay/UPSTREAM.md"):
             self.put(name, f"Notice: {name}\n")
         self.put(f"linux/icons/{linux.APP_ID}.png", b"PNG fixture")
         self.put(f"linux/{linux.APP_ID}.desktop", "[Desktop Entry]\nType=Application\n"
@@ -136,7 +136,7 @@ class LinuxPackagingTest(unittest.TestCase):
         self.assertTrue(link.is_symlink())
         self.assertEqual(os.readlink(link), "libextra.so.2")
         for relative in ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/linux-NOTICE",
-                         "licenses/UxPlay-UPSTREAM.md", "licenses/alac-UPSTREAM.md",
+                         "licenses/UxPlay-UPSTREAM.md",
                          "licenses/assets/UxPlay-GPL-3.0.txt", f"share/applications/{linux.APP_ID}.desktop",
                          f"share/icons/hicolor/512x512/apps/{linux.APP_ID}.png"):
             self.assertTrue((destination / relative).is_file(), relative)

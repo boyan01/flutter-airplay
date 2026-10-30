@@ -23,6 +23,30 @@ flutter devices
 设备 ID 来自 `flutter devices`。Flutter 构建会自动准备原生依赖，首次需要联网，后续增量构建。
 运行应用调试时，Dart 改动使用热重载；原生改动后重新执行 `flutter run`。
 
+### lychee_player
+
+所有平台都通过 [lychee_player](https://pub.dev/packages/lychee_player) 的 C ABI 解码、
+输出音频和对齐帧时间。它是普通的 pub 依赖，版本由 `pubspec.yaml` 锁定；原生播放器链接
+插件在各平台提供的 lychee core，不需要本地 checkout：
+
+| 平台 | 插件提供 |
+| --- | --- |
+| macOS / iPad | Swift Package 的 `lychee.framework`（VideoToolbox / AudioToolbox，不含 FFmpeg） |
+| Android | Maven AAR `io.github.boyan01.lychee:lychee`（MediaCodec / AAudio，不含 FFmpeg），Gradle 构建原生库 |
+| Windows | 插件编译的 `lychee_player.dll`，开启 LGPL FFmpeg 解码 AAC-ELD |
+| Linux | 插件编译的 `liblychee_player.so` 和 LGPL FFmpeg |
+
+升级 lychee_player 后，若旧的 `build/macos-native`、`build/ios-native-*` 等目录报 CMake 源路径不一致，删除后重新构建。
+
+Android 请选择自动或 AAudio 音频输出；显式 AudioTrack 设置会报告不可用。
+
+用于重现协议到播放器的测试：先用 `flutter build macos` 或 `flutter build apk --debug` 构建应用，再执行
+`bash scripts/test_lychee_live.sh macos` 或 `bash scripts/test_lychee_live.sh android`。
+Android 的像素检查使用 lychee_player 仓库的 `tool/frame_check.py`，需要设置 `AIRPLAY_LYCHEE_ROOT` 指向其 checkout。
+脚本使用 macOS 的 `afconvert` 和 FFmpeg 生成 AAC-ELD 裸帧；原生测试通过生产协议回调
+推进视频和音频，检查暂停、恢复与销毁。Android 用独立测试包启动 Surface，
+最终结果见 `adb logcat -s LycheeLiveTest`。
+
 ### macOS 模拟 TV
 
 在 macOS 上测试 TV 布局和遥控器焦点：
@@ -48,11 +72,11 @@ macOS 窗口和实际投屏仍然可用；窗口标题栏保留鼠标操作，�
 
 ### macOS
 
-Apple Silicon Mac、Xcode、CMake、Python 3 和 Perl。可用 `brew install cmake` 安装 CMake。
+Apple Silicon Mac、Xcode、CMake 和 Python 3。可用 `brew install cmake` 安装 CMake。
 
 ### Android
 
-在 macOS 或 Linux x86_64 上开发。需要 Android SDK、JDK 17+、Python 3、Perl 和 Make，
+在 macOS 或 Linux x86_64 上开发。需要 Android SDK、JDK 17+ 和 Python 3，
 运行目标为 Android 8.0+ 的 arm64 设备。NDK 版本由 `android/gradle.properties` 管理：
 
 ```sh
@@ -64,47 +88,47 @@ Linux 的 SDK 通常位于 `$HOME/Android/Sdk`，按本机路径设置 `ANDROID_
 
 ### iPad
 
-Apple Silicon Mac、Xcode、CMake、Python 3 和 Perl。支持 iPadOS 15+ 和 arm64 模拟器。
+Apple Silicon Mac、Xcode、CMake 和 Python 3。支持 iPadOS 16+ 和 arm64 模拟器。
 真机运行前，在 `ios/Runner.xcworkspace` 中设置签名团队。
 
 ### Windows
 
 Windows x64、Visual Studio 2022（C++ 桌面开发、Windows SDK、Clang tools）、
-CMake、Git Bash、Python 3.10+ 和原生 Windows Perl（如 Strawberry Perl，不能用 Git Bash/MSYS 自带的 Perl）。
+CMake、Git Bash 和 Python 3.10+。
 工具应在 PATH 中可用。
-FFmpeg 构建使用 MSYS2/Cygwin GNU Make，缺失时脚本下载锁定版本。
-自定义工具路径使用 `AIRPLAY_BASH` 和 `AIRPLAY_MAKE`。
 
 ### Linux
 
-需要 GTK 3、FFmpeg 6+、OpenGL 3.2+ / OpenGL ES 3+、Avahi、PulseAudio/PipeWire、
-OpenSSL 和 libplist 2.3+。Ubuntu 24.04 可安装：
+需要 GTK 3、Avahi、PulseAudio/PipeWire 和 OpenSSL 3。Ubuntu 24.04 可安装：
 
 ```sh
 sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev \
-  libavcodec-dev libavutil-dev libswscale-dev libswresample-dev libepoxy-dev \
-  libpulse-dev libavahi-client-dev libssl-dev libplist-dev libx11-dev libxi-dev \
-  default-jdk-headless ffmpeg
+  libpulse-dev libavahi-client-dev libssl-dev libx11-dev libxi-dev \
+  default-jdk-headless
 export JAVA_HOME=/usr/lib/jvm/default-java
 ```
 
 运行时保持 `avahi-daemon`、session D-Bus 和音频服务可用。
-NVIDIA CUDA/OpenGL 互操作另需 `nv-codec-headers`（Ubuntu 包 `libffmpeg-nvenc-dev`）。
 
 ### 单独构建原生代码
 
-原生调试或准备测试产物时使用：
+原生播放器链接 lychee_player 插件的产物，所以由 Flutter 构建一并编译；之后可在输出目录增量构建：
 
-| 平台 | 命令 | 输出 |
+| 平台 | 首次构建 | 输出 |
 | --- | --- | --- |
-| macOS | `./scripts/build_receiver.sh` | `build/macos-native/` |
-| Android | `./android/scripts/build_native.sh` | `android/app/src/main/jniLibs/arm64-v8a/` |
-| iPad | `./ios/scripts/build_native.sh` | `build/ios-native/AirplayPlayer.xcframework` |
-| Windows | `powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build_native.ps1` | `build/windows-native/` |
+| macOS | `flutter build macos --debug` | `build/macos-native/` |
+| Android | `flutter build apk --debug` | `android/app/.cxx/`，APK 中的 `libairplay_player.so` |
+| iPad | `flutter build ios --simulator --debug` | `build/ios-native/` |
+| Windows | `flutter build windows --debug` | `build/windows/x64/native/` |
 | Linux | `flutter build linux --debug` | `build/linux/x64/debug/bundle/` |
 
-脚本使用优化配置，与 Flutter 的 Debug 模式独立。
+Apple 和 Windows 的原生播放器使用优化配置，与 Flutter 的 Debug 模式独立。
 FFI 编译从 Flutter/Dart SDK 读取头文件；自定义 SDK 路径可设置 `DART_SDK_ROOT` 或 `FLUTTER_ROOT`。
+
+libplist 和 BoringSSL（Linux 使用系统 OpenSSL 3）按 `native/dependencies.lock.json` 的版本和 SHA-256
+在首次配置时下载源码，在本机缓存中只解压一次，各构建共用：Windows 为 `%LOCALAPPDATA%\flutter-airplay`，
+其他系统为 `$XDG_CACHE_HOME/flutter-airplay` 或 `~/.cache/flutter-airplay`。
+离线时可把锁文件中的归档放进缓存目录，或用 CMake 变量 `AIRPLAY_LIBPLIST_SOURCE`、`AIRPLAY_BORINGSSL_SOURCE` 指定源码目录。
 
 ## 生成代码与资源
 
@@ -135,7 +159,7 @@ flutter test
 | Dart 接收逻辑 | `flutter test test/receiver/` |
 | UI / 输入 | `flutter test test/ui/`；需要真实窗口或设备才能验证的行为，再运行应用检查 |
 | 公共控制 / FFI | `./scripts/test_native.sh receiver` 和平台原生套件中的 FFI 用例 |
-| 协议 / 播放 | 对应平台的 RTP、player 或 video 套件 |
+| 协议 / 播放 | 对应平台的 RTP 套件和 `scripts/test_lychee_live.sh` |
 | 构建 / 依赖 / 打包脚本 | `./scripts/test_native.sh build` 和对应平台构建 |
 
 ### 原生测试
@@ -147,26 +171,21 @@ flutter test
 | --- | --- | --- |
 | macOS 播放 / 宿主 | `./scripts/test_native.sh macos all` | 原生库、Debug 应用和已登录的 GUI 会话；仅检查播放使用 `macos player` |
 | RTP | `./scripts/test_native.sh macos rtp` 或 `./scripts/test_native.sh android rtp` | 对应平台的原生测试环境 |
-| Android host | `./scripts/test_native.sh android host` | CMake、系统 OpenSSL 开发库；macOS 可设置 `HOST_CRYPTO_PREFIX` |
-| Android 播放 | `./scripts/test_native.sh android player` | JNI 库、授权 arm64 设备、SDK build-tools 36.0.0 和 `android` CLI；`--full` 扩展解码器矩阵 |
+| Android host | `./scripts/test_native.sh android host` | CMake；Linux 需要 OpenSSL 3 开发库 |
 | Android Kotlin | `./scripts/test_native.sh android kotlin` | JDK，`GRADLE_BIN` 指向可用的 Gradle |
-| iPad | `./scripts/test_native.sh ios` | XCFramework、模拟器 Debug 应用和已有 iPad 模拟器；可用 `IOS_TEST_DESTINATION` 选择设备 |
-| Windows | `bash scripts/test_native.sh windows all` | 原生 fixture 和 Flutter 纹理测试，准备命令见下方 |
-| Linux | `./scripts/test_native.sh linux all` | 开发依赖、Debug 应用；窗口测试另需 `xvfb`、`dbus-x11`、`openbox`、`xdotool` |
-| ALAC | `./scripts/test_native.sh alac` | Clang/Clang++；可设置 `ALAC_SANITIZE=ON` |
-| FFmpeg | `./scripts/test_native.sh ffmpeg` | FFmpeg 6+ 开发库、ffmpeg/ffprobe、pkg-config、Python 3；可设置 `FFMPEG_SANITIZE=ON` |
+| iPad | `./scripts/test_native.sh ios` | 模拟器 Debug 应用和已有 iPad 模拟器；可用 `IOS_TEST_DESTINATION` 选择设备 |
+| Windows | `bash scripts/test_native.sh windows all` | Flutter 构建产物和纹理测试，准备命令见下方 |
+| Linux | `./scripts/test_native.sh linux all` | 开发依赖、Debug 应用 |
 
 Windows 完整原生套件的准备与执行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build_native.ps1 -Tests
 flutter build windows --debug
 cmake --build build/windows/x64 --config Debug --target windows_texture_test
 bash scripts/test_native.sh windows all
 ```
 
-同一配置的共享用例跑一次即可，例如 RTP 选择一个 host，Linux video/all 已包含共享 FFmpeg 视频用例。
-硬件、sanitizer 和平台后端分别验证。Linux GPU 专项测试使用 `./scripts/test_native.sh linux gpu`。
+同一配置的共享用例跑一次即可，例如 RTP 选择一个 host。播放本身由 lychee_player 的测试覆盖。
 
 ### 应用集成测试
 
@@ -211,6 +230,7 @@ macOS 和 Windows 复用其原生库和 Flutter 工程产物，Linux 宿主测�
 Ubuntu job 缓存 Dart 生成器和原生依赖的构建产物，按 runner 镜像、Flutter 版本和依赖锁文件隔离；
 缓存命中后仍执行生成文件比对和全部测试。
 Windows 同样缓存 Dart 原生依赖的构建产物，并额外按 MSVC 和 Windows SDK 版本隔离。
+另按锁文件缓存下载的原生依赖源码。
 CI 不额外构建普通桌面 Debug 应用；普通应用入口的打包验证在发布流程中执行。
 iPad 测试、Release 打包和安装升级验证不在 CI 中执行，相关入口仍可手动使用。
 播放和生命周期改动还应在对应设备上确认发现、画面、声音及重连。

@@ -20,7 +20,6 @@
 		A2A2A2A20000000000000001 /* ReceiverBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1A10000000000000001 /* ReceiverBridge.swift */; };
 		A2A2A2A20000000000000002 /* FrameTexture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A1A1A10000000000000002 /* FrameTexture.swift */; };
 		A4A4A4A40000000000000000 /* AirplayPlayer.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A3A3A3A30000000000000000 /* AirplayPlayer.xcframework */; };
-		A5A5A5A50000000000000000 /* MediaTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A6A6A6A60000000000000000 /* MediaTests.mm */; };
 		A7A7A7A70000000000000000 /* AirplayPlayer.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A3A3A3A30000000000000000 /* AirplayPlayer.xcframework */; };
 /* End PBXBuildFile section */
 
@@ -69,7 +68,6 @@
 		A1A1A1A10000000000000001 /* ReceiverBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverBridge.swift; sourceTree = "<group>"; };
 		A1A1A1A10000000000000002 /* FrameTexture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../native/apple/FrameTexture.swift; sourceTree = "<group>"; };
 		A3A3A3A30000000000000000 /* AirplayPlayer.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = AirplayPlayer.xcframework; path = "../build/ios-native/AirplayPlayer.xcframework"; sourceTree = SOURCE_ROOT; };
-		A6A6A6A60000000000000000 /* MediaTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MediaTests.mm; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,7 +88,6 @@
 			isa = PBXGroup;
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
-				A6A6A6A60000000000000000 /* MediaTests.mm */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -172,6 +169,7 @@
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
 				9740EEB61CF901F6004384FC /* Run Script */,
+				C1C1C1C10000000000000000 /* Native Player */,
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
@@ -254,6 +252,22 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C1C1C1C10000000000000000 /* Native Player */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/lychee.framework",
+			);
+			name = "Native Player";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Its input orders it after Xcode puts the plugin's lychee.framework in BUILT_PRODUCTS_DIR.\nset -e\npython3 \"$PROJECT_DIR/../scripts/ensure_native.py\" ios\n";
+		};
 		3B06AD1E1E4923F5004D2608 /* Thin Binary */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -283,7 +297,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\npython3 \"$PROJECT_DIR/../scripts/ensure_native.py\" ios\n/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
+			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -293,7 +307,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
-				A5A5A5A50000000000000000 /* MediaTests.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -383,7 +396,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -523,7 +536,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -575,7 +588,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

@@ -101,7 +101,7 @@ try {
         foreach ($name in @('flutter_airplay.exe', 'flutter_windows.dll', 'cnativeapi.dll',
             'airplay_player.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll',
             'data/app.so', 'data/icudtl.dat', 'data/flutter_assets/AssetManifest.bin',
-            'data/licenses/FFmpeg/COPYING.LGPLv2.1', 'unins000.exe')) {
+            'lychee_player.dll', 'data/licenses/lychee_player-NOTICES.txt', 'unins000.exe')) {
             if (-not (Test-Path -LiteralPath (Join-Path $app $name))) { throw "Installed file missing: $name" }
         }
         # The second install exercises an in-place upgrade using the same AppId.

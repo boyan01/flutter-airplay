@@ -10,3 +10,5 @@ frameworks="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
 mkdir -p "$frameworks"
 cp "$player" "$frameworks/"
 /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$frameworks/libairplay_player.dylib"
+# The lychee_player plugin embeds lychee.framework, which the player links.
+[[ -d "$frameworks/lychee.framework" ]] || { echo 'lychee.framework is missing; run flutter pub get.' >&2; exit 1; }

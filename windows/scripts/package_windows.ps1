@@ -37,12 +37,11 @@ try {
     $required = @('flutter_airplay.exe', 'flutter_windows.dll', 'airplay_player.dll',
         'cnativeapi.dll', 'data/app.so', 'data/icudtl.dat',
         'data/flutter_assets/AssetManifest.bin', 'data/licenses/LICENSE',
-        'data/licenses/THIRD_PARTY_NOTICES.md', 'data/licenses/FFmpeg/FFmpeg-build-config.txt',
-        'data/licenses/FFmpeg/COPYING.LGPLv2.1', 'data/licenses/FFmpeg/LICENSE.md')
+        'data/licenses/THIRD_PARTY_NOTICES.md', 'data/licenses/lychee_player-NOTICES.txt', 'lychee_player.dll')
     foreach ($name in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $bundle $name) -PathType Leaf)) { throw "Missing Release bundle file: $name" }
     }
-    foreach ($component in @('avcodec', 'avutil', 'swresample', 'swscale')) {
+    foreach ($component in @('avformat', 'avcodec', 'avutil', 'swresample', 'swscale')) {
         if (@(Get-ChildItem -LiteralPath $bundle -Filter "$component-*.dll").Count -ne 1) {
             throw "Missing or ambiguous FFmpeg runtime: $component"
         }

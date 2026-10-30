@@ -4,7 +4,6 @@ import hashlib
 import io
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -27,147 +26,111 @@ class NativePreparationTest(unittest.TestCase):
         self.root_patch = patch.object(native, "ROOT", self.root)
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
-        for file in ("native/dependencies.lock.json", "android/gradle.properties",
-                     "android/scripts/build_native.sh", "android/scripts/build_crypto.sh",
-                     "native/CMakeLists.txt", "scripts/fetch_native_deps.py", "native/playback/player.cpp"):
+        for file in ("native/dependencies.lock.json", "scripts/build_receiver.sh", "ios/scripts/build_native.sh",
+                     "native/apple/CMakeLists.txt", "native/CMakeLists.txt", "native/playback/player.cpp"):
             path = self.root / file
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("original")
-        self.output = self.root / "android/app/src/main/jniLibs/arm64-v8a/libairplay_player.so"
+        # The lychee_player plugin's framework, where Xcode puts it.
+        self.products = self.make_products()
+        self.products_env = patch.dict(native.os.environ, {"BUILT_PRODUCTS_DIR": str(self.products)})
+        self.products_env.start()
+        self.addCleanup(self.products_env.stop)
+        toolchain = patch.object(native, "host_toolchain", return_value="Xcode fixture")
+        toolchain.start()
+        self.addCleanup(toolchain.stop)
+        self.output = self.root / "build/macos-native/libairplay_player.dylib"
         self.build = patch.object(native.subprocess, "run", side_effect=self.produce)
         self.command = self.build.start()
         self.addCleanup(self.build.stop)
         # __file__ is an input inside the checkout.
-        self.script = patch.object(native, "__file__", str(self.root / "android/scripts/build_native.sh"))
+        self.script = patch.object(native, "__file__", str(self.root / "scripts/build_receiver.sh"))
         self.script.start()
         self.addCleanup(self.script.stop)
+
+    def make_products(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        header = Path(directory.name) / "lychee.framework/Headers/lychee.h"
+        header.parent.mkdir(parents=True)
+        header.write_bytes(b"#define LYCHEE_API_VERSION 14")
+        return Path(directory.name)
 
     def produce(self, *args, **kwargs):
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.output.write_bytes(b"built")
 
     def test_first_build_and_unchanged_reuse(self):
-        native.ensure("android")
-        native.ensure("android")
+        native.ensure("macos")
+        native.ensure("macos")
         self.assertEqual(self.command.call_count, 1)
 
+    def test_lychee_api_change_rebuilds(self):
+        native.ensure("macos")
+        header = self.products / "lychee.framework/Headers/lychee.h"
+        header.write_bytes(b"#define LYCHEE_API_VERSION 15")
+        native.ensure("macos")
+        self.assertEqual(self.command.call_count, 2)
+
+    def test_missing_lychee_framework_fails(self):
+        with patch.dict(native.os.environ, {"BUILT_PRODUCTS_DIR": ""}):
+            with self.assertRaises(SystemExit):
+                native.ensure("macos")
+
     def test_source_change_rebuilds(self):
-        native.ensure("android")
+        native.ensure("macos")
         (self.root / "native/playback/player.cpp").write_text("changed")
-        native.ensure("android")
+        native.ensure("macos")
         self.assertEqual(self.command.call_count, 2)
 
     def test_host_and_test_changes_reuse_product(self):
-        native.ensure("android")
+        native.ensure("macos")
         for name in ("native/apple/ReceiverHost.swift", "native/tests/ffi/receiver_control_test.cpp", "native/tests/fixture.bin"):
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text("changed")
-        native.ensure("android")
+        native.ensure("macos")
         self.assertEqual(self.command.call_count, 1)
 
-    def test_product_script_change_retains_dependencies(self):
-        native.prepare_dependencies("android")
-        cache = self.root / "android/.cache/crypto-arm64-v8a-test"; cache.mkdir(parents=True)
-        (self.root / "android/scripts/build_native.sh").write_text("new CMake flags")
-        native.prepare_dependencies("android")
-        self.assertTrue(cache.is_dir())
-        (self.root / "android/scripts/build_crypto.sh").write_text("new OpenSSL flags")
-        native.prepare_dependencies("android")
-        self.assertFalse(cache.exists())
-
     def test_platform_backends_only_affect_applicable_products(self):
-        for name in ("scripts/build_receiver.sh", "scripts/build_macos_crypto.sh",
-                     "ios/scripts/build_native.sh", "windows/scripts/build_native.ps1"):
-            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text("original")
         manifest = self.root / "build/native-preparation"
         manifest.mkdir(parents=True, exist_ok=True)
-        for target in ("android", "macos", "ios", "windows"):
-            (manifest / f"{target}-sources.txt").write_text(f"native/playback\nnative/backends/{'apple' if target in ('macos', 'ios') else target}\n")
-        with patch.object(native, "host_toolchain", return_value="fixture"):
-            before = {target: native.inputs(target) for target in ("android", "macos", "ios", "windows")}
-            backend = self.root / "native/backends/android/video.cpp"
-            backend.parent.mkdir(parents=True, exist_ok=True)
-            backend.write_text("Android backend changed")
-            for target, fingerprint in before.items():
-                self.assertEqual(native.inputs(target) != fingerprint, target == "android")
+        for target in ("macos", "ios"):
+            (manifest / f"{target}-sources.txt").write_text("native/playback\nnative/backends/apple\n")
+        before = {target: native.inputs(target) for target in ("macos", "ios")}
+        backend = self.root / "native/backends/windows/video.cpp"
+        backend.parent.mkdir(parents=True, exist_ok=True)
+        backend.write_text("Windows backend changed")
+        for target, fingerprint in before.items():
+            self.assertEqual(native.inputs(target), fingerprint)
+        backend = self.root / "native/backends/apple/video.mm"
+        backend.parent.mkdir(parents=True, exist_ok=True)
+        backend.write_text("Apple backend changed")
+        for target, fingerprint in before.items():
+            self.assertNotEqual(native.inputs(target), fingerprint)
 
     def test_deleted_and_modified_artifacts_rebuild(self):
-        native.ensure("android")
+        native.ensure("macos")
         self.output.unlink()
-        native.ensure("android")
+        native.ensure("macos")
         self.output.write_bytes(b"stale")
-        native.ensure("android")
+        native.ensure("macos")
         self.assertEqual(self.command.call_count, 3)
 
     def test_failed_build_is_retried(self):
-        native.ensure("android")
+        native.ensure("macos")
         (self.root / "native/playback/player.cpp").write_text("changed")
         self.command.side_effect = subprocess.CalledProcessError(1, "builder")
         with self.assertRaises(subprocess.CalledProcessError):
-            native.ensure("android")
-        self.assertFalse((self.root / "build/native-preparation/android.json").exists())
+            native.ensure("macos")
+        self.assertFalse((self.root / "build/native-preparation/macos.json").exists())
         self.command.side_effect = self.produce
-        native.ensure("android")
+        native.ensure("macos")
         self.assertEqual(self.command.call_count, 3)
 
     def test_success_without_outputs_does_not_cache(self):
         self.command.side_effect = None
         with self.assertRaises(SystemExit):
-            native.ensure("android")
-        self.assertFalse((self.root / "build/native-preparation/android.json").exists())
-
-    def test_dependency_change_clears_only_generated_cache(self):
-        native.prepare_dependencies("android")
-        cache = self.root / "android/.cache/crypto-arm64-v8a-test"
-        cache.mkdir(parents=True)
-        native.prepare_dependencies("android")
-        self.assertTrue(cache.is_dir())
-        (self.root / "native/dependencies.lock.json").write_text("new pin")
-        native.prepare_dependencies("android")
-        self.assertFalse(cache.exists())
-        self.assertTrue((self.root / "native/playback/player.cpp").is_file())
-
-    def test_restored_windows_dependencies_reuse_and_invalidate(self):
-        recipes = ("windows/scripts/build_dependencies.ps1", "windows/scripts/build_ffmpeg.sh")
-        for name in recipes:
-            path = self.root / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("original")
-        with patch.object(native, "host_toolchain", return_value="Visual Studio fixture") as toolchain:
-            native.prepare_dependencies("windows")
-            prefixes = ("build/windows-deps/crypto", "build/windows-deps/ffmpeg-aac")
-            stamp = "build/native-preparation/windows-dependencies.txt"
-            for name in prefixes:
-                path = self.root / name
-                path.mkdir(parents=True)
-                (path / "library").write_bytes(b"cached dependency")
-            # Restore only the installed prefixes and marker into a fresh build tree.
-            snapshot = self.root / "cache-snapshot"
-            for name in (*prefixes, stamp):
-                source = self.root / name
-                destination = snapshot / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if source.is_dir():
-                    shutil.copytree(source, destination)
-                else:
-                    shutil.copy2(source, destination)
-            shutil.rmtree(self.root / "build")
-            shutil.copytree(snapshot / "build", self.root / "build")
-            (self.root / "native/playback/player.cpp").write_text("new product source")
-            native.prepare_dependencies("windows")
-            for name in prefixes:
-                self.assertEqual((self.root / name / "library").read_bytes(), b"cached dependency")
-
-            for changed in ("native/dependencies.lock.json", *recipes, "toolchain"):
-                with self.subTest(changed=changed):
-                    for name in prefixes:
-                        (self.root / name).mkdir(parents=True, exist_ok=True)
-                    if changed == "toolchain":
-                        toolchain.return_value = "new Visual Studio version"
-                    else:
-                        (self.root / changed).write_text("changed")
-                    native.prepare_dependencies("windows")
-                    for name in prefixes:
-                        self.assertFalse((self.root / name).exists())
+            native.ensure("macos")
+        self.assertFalse((self.root / "build/native-preparation/macos.json").exists())
 
     def test_xcode_environment_does_not_mix_platform_targets(self):
         values = {"IPHONEOS_DEPLOYMENT_TARGET": "18.5", "XROS_DEPLOYMENT_TARGET": "1.3",
@@ -181,63 +144,6 @@ class NativePreparationTest(unittest.TestCase):
                 self.assertNotIn("SWIFT_DEBUG_INFORMATION_FORMAT", environment)
                 self.assertEqual(environment["DEVELOPER_DIR"], "/selected-xcode")
             self.assertEqual(native.os.environ["SDKROOT"], "/iphone-sdk")
-
-
-class WindowsMakePreparationTest(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        root_patch = patch.object(native, "ROOT", self.root)
-        root_patch.start()
-        self.addCleanup(root_patch.stop)
-        self.package = b"verified package"
-        lock = self.root / "native/dependencies.lock.json"
-        lock.parent.mkdir(parents=True)
-        lock.write_text(json.dumps({"windows-make": {
-            "version": "test", "url": "https://example.invalid/make.pkg.tar.zst",
-            "sha256": hashlib.sha256(self.package).hexdigest()}}))
-        self.download = patch.object(native.urllib.request, "urlopen",
-                                     side_effect=lambda *args, **kwargs: io.BytesIO(self.package))
-        self.open = self.download.start()
-        self.addCleanup(self.download.stop)
-        self.extract = patch.object(native.subprocess, "run",
-                                    return_value=subprocess.CompletedProcess([], 0, stdout=b"make executable"))
-        self.tar = self.extract.start()
-        self.addCleanup(self.extract.stop)
-
-    def test_download_cache_and_modified_executable_repair(self):
-        executable = native.prepare_windows_make()
-        self.assertEqual(executable.read_bytes(), b"make executable")
-        self.assertFalse(executable.is_relative_to(self.root / "build"))
-        executable.write_bytes(b"corrupted executable")
-        native.prepare_windows_make()
-        self.assertEqual(executable.read_bytes(), b"make executable")
-        self.assertEqual(self.open.call_count, 1)
-        self.assertEqual(self.tar.call_args.args[0][-1], "usr/bin/make.exe")
-
-    def test_bad_download_never_extracts_or_installs(self):
-        self.open.side_effect = lambda *args, **kwargs: io.BytesIO(b"wrong package")
-        with self.assertRaisesRegex(SystemExit, "SHA-256 mismatch"):
-            native.prepare_windows_make()
-        self.tar.assert_not_called()
-        self.assertFalse((self.root / "windows/.cache/tools/usr/bin/make.exe").exists())
-
-    def test_corrupt_package_cache_is_downloaded_again(self):
-        native.prepare_windows_make()
-        archive = self.root / "windows/.cache/tools/make-test.pkg.tar.zst"
-        archive.write_bytes(b"damaged cache")
-        native.prepare_windows_make()
-        self.assertEqual(self.open.call_count, 2)
-        self.assertEqual(archive.read_bytes(), self.package)
-
-    def test_network_failure_can_be_retried(self):
-        self.open.side_effect = OSError("offline")
-        with self.assertRaisesRegex(OSError, "offline"):
-            native.prepare_windows_make()
-        self.tar.assert_not_called()
-        self.open.side_effect = lambda *args, **kwargs: io.BytesIO(self.package)
-        self.assertTrue(native.prepare_windows_make().is_file())
 
 
 if __name__ == "__main__":

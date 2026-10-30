@@ -41,23 +41,27 @@ class NativeAllScopeTest(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            for build in ('windows-native', 'windows/x64'):
-                (root / 'build' / build).mkdir(parents=True)
+            for build in ('windows/x64/native', 'windows/x64'):
+                (root / 'build' / build).mkdir(parents=True, exist_ok=True)
                 (root / 'build' / build / 'CTestTestfile.cmake').touch()
+            (root / 'build/windows/x64/native/CMakeCache.txt').touch()
+            # The lychee_player plugin's DLL from the Flutter build.
+            (root / 'build/windows/x64/runner/Debug').mkdir(parents=True)
+            (root / 'build/windows/x64/runner/Debug/lychee_player.dll').touch()
             source = (pathlib.Path(__file__).resolve().parents[1] / 'test_native.sh').read_text()
             definitions, dispatch = source.split('\nif [[ $# -eq 0 ]]; then\n    case "$(uname -s)"', 1)
             script = definitions + '\n' + '''
 project_root="$1"
 shift
 linux_tests() { echo native; }
-alac_tests() { echo alac; }
-ctest() { case "$2" in */windows-native) echo native ;; */windows/x64) echo texture ;; esac; }
+cmake() { :; }
+ctest() { case "$2" in */windows/x64/native) echo native ;; */windows/x64) echo texture ;; esac; }
 ''' + '\nif [[ $# -eq 0 ]]; then\n    case "$(uname -s)"' + dispatch
             return subprocess.run(['bash', '-c', script, 'native-all', str(root), *arguments],
                                   capture_output=True, text=True, check=False)
 
     def test_unfiltered_all_keeps_native_suites_without_extra_window_tests(self):
-        for platform, expected in (('linux', ['native', 'alac']),
+        for platform, expected in (('linux', ['native']),
                                    ('windows', ['native', 'texture'])):
             with self.subTest(platform=platform):
                 result = self.run_suite(platform, 'all')

@@ -1,4 +1,5 @@
 import java.time.Instant
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -19,14 +20,19 @@ require(releaseSigning.values.all { it == null } || hasReleaseSigning) {
         "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD together."
 }
 
+val ndkVersionName = providers.gradleProperty("airplay.ndkVersion").get()
+val flutterSdk = Properties().apply {
+    rootProject.file("local.properties").reader().use { load(it) }
+}.getProperty("flutter.sdk")
+
 android {
-    buildFeatures { buildConfig = true }
+    // prefab: the lychee_player plugin's AAR publishes the core the player links.
+    buildFeatures { buildConfig = true; prefab = true }
     namespace = "tech.soit.flutterairplay"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = providers.gradleProperty("airplay.ndkVersion").get()
+    ndkVersion = ndkVersionName
 
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/sharedAssets").get().asFile)
-    sourceSets.getByName("main").java.srcDir("../../native/backends/android/java")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -47,6 +53,22 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        externalNativeBuild {
+            cmake {
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                    "-DFLUTTER_ROOT=$flutterSdk",
+                )
+                targets("airplay_player")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     if (hasReleaseSigning) {
@@ -82,8 +104,17 @@ flutter {
 }
 
 dependencies {
+    // The core the lychee_player plugin depends on, for prefab; its version is
+    // the plugin's (the compile classpath follows the runtime one below).
+    implementation("io.github.boyan01.lychee:lychee")
     implementation("androidx.core:core:1.17.0")
     testImplementation("junit:junit:4.13.2")
+}
+
+androidComponents.onVariants { variant ->
+    configurations.named("${variant.name}CompileClasspath") {
+        shouldResolveConsistentlyWith(configurations.getByName("${variant.name}RuntimeClasspath"))
+    }
 }
 
 val copySharedAssets by tasks.registering(Sync::class) {
@@ -94,14 +125,6 @@ val copySharedAssets by tasks.registering(Sync::class) {
     into(layout.buildDirectory.dir("generated/sharedAssets"))
 }
 
-val prepareNativePlayer by tasks.registering(Exec::class) {
-    workingDir(rootProject.projectDir.parentFile)
-    environment("ANDROID_HOME", androidComponents.sdkComponents.sdkDirectory.get().asFile.absolutePath)
-    commandLine(if (System.getProperty("os.name").startsWith("Windows")) "python" else "python3",
-        "scripts/ensure_native.py", "android")
-}
-
-// Run before JNI merge tasks, including their input snapshots, in every variant.
 tasks.named("preBuild") {
-    dependsOn(prepareNativePlayer, copySharedAssets)
+    dependsOn(copySharedAssets)
 }

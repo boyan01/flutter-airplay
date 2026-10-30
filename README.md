@@ -68,8 +68,8 @@ Use **More → Disconnect** to end mirroring.
 | macOS | Supported | macOS 12+, Apple Silicon. Drag the app from the DMG to Applications. Open at login requires macOS 13+. |
 | Android phone / TV | Supported | Android 8.0+, arm64. Install the APK. |
 | Windows | Experimental | Windows 10+, x64. Run Setup; Windows N also needs the Media Feature Pack. |
-| Linux | Experimental | x64 desktop with GTK 3, FFmpeg 6+, Avahi and PulseAudio/PipeWire. Install the `.deb` or use the bundle. |
-| iPad | Experimental | iPadOS 15+. [Build from source](DEVELOPMENT.md#ipad); reception runs while the app is in the foreground. |
+| Linux | Experimental | x64 desktop with GTK 3, Avahi and PulseAudio/PipeWire. Install the `.deb` or use the bundle. |
+| iPad | Experimental | iPadOS 16+. [Build from source](DEVELOPMENT.md#ipad); reception runs while the app is in the foreground. |
 
 Linux requires OpenGL 3.2+ or OpenGL ES 3+. The `.deb` is built on Ubuntu 24.04;
 the bundle uses system libraries. macOS packages use ad-hoc signing and are not
