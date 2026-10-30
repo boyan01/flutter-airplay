@@ -35,7 +35,7 @@ class DecoderSelector {
             (Build.VERSION.SDK_INT < 29 || info.isHardwareAccelerated) &&
                 caps.profileLevels.any { it.profile == CodecProfileLevel.HEVCProfileMain ||
                     it.profile == CodecProfileLevel.HEVCProfileMain10 } &&
-                _portraitSafe(width, height) { w, h -> caps.videoCapabilities.areSizeAndRateSupported(w, h, 60.0) }
+                _portraitSafe(width, height) { w, h -> caps.videoCapabilities?.areSizeAndRateSupported(w, h, 60.0) == true }
         }
     }.onFailure { onDiagnostic?.invoke("HEVC capability query failed: ${it.javaClass.simpleName}") }.getOrNull()
 
@@ -47,7 +47,7 @@ class DecoderSelector {
                     it.startsWith("omx.google.") || it.startsWith("c2.android.") ||
                         (!it.startsWith("omx.") && !it.startsWith("c2."))
                 })
-        }?.takeIf { _portraitSafe(w, h, it.videoCaps(mime)::isSizeSupported) }
+        }?.takeIf { info -> info.videoCaps(mime)?.let { _portraitSafe(w, h, it::isSizeSupported) } == true }
 
     private fun _decoders(mime: String) =
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
@@ -94,6 +94,6 @@ class DecoderSelector {
         private const val TAG = "DecoderSelector"
         const val AVC = MediaFormat.MIMETYPE_VIDEO_AVC
         const val HEVC = MediaFormat.MIMETYPE_VIDEO_HEVC
-        fun MediaCodecInfo.videoCaps(mime: String): VideoCapabilities = getCapabilitiesForType(mime).videoCapabilities
+        fun MediaCodecInfo.videoCaps(mime: String): VideoCapabilities? = getCapabilitiesForType(mime).videoCapabilities
     }
 }

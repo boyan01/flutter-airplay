@@ -377,7 +377,7 @@ jobs:
             done
           fi
           [[ -x "$sdkmanager" ]] || { echo 'Android SDK command-line tools are missing.' >&2; exit 1; }
-          "$sdkmanager" "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-36' 'build-tools;36.0.0'
+          "$sdkmanager" "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Compile Debug app and prepare Gradle wrapper
         run: flutter build apk --debug --target-platform android-arm64
       - name: Run host protocol tests

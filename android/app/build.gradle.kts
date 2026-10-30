@@ -29,7 +29,7 @@ android {
     // prefab: the lychee_player plugin's AAR publishes the core the player links.
     buildFeatures { buildConfig = true; prefab = true }
     namespace = "tech.soit.flutterairplay"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = ndkVersionName
 
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/sharedAssets").get().asFile)
@@ -107,13 +107,14 @@ dependencies {
     // The core the lychee_player plugin depends on, for prefab; its version is
     // the plugin's (the compile classpath follows the runtime one below).
     implementation("io.github.boyan01.lychee:lychee")
-    implementation("androidx.core:core:1.17.0")
+    implementation("androidx.core:core:1.19.1")
     testImplementation("junit:junit:4.13.2")
 }
 
 androidComponents.onVariants { variant ->
-    configurations.named("${variant.name}CompileClasspath") {
-        shouldResolveConsistentlyWith(configurations.getByName("${variant.name}RuntimeClasspath"))
+    listOf("", "UnitTest").forEach { scope ->
+        val compile = configurations.findByName("${variant.name}${scope}CompileClasspath") ?: return@forEach
+        compile.shouldResolveConsistentlyWith(configurations.getByName("${variant.name}${scope}RuntimeClasspath"))
     }
 }
 

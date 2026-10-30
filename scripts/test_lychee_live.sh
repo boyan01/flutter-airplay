@@ -33,7 +33,7 @@ elif [[ "$target" == android ]]; then
     unzip -joq "$apk" 'lib/arm64-v8a/libairplay_player.so' 'lib/arm64-v8a/liblychee.so' \
         'lib/arm64-v8a/libc++_shared.so' -d "$output/lib/arm64-v8a"
     cp "$(sed -n 's/^CMAKE_LIBRARY_OUTPUT_DIRECTORY:[A-Z]*=//p' "$native/CMakeCache.txt")/liblychee_live_tests.so" "$output/lib/arm64-v8a/"
-    javac -source 17 -target 17 -cp "$sdk/platforms/android-36/android.jar" \
+    javac -source 17 -target 17 -cp "$sdk/platforms/android-37.0/android.jar" \
         -d "$output/classes" "$root/android/tests/live/TestActivity.java"
     "$tools/d8" --min-api 26 --output "$output" "$output/classes/tech/soit/flutterairplay/live_regression/"*.class
     cat > "$output/AndroidManifest.xml" <<'MANIFEST'
@@ -46,7 +46,7 @@ elif [[ "$target" == android ]]; then
     </application>
 </manifest>
 MANIFEST
-    "$tools/aapt2" link -I "$sdk/platforms/android-36/android.jar" --manifest "$output/AndroidManifest.xml" -o "$output/unsigned.apk"
+    "$tools/aapt2" link -I "$sdk/platforms/android-37.0/android.jar" --manifest "$output/AndroidManifest.xml" -o "$output/unsigned.apk"
     (cd "$output" && zip -q unsigned.apk classes.dex assets/eld.packets lib/arm64-v8a/*.so)
     "$tools/zipalign" -f -p 4 "$output/unsigned.apk" "$output/aligned.apk"
     if [[ ! -f "$output/test.keystore" ]]; then

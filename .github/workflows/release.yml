@@ -207,7 +207,7 @@ jobs:
           done
         fi
         [[ -x "$sdkmanager" ]] || { echo 'Android SDK command-line tools are missing.' >&2; exit 1; }
-        "$sdkmanager" "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-36' 'build-tools;36.0.0'
+        "$sdkmanager" "ndk;$ndk_version" 'cmake;3.22.1' 'platforms;android-37.0' 'build-tools;36.0.0'
     - name: Build Android release APK
       if: steps.signing.outputs.configured == 'true'
       env:
