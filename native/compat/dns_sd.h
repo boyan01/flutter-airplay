@@ -15,6 +15,8 @@ DNSServiceErrorType DNSServiceRegister(DNSServiceRef *, DNSServiceFlags, uint32_
     const char *, const char *, const char *, const char *, uint16_t, uint16_t,
     const void *, DNSServiceRegisterReply, void *);
 void DNSServiceRefDeallocate(DNSServiceRef);
+int DNSServiceRefSockFD(DNSServiceRef);
+DNSServiceErrorType DNSServiceProcessResult(DNSServiceRef);
 void TXTRecordCreate(TXTRecordRef *, uint16_t, void *);
 int32_t TXTRecordSetValue(TXTRecordRef *, const char *, uint8_t, const void *);
 uint16_t TXTRecordGetLength(const TXTRecordRef *);

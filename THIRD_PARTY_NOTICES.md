@@ -6,8 +6,8 @@ Flutter package license notices are collected by Flutter and are not duplicated 
 ## UxPlay
 
 Source: https://github.com/FDH2/UxPlay
-Base version: v1.73.7
-Base commit: df67c212a433cf6dda3676dd40c097900d24e645
+Base version: post-v1.73.7 main (unreleased, 2026-10-28)
+Base commit: 534e2cc0e558d6c94bcc66964f8fc13ad73a6cdc
 
 The shared receive core is maintained in `vendor/UxPlay/`. Upstream provenance
 and local modifications are recorded in [UPSTREAM.md](vendor/UxPlay/UPSTREAM.md).

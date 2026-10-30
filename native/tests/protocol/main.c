@@ -60,6 +60,77 @@ static bool wait_count(atomic_int *counter, int count) {
     while (atomic_load(counter) < count && raop_ntp_get_local_time() < deadline) usleep(1000);
     return atomic_load(counter) >= count;
 }
+static void test_ntp_synchronization(logger_t *log) {
+    unsigned short port = 0;
+    int sender = netutils_init_socket(&port, 0, 1);
+    require(sender >= 0, "Synthetic NTP sender opened");
+    struct timeval timeout = {1, 0};
+    require(setsockopt(sender, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0,
+            "Synthetic NTP sender has a bounded receive timeout");
+    raop_callbacks_t cb = {0};
+    timing_protocol_t protocol = NTP;
+    raop_ntp_t *ntp = raop_ntp_init(log, &cb, "127.0.0.1", 4, port, &protocol);
+    require(ntp != NULL, "NTP client initialized");
+    uint64_t now = raop_ntp_get_local_time();
+    require(raop_ntp_get_remote_time(ntp) == 0 &&
+            raop_ntp_convert_local_time(ntp, now) == 0 &&
+            raop_ntp_convert_remote_time(ntp, now) == 0,
+            "Clock conversion waits for a valid timing response");
+    unsigned short local_port = 0;
+    raop_ntp_start(ntp, &local_port);
+    unsigned char request[32], response[32] = {0x80, 0xd3};
+    struct sockaddr_storage address;
+    socklen_t address_len = sizeof(address);
+    require(recvfrom(sender, request, sizeof(request), 0, (struct sockaddr *)&address, &address_len) == 32,
+            "Real NTP request received over loopback");
+    memcpy(response + 8, request + 24, 8);
+    /* Model a sender whose clock counts from boot instead of the Unix epoch. */
+    byteutils_put_ntp_timestamp(response, 16, 3600ULL * SECOND_IN_NSECS);
+    byteutils_put_ntp_timestamp(response, 24, 3600ULL * SECOND_IN_NSECS);
+    now = raop_ntp_get_local_time();
+    require(sendto(sender, response, sizeof(response), 0, (struct sockaddr *)&address, address_len) == sizeof(response),
+            "Synthetic sender replied with matching request reference");
+    uint64_t deadline = now + SECOND_IN_NSECS;
+    while (!raop_ntp_get_remote_time(ntp) && raop_ntp_get_local_time() < deadline) usleep(1000);
+    uint64_t remote = raop_ntp_get_remote_time(ntp);
+    require(remote != 0, "Valid NTP response enables remote clock conversion");
+    uint64_t adjusted = raop_ntp_adjust_remote_timestamp_offset(ntp, byteutils_get_long_be(response, 24), false);
+    uint64_t local = raop_ntp_convert_remote_time(ntp, raop_ntp_timestamp_to_nano_seconds(ntp, adjusted));
+    require(llabs((int64_t)(local - now)) < 100000000LL,
+            "Sender boot timestamp maps to local receive time within 100ms");
+    remote = raop_ntp_convert_local_time(ntp, now);
+    require(remote != 0 && raop_ntp_convert_remote_time(ntp, remote) == now,
+            "Local and remote clock conversions round trip after synchronization");
+    raop_ntp_destroy(ntp);
+    CLOSESOCKET(sender);
+}
+static void test_audio_restart_failure(logger_t *log) {
+    raop_callbacks_t cb = {0};
+    unsigned char key[16] = {0}, iv[16] = {0};
+    raop_rtp_t *audio = raop_rtp_init(log, &cb, NULL, "127.0.0.1", 4, key, iv);
+    require(audio != NULL, "Restart failure audio transport initialized");
+    unsigned short remote = 0, control = 0, data = 0;
+    unsigned char ct = 8;
+    unsigned int sr = 44100;
+    raop_rtp_start_audio(audio, &remote, &control, &data, &ct, &sr);
+    require(raop_rtp_is_running(audio), "Audio transport started before failed restart");
+    raop_rtp_stop(audio);
+    int holder = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in address = {0};
+    address.sin_family = AF_INET; address.sin_port = htons(control);
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    require(holder >= 0 && bind(holder, (struct sockaddr *)&address, sizeof(address)) == 0,
+            "Previous control port occupied without address reuse");
+    data = 0;
+    raop_rtp_start_audio(audio, &remote, &control, &data, &ct, &sr);
+    require(!raop_rtp_is_running(audio), "Occupied control port rejects restart without a crash");
+    CLOSESOCKET(holder);
+    control = data = 0;
+    raop_rtp_start_audio(audio, &remote, &control, &data, &ct, &sr);
+    require(raop_rtp_is_running(audio), "Audio retries successfully after failed port binding");
+    raop_rtp_stop(audio);
+    raop_rtp_destroy(audio);
+}
 static void test_sound_after_silence(logger_t *log) {
     const int stops_before = atomic_load(&stopped);
     raop_callbacks_t callbacks = {0};
@@ -125,12 +196,148 @@ static void test_sound_after_silence(logger_t *log) {
     require(atomic_load(&stopped) == stops_before + 1, "Transport destruction ends platform playback");
     raop_ntp_destroy(ntp);
 }
+static atomic_int video_configurations;
+static atomic_int video_width;
+static atomic_int video_height;
+static atomic_int video_resets;
+static void video_connection_reset(void *context, int reason) { atomic_fetch_add(&video_resets, 1); }
+static int video_configuration(void *context, video_codec_t codec, unsigned short sw, unsigned short sh,
+                               unsigned short x, unsigned short y, unsigned short w, unsigned short h) {
+    if (codec != VIDEO_CODEC_H264 && codec != VIDEO_CODEC_H265) return -1;
+    atomic_store(&video_width, sw);
+    atomic_store(&video_height, sh);
+    atomic_fetch_add(&video_configurations, 1);
+    return 0;
+}
+static void send_video_configuration(int sender, unsigned short width, unsigned short height) {
+    /* Minimal AVCDecoderConfigurationRecord: one two-byte SPS and PPS. */
+    unsigned char payload[] = {1, 0x42, 0, 0x1e, 0xff, 0xe1, 0, 2, 0x67, 0, 1, 0, 2, 0x68, 0};
+    unsigned char packet[128 + sizeof(payload)] = {0};
+    packet[0] = sizeof(payload);
+    packet[4] = 1;
+    float w = width, h = height;
+    memcpy(packet + 16, &w, sizeof(w)); memcpy(packet + 20, &h, sizeof(h));
+    memcpy(packet + 40, &w, sizeof(w)); memcpy(packet + 44, &h, sizeof(h));
+    memcpy(packet + 56, &w, sizeof(w)); memcpy(packet + 60, &h, sizeof(h));
+    memcpy(packet + 128, payload, sizeof(payload));
+    size_t sent = 0;
+    while (sent < sizeof(packet)) {
+        ssize_t n = send(sender, packet + sent, sizeof(packet) - sent, 0);
+        require(n > 0, "Synthetic mirror configuration sent over TCP");
+        sent += n;
+    }
+}
+static void test_video_rotation(logger_t *log) {
+    atomic_store(&video_configurations, 0);
+    raop_callbacks_t cb = {0};
+    cb.video_set_codec_and_size = video_configuration;
+    timing_protocol_t protocol = TP_NONE;
+    raop_ntp_t *ntp = raop_ntp_init(log, &cb, "127.0.0.1", 4, 0, &protocol);
+    unsigned char key[16] = {0};
+    raop_rtp_mirror_t *mirror = raop_rtp_mirror_init(log, &cb, ntp, "127.0.0.1", 4, key);
+    require(ntp && mirror, "Synthetic mirror transport initialized");
+    unsigned short port = 0;
+    raop_rtp_mirror_start(mirror, &port, 0);
+    int sender = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in address = {0};
+    address.sin_family = AF_INET; address.sin_port = htons(port);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    require(sender >= 0 && port && connect(sender, (struct sockaddr *)&address, sizeof(address)) == 0,
+            "Synthetic mirror sender connected");
+    send_video_configuration(sender, 640, 360);
+    require(wait_count(&video_configurations, 1) && atomic_load(&video_width) == 640 && atomic_load(&video_height) == 360,
+            "Initial video codec and dimensions reach the host");
+    send_video_configuration(sender, 360, 640);
+    require(wait_count(&video_configurations, 2) && atomic_load(&video_width) == 360 && atomic_load(&video_height) == 640,
+            "Rotation updates dimensions without reconnecting or changing codec");
+    raop_rtp_mirror_destroy(mirror);
+    CLOSESOCKET(sender);
+    raop_ntp_destroy(ntp);
+}
+static void test_oversized_video_configuration(logger_t *log, bool hevc) {
+    const int resets_before = atomic_load(&video_resets);
+    raop_callbacks_t cb = {0};
+    cb.video_set_codec_and_size = video_configuration;
+    cb.conn_reset = video_connection_reset;
+    timing_protocol_t protocol = TP_NONE;
+    raop_ntp_t *ntp = raop_ntp_init(log, &cb, "127.0.0.1", 4, 0, &protocol);
+    unsigned char key[16] = {0};
+    raop_rtp_mirror_t *mirror = raop_rtp_mirror_init(log, &cb, ntp, "127.0.0.1", 4, key);
+    require(ntp && mirror, "Oversized configuration mirror initialized");
+    unsigned short port = 0;
+    raop_rtp_mirror_start(mirror, &port, 0);
+    int sender = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in address = {0};
+    address.sin_family = AF_INET; address.sin_port = htons(port);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    require(sender >= 0 && port && connect(sender, (struct sockaddr *)&address, sizeof(address)) == 0,
+            "Oversized configuration sender connected");
+    unsigned char packet[128 + 1152 + 128 + 16] = {0};
+    unsigned char *payload = packet + 128;
+    size_t payload_size;
+    if (hevc) {
+        memcpy(payload + 4, "hvc1", 4);
+        size_t offset = 0x75;
+        for (int i = 0; i < 3; i++) {
+            const size_t size = i == 0 ? 1016 : 2;
+            payload[offset] = 0xa0 + i; payload[offset + 2] = 1;
+            payload[offset + 3] = size >> 8; payload[offset + 4] = size & 0xff;
+            payload[offset + 5] = (32 + i) << 1; payload[offset + 6] = 1;
+            offset += 5 + size;
+        }
+        payload_size = offset;
+    } else {
+        /* Valid lengths whose Annex-B configuration occupies 1030 bytes. */
+        const unsigned char header[] = {1, 0x42, 0, 0x1e, 0xff, 0xe1, 3, 0xfc};
+        memcpy(payload, header, sizeof(header));
+        payload[8] = 0x67; payload[1028] = 1;
+        payload[1030] = 2; payload[1031] = 0x68;
+        payload_size = 1033;
+    }
+    for (int i = 0; i < 4; i++) packet[i] = payload_size >> (8 * i);
+    packet[4] = 1;
+    size_t sent = 0, length = 128 + payload_size;
+    /* Queue the next frame too: rejecting the configuration must prevent its use. */
+    packet[length] = 16;
+    length += 128 + 16;
+    while (sent < length) {
+        ssize_t n = send(sender, packet + sent, length - sent, 0);
+        require(n > 0, "Oversized mirror configuration sent over TCP");
+        sent += n;
+    }
+    require(wait_count(&video_resets, resets_before + 1),
+            hevc ? "Oversized HEVC configuration ends the connection and reports reset"
+                 : "Oversized H264 configuration ends the connection and reports reset");
+    raop_rtp_mirror_stop(mirror);
+    require(mirror->joined && mirror->mirror_data_sock == -1,
+            "Rejected configuration thread is joined and listener released");
+    CLOSESOCKET(sender);
+    port = 0;
+    raop_rtp_mirror_start(mirror, &port, 0);
+    require(port != 0 && !mirror->joined, "Mirror can restart after rejecting an oversized configuration");
+    const int configurations_before = atomic_load(&video_configurations);
+    sender = socket(AF_INET, SOCK_STREAM, 0);
+    address.sin_port = htons(port);
+    require(sender >= 0 && connect(sender, (struct sockaddr *)&address, sizeof(address)) == 0,
+            "Sender reconnects after oversized configuration rejection");
+    send_video_configuration(sender, 640, 360);
+    require(wait_count(&video_configurations, configurations_before + 1),
+            "Valid configuration reaches the host after mirror restart");
+    raop_rtp_mirror_destroy(mirror);
+    CLOSESOCKET(sender);
+    raop_ntp_destroy(ntp);
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     test_hevc_configuration();
     logger_t *log = logger_init();
     logger_set_level(log, LOGGER_INFO);
     logger_set_callback(log, capture, NULL);
+    test_ntp_synchronization(log);
+    test_audio_restart_failure(log);
+    test_oversized_video_configuration(log, false);
+    test_oversized_video_configuration(log, true);
     raop_callbacks_t callbacks = {0};
     unsigned char test_key[16] = {0}, test_iv[16] = {0};
     callbacks.audio_stop = audio_stopped;
@@ -158,6 +365,7 @@ int main(void) {
     }
     raop_rtp_destroy(audio);
     test_sound_after_silence(log);
+    test_video_rotation(log);
     logger_destroy(log);
-    puts("All RTP restart, silence transition, retransmission and FLUSH checks passed.");
+    puts("All NTP, RTP restart, video configuration, silence, retransmission and FLUSH checks passed.");
 }

@@ -49,6 +49,10 @@ foreach(target IN LISTS airplay_windows_targets)
   target_compile_definitions(${target} PRIVATE WIN32 NOMINMAX WIN32_LEAN_AND_MEAN
     _WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000000 _CRT_SECURE_NO_WARNINGS)
 endforeach()
+# The POSIX adapter uses descriptor IDs, not raw Windows SOCKET handles.
+# Keep recvfrom fallback until kernel timestamp I/O supports that adapter.
+target_compile_definitions(receiver_core PUBLIC AIRPLAY_WINDOWS_DNSSD
+  PRIVATE AIRPLAY_DISABLE_KERNEL_TIMESTAMPS)
 target_link_libraries(receiver_core PUBLIC ws2_32 dnsapi advapi32 crypt32)
 set_target_properties(airplay_player PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 option(AIRPLAY_WINDOWS_BUILD_TESTS "Build Windows media / compatibility fixtures" OFF)

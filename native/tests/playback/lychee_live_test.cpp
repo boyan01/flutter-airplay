@@ -50,8 +50,9 @@ std::string check_lychee_live(void *surface, const char *audio_path) {
       throw std::runtime_error("buffer/volume restoration failed");
     if (!airplay_player_set_volume(player, -144.f))
       throw std::runtime_error("mute failed");
-    float w = 640, h = 360;
-    receive.video_report_size(receive.cls, &w, &h, nullptr, nullptr);
+    if (receive.video_set_codec_and_size(receive.cls, VIDEO_CODEC_H264,
+                                         640, 360, 0, 0, 640, 360) < 0)
+      throw std::runtime_error("video codec/size setup failed");
     unsigned char ct = 8;
     unsigned short spf = 512;
     receive.audio_get_format(receive.cls, &ct, &spf, nullptr, nullptr, nullptr);

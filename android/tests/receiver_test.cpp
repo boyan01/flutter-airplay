@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     const char address[6] = {2, 0, 0, 0, 0, 1};
     char public_key[] = "00112233445566778899aabbccddeeff";
     int error = 0;
-    dnssd_t *dns = dnssd_init(name, sizeof(name) - 1, address, sizeof(address), &error, 0);
+    dnssd_t *dns = dnssd_init(name, sizeof(name) - 1, address, sizeof(address), 0, &error);
     assert(dns && error == 0);
     dnssd_set_pk(dns, public_key);
     for (int i = 0; i < 3; ++i) {
@@ -55,7 +55,7 @@ int main(int argc, char **argv) {
         assert(length == sizeof(address));
     }
     dnssd_destroy(dns);
-    dns = dnssd_init(name, sizeof(name) - 1, address, sizeof(address), &error, 0);
+    dns = dnssd_init(name, sizeof(name) - 1, address, sizeof(address), 0, &error);
     assert(dns && error == 0);
     dnssd_destroy(dns);
     std::cout << "PASS: partial receiver destruction and DNS unregister/re-register lifetime\n";

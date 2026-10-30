@@ -9,19 +9,21 @@ static void reset(void *, reset_type_t) {}
 static void connReset(void *, int) {}
 static void nothing(void *) {}
 static double volume(void *) { return 0.0; }
-static int codec(void *, video_codec_t value) {
+static int codec(void *, video_codec_t value, unsigned short, unsigned short,
+                 unsigned short, unsigned short, unsigned short, unsigned short) {
     return value == VIDEO_CODEC_H264 || value == VIDEO_CODEC_H265 ? 0 : -1;
 }
 static void logDiscard(void *, int, const char *) {}
 Receiver::~Receiver() { stop(); }
 int Receiver::start(const char *name, const uint8_t identity[6], const char *keyfile) {
     if (raop_ || !name || !*name || strlen(name) > 48 || !identity || !keyfile) return -1;
+    ntp_global_init();
     raop_callbacks_t cb{}; cb.cls = this;
     cb.audio_process = audio; cb.video_process = video;
     cb.video_pause = nothing; cb.video_resume = nothing; cb.conn_feedback = nothing;
     cb.conn_reset = connReset; cb.video_reset = reset;
     cb.conn_destroy = nothing; cb.audio_flush = nothing; cb.video_flush = nothing;
-    cb.audio_set_client_volume = volume; cb.video_set_codec = codec;
+    cb.audio_set_client_volume = volume; cb.video_set_codec_and_size = codec;
     raop_ = raop_init(&cb);
     if (!raop_) return -1;
     // UxPlay requires a log callback. Default to silence: the host may later
@@ -33,7 +35,7 @@ int Receiver::start(const char *name, const uint8_t identity[6], const char *key
         identity[2], identity[3], identity[4], identity[5]);
     if (raop_init2(raop_, 1, id, keyfile)) { stop(); return -1; }
     int err = 0;
-    dns_ = dnssd_init(name, (int)strlen(name), (const char *)identity, 6, &err, 0);
+    dns_ = dnssd_init(name, (int)strlen(name), (const char *)identity, 6, 0, &err);
     if (!dns_) { stop(); return -1; }
     raop_set_dnssd(raop_, dns_);
     // HLS remains disabled; playback integration must narrow other feature bits.

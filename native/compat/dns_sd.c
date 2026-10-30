@@ -43,3 +43,7 @@ int32_t TXTRecordSetValue(TXTRecordRef *r, const char *key, uint8_t len, const v
 uint16_t TXTRecordGetLength(const TXTRecordRef *r) { return r->length; }
 const void *TXTRecordGetBytesPtr(const TXTRecordRef *r) { return r->bytes; }
 void TXTRecordDeallocate(TXTRecordRef *r) { free(r->bytes); r->bytes = NULL; r->length = 0; }
+
+/* NsdManager services network events; this adapter only stores TXT records. */
+int DNSServiceRefSockFD(DNSServiceRef service) { (void)service; return -1; }
+DNSServiceErrorType DNSServiceProcessResult(DNSServiceRef service) { (void)service; return 0; }

@@ -2,11 +2,20 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( uxplay )
 
+option(ENABLE_ASAN "Enable AddressSanitizer for memory debugging" OFF)
+
+
 message( STATUS "Project name: " ${PROJECT_NAME} )
 
 include(GNUInstallDirs)
 
+set ( CMAKE_C_STARDARD 99)
+set ( CMAKE_C_STANDARD_REQUIRED ON)
+set ( CMAKE_C_EXTENSIONS ON)
 set ( CMAKE_CXX_STANDARD 11 )
+set ( CMAKE_CXX_STANDARD_REQUIRED ON)
+set ( CMAKE_CXX_EXTENSIONS ON)
+
 
 if (ZOOMFIX )
   message (STATUS "cmake option ZOOMFIX is no longer used (if needed, ZOOMFIX is automatically applied if X11 libraries are present)" )
@@ -42,11 +51,31 @@ if( UNIX AND NOT APPLE )
 endif()
 
 if( UNIX AND NOT APPLE )
-  add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
   # convert AirPlay colormap 1:3:7:1 to sRGB (1:1:7:1), needed on Linux and BSD
   add_definitions( -DFULL_RANGE_RGB_FIX )
 else()
   set( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
+endif()
+
+if (USE_DNS_SD OR ( APPLE AND NOT USE_MDNS ))
+  message ( STATUS "******** using Bounjour/Apple dns_sd.h for Service Discovery")
+  add_definitions( -DEXTERNAL_DNS_SD )
+  if ( APPLE )
+    add_definitions( -DUXPLAY_HAVE_APPLE_P2P )
+  endif()
+  add_subdirectory( lib/dns_sd)
+  if (UNIX AND NOT APPLE)
+    add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
+  endif()
+  if ( APPLE )
+       message ( STATUS "******** use \"cmake -DUSE_MDNS=1\" to build using UxPlay mdnsd code instead of Apple Bonjour" )
+  endif()
+else()
+  message ( STATUS "******** using internal minimal mDNSResponder implementation (lib/mdnsd) for Service Discovery")
+  if (NOT APPLE)
+     message ( STATUS "******** use \"cmake -DUSE_DNS_SD=1\" to build with the previously-used Apple/Avahi dns-sd.h code")
+  endif()
+  add_subdirectory( lib/mdnsd)
 endif()
 
 add_subdirectory( lib/llhttp )
@@ -64,6 +93,68 @@ target_link_libraries( uxplay renderers airplay )
 if (DBUS_FOUND)
       target_link_libraries( uxplay ${DBUS_LIBRARY})
 endif()
+
+
+if (ENABLE_ASAN)
+    message(STATUS ">>> FORCING SYSTEM-WIDE UNOPTIMIZED (-O0) ASAN + UBSAN SANITIZER BLOCKS <<<")
+
+    # 1. Force the global CMake build configuration profile to Debug
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Forced Debug mode for ASan/UBSan safety" FORCE)
+
+    # 2. Clean out project-level internal logging or display variables if they exist
+    if(CMAKE_CFLAGS)
+        string(REPLACE "-O3" "-O0" CMAKE_CFLAGS "${CMAKE_CFLAGS}")
+        string(REPLACE "-O2" "-O0" CMAKE_CFLAGS "${CMAKE_CFLAGS}")
+        string(REPLACE "-march=native" "" CMAKE_CFLAGS "${CMAKE_CFLAGS}")
+        set(CMAKE_CFLAGS "${CMAKE_CFLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer -g" CACHE STRING "" FORCE)
+    endif()
+
+    # 3. Override standard global flag variables to ensure -O0 takes precedence
+    set(CMAKE_C_FLAGS "-O0 -fsanitize=address,undefined -fno-omit-frame-pointer -g" CACHE STRING "" FORCE)
+    set(CMAKE_CXX_FLAGS "-O0 -fsanitize=address,undefined -fno-omit-frame-pointer -g" CACHE STRING "" FORCE)
+
+    # 4. Force the global linker toolchain to link the runtime sanitizer engines
+    set(CMAKE_EXE_LINKER_FLAGS "-fsanitize=address,undefined" CACHE STRING "" FORCE)
+    set(CMAKE_SHARED_LINKER_FLAGS "-fsanitize=address,undefined" CACHE STRING "" FORCE)
+
+    # 5. Intercept and override compilation variables directly on all sub-targets
+    foreach(target playfair dnssd llhttp airplay renderers uxplay)
+        if(TARGET ${target})
+            target_compile_options(${target} PRIVATE -O0 -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+        endif()
+    endforeach()
+
+    # Define the optimal diagnostic string for runtime execution
+    # Added print_stacktrace=1 for UBSan to print clear code traces on undefined behavior
+    set(ASAN_MAX_OPTIONS "detect_leaks=1:malloc_context_size=50:strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1")
+    set(UBSAN_MAX_OPTIONS "print_stacktrace=1")
+
+    # 6. Automatically inject settings for ctest (if unit tests are used)
+    set_property(DIRECTORY PROPERTY TEST_ENVIRONMENT
+        "ASAN_OPTIONS=${ASAN_MAX_OPTIONS}"
+        "UBSAN_OPTIONS=${UBSAN_MAX_OPTIONS}"
+    )
+
+    message(STATUS "---------------------------------------------------------------------")
+    message(STATUS " ASAN + UBSAN RUNTIME INSTRUCTIONS:")
+    message(STATUS " To run your compiled uxplay binary manually with maximum diagnostics,")
+    message(STATUS " copy and paste some or all of the following command into your terminal execution shell:")
+    message(STATUS " ")
+    message(STATUS "   export ASAN_OPTIONS=${ASAN_MAX_OPTIONS}")
+    message(STATUS "   export UBSAN_OPTIONS=${UBSAN_MAX_OPTIONS}")
+    message(STATUS "   ./uxplay [your normal options]")
+    message(STATUS " ")
+    message(STATUS " (Alternatively, combine them into a single-line command:) ")
+    message(STATUS "   ASAN_OPTIONS=${ASAN_MAX_OPTIONS} UBSAN_OPTIONS=${UBSAN_MAX_OPTIONS} ./uxplay")
+    message(STATUS "---------------------------------------------------------------------")
+else()
+    message(STATUS "---------------------------------------------------------------------")
+    message(STATUS " for debug builds with address and undefined variable checks (ASAN/UBSAN) use:")
+    message(STATUS "         cmake -DENABLE_ASAN=1 ")
+    message(STATUS "---------------------------------------------------------------------")
+endif()
+
 
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
 install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )

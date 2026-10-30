@@ -121,7 +121,7 @@ struct dnssd_s {
     unsigned char pin = 0;
     std::unique_ptr<Service> audio, video;
 };
-extern "C" dnssd_t *dnssd_init(const char *name, int name_len, const char *hardware, int length, int *error, unsigned char pin) {
+extern "C" dnssd_t *dnssd_init(const char *name, int name_len, const char *hardware, int length, unsigned char pin, int *error) {
     if (error) *error = DNSSD_ERROR_NOERROR;
     if (!name || name_len < 1 || !hardware || length != 6) { if (error) *error = DNSSD_ERROR_HWADDRLEN; return nullptr; }
     try {

@@ -4,6 +4,10 @@
 #include "uxplay_callbacks.h"
 #include "../playback/player_internal.h"
 #include <cstring>
+#ifndef _WIN32
+#include <cerrno>
+#include <poll.h>
+#endif
 #include <string>
 extern "C" {
 #include "dnssd.h"
@@ -19,7 +23,6 @@ void audio_process(void *cls, raop_ntp_t *, audio_decode_struct *data) {
     player(cls)->receive_audio(data->data, data->data_len, data->ct, int64_t(data->ntp_time_local), data->rtp_time);
 }
 void audio_format(void *cls, unsigned char *ct, unsigned short *spf, bool *, bool *, uint64_t *) { player(cls)->format_audio(*ct, *spf); }
-void video_size(void *cls, float *sw, float *sh, float *, float *) { player(cls)->resize_video(*sw, *sh); }
 void reset(void *cls) { player(cls)->reset(); }
 void reset_type(void *cls, reset_type_t type) {
     player(cls)->log(("Protocol video reset: type=" + std::to_string(int(type))).c_str());
@@ -47,20 +50,23 @@ void client(void *cls, char *, char *, char *name, bool *admit) {
 void mirror(void *cls, bool running) { if (running) player(cls)->event("connecting", "Sender connected"); }
 double volume(void *cls) { return player(cls)->volume_db(); }
 void volume_set(void *cls, float db) { player(cls)->set_volume(db); }
-int codec(void *cls, video_codec_t c) {
+int codec_and_size(void *cls, video_codec_t c, unsigned short sw, unsigned short sh,
+                   unsigned short, unsigned short, unsigned short, unsigned short) {
     if (c != VIDEO_CODEC_H264 && c != VIDEO_CODEC_H265) return -1;
-    return player(cls)->select_codec(c == VIDEO_CODEC_H265);
+    const int result = player(cls)->select_codec(c == VIDEO_CODEC_H265);
+    if (result >= 0) player(cls)->resize_video(sw, sh);
+    return result;
 }
 void log(void *cls, int level, const char *text) { player(cls)->log(text, level); }
 }  // namespace
 raop_callbacks_t receiver_callbacks(AirplayPlayer *p) {
     raop_callbacks_t cb{}; cb.cls = p;
     cb.audio_process = audio_process; cb.video_process = video_process; cb.audio_get_format = audio_format;
-    cb.video_report_size = video_size; cb.audio_flush = audio_flush; cb.audio_stop = audio_stop; cb.video_flush = reset;
+    cb.audio_flush = audio_flush; cb.audio_stop = audio_stop; cb.video_flush = reset;
     cb.video_pause = video_pause; cb.video_resume = video_resume; cb.conn_feedback = nothing; cb.conn_reset = conn_reset;
     cb.video_reset = reset_type; cb.conn_init = connected; cb.conn_destroy = disconnected;
     cb.report_client_request = client; cb.mirror_video_running = mirror;
-    cb.audio_set_client_volume = volume; cb.audio_set_volume = volume_set; cb.video_set_codec = codec;
+    cb.audio_set_client_volume = volume; cb.audio_set_volume = volume_set; cb.video_set_codec_and_size = codec_and_size;
     return cb;
 }
 
@@ -72,6 +78,34 @@ struct ProtocolAdapter::Impl {
     uint16_t port = 0;
     std::mutex session_lock;
     std::atomic<int> connections{0};
+    std::atomic<bool> discovery_running{false};
+    std::thread discovery;
+    void start_discovery_events() {
+#ifndef _WIN32
+        // Bonjour/Avahi registration replies must be consumed. Android's TXT
+        // adapter has no service sockets; NsdManager owns discovery there.
+        const int audio = dnssd_get_service_fd(dns, DNSSD_SERVICE_RAOP);
+        const int video = dnssd_get_service_fd(dns, DNSSD_SERVICE_AIRPLAY);
+        if (audio < 0 && video < 0) return;
+        discovery_running = true;
+        discovery = std::thread([this, audio, video] {
+            pollfd services[] = {{audio, POLLIN, 0}, {video, POLLIN, 0}};
+            while (discovery_running) {
+                const int ready = poll(services, 2, 100);
+                if (ready < 0 && errno == EINTR) continue;
+                if (!discovery_running) break;
+                if (ready < 0 ||
+                    (services[0].revents & (POLLERR | POLLHUP | POLLNVAL)) ||
+                    (services[1].revents & (POLLERR | POLLHUP | POLLNVAL)) ||
+                    ((services[0].revents & POLLIN) && dnssd_process_service(dns, DNSSD_SERVICE_RAOP)) ||
+                    ((services[1].revents & POLLIN) && dnssd_process_service(dns, DNSSD_SERVICE_AIRPLAY))) {
+                    playback.event("error", "Cannot process discovery service events");
+                    break;
+                }
+            }
+        });
+#endif
+    }
     explicit Impl(AirplayPlayer& value) : playback(value) {}
 };
 ProtocolAdapter::ProtocolAdapter(AirplayPlayer& playback) : impl_(std::make_unique<Impl>(playback)) {}
@@ -80,6 +114,8 @@ ProtocolAdapter::~ProtocolAdapter() {
     if (impl_->dns) { dnssd_unregister_raop(impl_->dns); dnssd_unregister_airplay(impl_->dns); dnssd_destroy(impl_->dns); }
 }
 void ProtocolAdapter::stop_receiver() {
+    impl_->discovery_running = false;
+    if (impl_->discovery.joinable()) impl_->discovery.join();
     if (impl_->receiver) { raop_destroy(impl_->receiver); impl_->receiver = nullptr; }
 }
 bool ProtocolAdapter::started() const { return impl_->receiver != nullptr; }
@@ -114,6 +150,8 @@ bool ProtocolAdapter::start( const char *name, const uint8_t identity[6], const 
     auto *p = &impl_->playback;
     auto fail = [&](const char *text) { if (error && capacity) snprintf(error, capacity, "%s", text); return false; };
     if (!p || impl_->receiver || !name || !*name || strlen(name) > 50 || !identity || !key) return fail("Invalid receiver configuration");
+    static std::once_flag ntp_initialized;
+    std::call_once(ntp_initialized, ntp_global_init);
     auto cb = receiver_callbacks(p);
     impl_->receiver = raop_init(&cb);
     if (!impl_->receiver) return fail("Cannot initialize AirPlay receive core");
@@ -121,7 +159,7 @@ bool ProtocolAdapter::start( const char *name, const uint8_t identity[6], const 
     char id[18]; snprintf(id, sizeof(id), "%02X:%02X:%02X:%02X:%02X:%02X", identity[0], identity[1], identity[2], identity[3], identity[4], identity[5]);
     if (raop_init2(impl_->receiver, 1, id, key)) return fail("Cannot initialize private pairing key");
     int dns_error = 0;
-    impl_->dns = dnssd_init(name, int(strlen(name)), reinterpret_cast<const char *>(identity), 6, &dns_error, 0);
+    impl_->dns = dnssd_init(name, int(strlen(name)), reinterpret_cast<const char *>(identity), 6, 0, &dns_error);
     if (!impl_->dns) return fail("Cannot initialize discovery records");
     raop_set_dnssd(impl_->receiver, impl_->dns);
     dnssd_set_airplay_features(impl_->dns, 0, 0); dnssd_set_airplay_features(impl_->dns, 4, 0);
@@ -132,6 +170,7 @@ bool ProtocolAdapter::start( const char *name, const uint8_t identity[6], const 
     if (raop_start_httpd(impl_->receiver, &impl_->port) < 0 || !impl_->port) return fail("Cannot bind AirPlay listener");
     raop_set_port(impl_->receiver, impl_->port);
     if (dnssd_register_raop(impl_->dns, impl_->port) || dnssd_register_airplay(impl_->dns, impl_->port)) return fail("Cannot register discovery services");
+    impl_->start_discovery_events();
     p->log(p->fast_pairing ? "Fast pairing: enabled; legacy pairing advertisement disabled"
                            : "Fast pairing: disabled; legacy pairing advertisement enabled");
     p->log(p->supports_hevc()
