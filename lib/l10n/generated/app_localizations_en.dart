@@ -517,25 +517,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get showPlaybackStatsHelp =>
-      'Show codec, submission frame rate and scheduler drops while mirroring.';
+      'Show decoders, rendered frame rate, drops and buffering while mirroring.';
 
   @override
   String get playbackStatsWaiting => 'Waiting for playback statistics…';
 
   @override
-  String get playbackStatsFps => 'Submission FPS';
+  String get playbackStatsHardware => 'hardware';
 
   @override
-  String get playbackStatsDropped => 'Scheduler drops';
+  String get playbackStatsSoftware => 'software';
 
   @override
-  String get playbackStatsSubmitted => 'Submitted frames';
+  String get playbackStatsFps => 'Rendered FPS';
 
   @override
-  String get playbackStatsPending => 'Pending frames';
+  String get playbackStatsDropped => 'Dropped frames';
 
   @override
-  String get playbackStatsQueued => 'Input queue';
+  String get playbackStatsPacketsDropped => 'Dropped packets';
+
+  @override
+  String playbackStatsBuffered(int video, int audio) {
+    return 'Buffered: video $video ms · audio $audio ms';
+  }
+
+  @override
+  String playbackStatsAudioTiming(int late, int silence, int behind) {
+    return 'Audio late $late ms · silence $silence ms · behind video $behind ms';
+  }
 
   @override
   String get launchAtLoginHelp =>

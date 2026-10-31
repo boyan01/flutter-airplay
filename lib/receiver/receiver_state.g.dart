@@ -122,14 +122,16 @@ const _$ReceiverEventTypeEnumMap = {
 
 PlaybackStats _$PlaybackStatsFromJson(Map<String, dynamic> json) =>
     PlaybackStats(
-      audioCodec: json['audioCodec'] as String? ?? '',
-      audioSampleRate: (json['audioSampleRate'] as num?)?.toInt() ?? 0,
-      audioChannels: (json['audioChannels'] as num?)?.toInt() ?? 0,
       codec: json['codec'] as String? ?? '',
-      decoder: json['decoder'] as String? ?? '',
+      videoDecoder: json['videoDecoder'] as String? ?? '',
+      hardware: json['hardware'] as bool? ?? false,
+      audioDecoder: json['audioDecoder'] as String? ?? '',
       fps: (json['fps'] as num?)?.toDouble() ?? 0,
-      submitted: (json['submitted'] as num?)?.toInt() ?? 0,
       dropped: (json['dropped'] as num?)?.toInt() ?? 0,
-      pending: (json['pending'] as num?)?.toInt() ?? 0,
-      queued: (json['queued'] as num?)?.toInt() ?? 0,
+      packetsDropped: (json['packetsDropped'] as num?)?.toInt() ?? 0,
+      audioLateMs: (json['audioLateMs'] as num?)?.toInt() ?? 0,
+      audioSilenceMs: (json['audioSilenceMs'] as num?)?.toInt() ?? 0,
+      audioBehindMs: (json['audioBehindMs'] as num?)?.toInt() ?? 0,
+      videoBufferedMs: (json['videoBufferedMs'] as num?)?.toInt() ?? 0,
+      audioBufferedMs: (json['audioBufferedMs'] as num?)?.toInt() ?? 0,
     );

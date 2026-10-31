@@ -667,33 +667,42 @@ void main() {
           'type': 'playbackStats',
           'metrics': {
             'codec': 'HEVC',
-            'decoder': 'Fixture decoder',
-            'audioCodec': 'AAC',
-            'audioSampleRate': 44100,
-            'audioChannels': 2,
+            'videoDecoder': 'Fixture decoder',
+            'hardware': true,
+            'audioDecoder': 'aac',
             'fps': 59.8,
-            'submitted': 120,
             'dropped': 3,
-            'pending': 2,
-            'queued': 1,
+            'packetsDropped': 5,
+            'audioLateMs': 7,
+            'audioSilenceMs': 20,
+            'audioBehindMs': 40,
+            'videoBufferedMs': 120,
+            'audioBufferedMs': 140,
           },
         });
         await tester.pump();
-        expect(find.text('HEVC · Fixture decoder'), findsOneWidget);
-        expect(find.text('AAC · 44.1 kHz · 2 ch'), findsOneWidget);
-        expect(find.text('提交帧率 59.8'), findsOneWidget);
-        expect(find.text('已提交帧 120'), findsOneWidget);
-        expect(find.text('调度丢帧 3'), findsOneWidget);
-        expect(find.text('待提交帧 2'), findsOneWidget);
-        expect(find.text('输入队列 1'), findsOneWidget);
+        expect(find.text('HEVC · Fixture decoder · 硬件'), findsOneWidget);
+        expect(find.text('aac'), findsOneWidget);
+        expect(find.text('渲染帧率 59.8'), findsOneWidget);
+        expect(find.text('丢弃帧 3'), findsOneWidget);
+        expect(find.text('丢弃数据包 5'), findsOneWidget);
+        expect(find.text('缓冲：视频 120 ms · 音频 140 ms'), findsOneWidget);
+        expect(
+          find.text('音频迟到 7 ms · 静音 20 ms · 晚于视频 40 ms'),
+          findsOneWidget,
+        );
         backend.controller.add({
           'type': 'playbackStats',
-          'metrics': {'codec': 'HEVC', 'decoder': 'Fixture decoder'},
+          'metrics': {
+            'codec': 'HEVC',
+            'videoDecoder': 'Fixture decoder',
+            'audioDecoder': 'none',
+          },
         });
         await tester.pump();
-        // Unknown audio details are omitted rather than shown as placeholders.
-        expect(find.textContaining('kHz'), findsNothing);
-        expect(find.textContaining(' · -'), findsNothing);
+        // Without audio, no audio decoder line is shown.
+        expect(find.text('HEVC · Fixture decoder · 软件'), findsOneWidget);
+        expect(find.text('none'), findsNothing);
         await tester.binding.setSurfaceSize(const Size(280, 320));
         tester.platformDispatcher.textScaleFactorTestValue = 1.8;
         await tester.pumpAndSettle();
@@ -701,7 +710,9 @@ void main() {
         final overlay = tester.getRect(
           find.byKey(const Key('playbackStatsOverlay')),
         );
-        final last = tester.getRect(find.text('输入队列 0'));
+        final last = tester.getRect(
+          find.text('音频迟到 0 ms · 静音 0 ms · 晚于视频 0 ms'),
+        );
         expect(overlay.contains(last.topLeft), isTrue);
         expect(last.bottom, lessThanOrEqualTo(overlay.bottom));
         expect(last.right, lessThanOrEqualTo(overlay.right));

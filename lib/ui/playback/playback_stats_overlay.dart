@@ -13,14 +13,6 @@ class PlaybackStatsOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final stats = model.playbackStats;
     final strings = l10n(context);
-    final audio = stats == null
-        ? ''
-        : [
-            stats.audioCodec,
-            if (stats.audioSampleRate > 0)
-              '${(stats.audioSampleRate / 1000).toStringAsFixed(1)} kHz',
-            if (stats.audioChannels > 0) '${stats.audioChannels} ch',
-          ].where((part) => part.isNotEmpty).join(' · ');
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 300),
       child: DecoratedBox(
@@ -50,17 +42,39 @@ class PlaybackStatsOverlay extends StatelessWidget {
                   if (stats == null)
                     Text(strings.playbackStatsWaiting)
                   else ...[
-                    Text('${stats.codec} · ${stats.decoder}'),
-                    if (audio.isNotEmpty) Text(audio),
+                    Text(
+                      [
+                        stats.codec,
+                        stats.videoDecoder,
+                        stats.hardware
+                            ? strings.playbackStatsHardware
+                            : strings.playbackStatsSoftware,
+                      ].where((part) => part.isNotEmpty).join(' · '),
+                    ),
+                    // lychee reports "none" without an audio track.
+                    if (stats.audioDecoder.isNotEmpty &&
+                        stats.audioDecoder != 'none')
+                      Text(stats.audioDecoder),
                     Text(
                       '${strings.playbackStatsFps} ${stats.fps.toStringAsFixed(1)}',
                     ),
-                    Text(
-                      '${strings.playbackStatsSubmitted} ${stats.submitted}',
-                    ),
                     Text('${strings.playbackStatsDropped} ${stats.dropped}'),
-                    Text('${strings.playbackStatsPending} ${stats.pending}'),
-                    Text('${strings.playbackStatsQueued} ${stats.queued}'),
+                    Text(
+                      '${strings.playbackStatsPacketsDropped} ${stats.packetsDropped}',
+                    ),
+                    Text(
+                      strings.playbackStatsBuffered(
+                        stats.videoBufferedMs,
+                        stats.audioBufferedMs,
+                      ),
+                    ),
+                    Text(
+                      strings.playbackStatsAudioTiming(
+                        stats.audioLateMs,
+                        stats.audioSilenceMs,
+                        stats.audioBehindMs,
+                      ),
+                    ),
                   ],
                 ],
               ),

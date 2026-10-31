@@ -201,13 +201,38 @@
   "buildVersion": "Version",
   "buildTime": "Built at",
   "showPlaybackStats": "Playback statistics overlay",
-  "showPlaybackStatsHelp": "Show codec, submission frame rate and scheduler drops while mirroring.",
+  "showPlaybackStatsHelp": "Show decoders, rendered frame rate, drops and buffering while mirroring.",
   "playbackStatsWaiting": "Waiting for playback statistics…",
-  "playbackStatsFps": "Submission FPS",
-  "playbackStatsDropped": "Scheduler drops",
-  "playbackStatsSubmitted": "Submitted frames",
-  "playbackStatsPending": "Pending frames",
-  "playbackStatsQueued": "Input queue",
+  "playbackStatsHardware": "hardware",
+  "playbackStatsSoftware": "software",
+  "playbackStatsFps": "Rendered FPS",
+  "playbackStatsDropped": "Dropped frames",
+  "playbackStatsPacketsDropped": "Dropped packets",
+  "playbackStatsBuffered": "Buffered: video {video} ms · audio {audio} ms",
+  "@playbackStatsBuffered": {
+    "placeholders": {
+      "video": {
+        "type": "int"
+      },
+      "audio": {
+        "type": "int"
+      }
+    }
+  },
+  "playbackStatsAudioTiming": "Audio late {late} ms · silence {silence} ms · behind video {behind} ms",
+  "@playbackStatsAudioTiming": {
+    "placeholders": {
+      "late": {
+        "type": "int"
+      },
+      "silence": {
+        "type": "int"
+      },
+      "behind": {
+        "type": "int"
+      }
+    }
+  },
   "launchAtLoginHelp": "Open this app after you sign in to your desktop. Keep the app in a permanent installation location. Receiving automatically is a separate option.",
   "loginError": "Unable to read or change startup registration. Check system permissions and the installation location, then refresh.",
   "loginNotApplied": "The system has not applied this change. Check Login Items or Startup Apps for approval, then refresh.",

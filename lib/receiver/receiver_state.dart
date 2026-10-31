@@ -174,26 +174,30 @@ class ReceiverEvent {
   final PlaybackStats? playbackStats;
 }
 
-/// Scheduler submissions are not measured screen presentations or network losses.
+/// lychee_player's live playback statistics; rates cover the last second,
+/// packet drops and late or silent audio count since the player opened.
 @JsonSerializable(createToJson: false)
 class PlaybackStats {
   const PlaybackStats({
-    this.audioCodec = '',
-    this.audioSampleRate = 0,
-    this.audioChannels = 0,
     this.codec = '',
-    this.decoder = '',
+    this.videoDecoder = '',
+    this.hardware = false,
+    this.audioDecoder = '',
     this.fps = 0,
-    this.submitted = 0,
     this.dropped = 0,
-    this.pending = 0,
-    this.queued = 0,
+    this.packetsDropped = 0,
+    this.audioLateMs = 0,
+    this.audioSilenceMs = 0,
+    this.audioBehindMs = 0,
+    this.videoBufferedMs = 0,
+    this.audioBufferedMs = 0,
   });
   factory PlaybackStats.fromJson(Map<String, dynamic> json) =>
       _$PlaybackStatsFromJson(json);
-  final String audioCodec;
-  final int audioSampleRate, audioChannels;
-  final String codec, decoder;
+  final String codec, videoDecoder, audioDecoder;
+  final bool hardware;
   final double fps;
-  final int submitted, dropped, pending, queued;
+  final int dropped, packetsDropped;
+  final int audioLateMs, audioSilenceMs, audioBehindMs;
+  final int videoBufferedMs, audioBufferedMs;
 }

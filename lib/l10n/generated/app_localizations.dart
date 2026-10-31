@@ -1055,7 +1055,7 @@ abstract class AppLocalizations {
   /// No description provided for @showPlaybackStatsHelp.
   ///
   /// In en, this message translates to:
-  /// **'Show codec, submission frame rate and scheduler drops while mirroring.'**
+  /// **'Show decoders, rendered frame rate, drops and buffering while mirroring.'**
   String get showPlaybackStatsHelp;
 
   /// No description provided for @playbackStatsWaiting.
@@ -1064,35 +1064,47 @@ abstract class AppLocalizations {
   /// **'Waiting for playback statistics…'**
   String get playbackStatsWaiting;
 
+  /// No description provided for @playbackStatsHardware.
+  ///
+  /// In en, this message translates to:
+  /// **'hardware'**
+  String get playbackStatsHardware;
+
+  /// No description provided for @playbackStatsSoftware.
+  ///
+  /// In en, this message translates to:
+  /// **'software'**
+  String get playbackStatsSoftware;
+
   /// No description provided for @playbackStatsFps.
   ///
   /// In en, this message translates to:
-  /// **'Submission FPS'**
+  /// **'Rendered FPS'**
   String get playbackStatsFps;
 
   /// No description provided for @playbackStatsDropped.
   ///
   /// In en, this message translates to:
-  /// **'Scheduler drops'**
+  /// **'Dropped frames'**
   String get playbackStatsDropped;
 
-  /// No description provided for @playbackStatsSubmitted.
+  /// No description provided for @playbackStatsPacketsDropped.
   ///
   /// In en, this message translates to:
-  /// **'Submitted frames'**
-  String get playbackStatsSubmitted;
+  /// **'Dropped packets'**
+  String get playbackStatsPacketsDropped;
 
-  /// No description provided for @playbackStatsPending.
+  /// No description provided for @playbackStatsBuffered.
   ///
   /// In en, this message translates to:
-  /// **'Pending frames'**
-  String get playbackStatsPending;
+  /// **'Buffered: video {video} ms · audio {audio} ms'**
+  String playbackStatsBuffered(int video, int audio);
 
-  /// No description provided for @playbackStatsQueued.
+  /// No description provided for @playbackStatsAudioTiming.
   ///
   /// In en, this message translates to:
-  /// **'Input queue'**
-  String get playbackStatsQueued;
+  /// **'Audio late {late} ms · silence {silence} ms · behind video {behind} ms'**
+  String playbackStatsAudioTiming(int late, int silence, int behind);
 
   /// No description provided for @launchAtLoginHelp.
   ///

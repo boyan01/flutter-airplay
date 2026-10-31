@@ -501,25 +501,35 @@ class AppLocalizationsZh extends AppLocalizations {
   String get showPlaybackStats => '播放统计图层';
 
   @override
-  String get showPlaybackStatsHelp => '投屏时显示编解码、提交帧率和调度丢帧数据。';
+  String get showPlaybackStatsHelp => '投屏时显示解码器、渲染帧率、丢帧和缓冲数据。';
 
   @override
   String get playbackStatsWaiting => '等待播放统计…';
 
   @override
-  String get playbackStatsFps => '提交帧率';
+  String get playbackStatsHardware => '硬件';
 
   @override
-  String get playbackStatsDropped => '调度丢帧';
+  String get playbackStatsSoftware => '软件';
 
   @override
-  String get playbackStatsSubmitted => '已提交帧';
+  String get playbackStatsFps => '渲染帧率';
 
   @override
-  String get playbackStatsPending => '待提交帧';
+  String get playbackStatsDropped => '丢弃帧';
 
   @override
-  String get playbackStatsQueued => '输入队列';
+  String get playbackStatsPacketsDropped => '丢弃数据包';
+
+  @override
+  String playbackStatsBuffered(int video, int audio) {
+    return '缓冲：视频 $video ms · 音频 $audio ms';
+  }
+
+  @override
+  String playbackStatsAudioTiming(int late, int silence, int behind) {
+    return '音频迟到 $late ms · 静音 $silence ms · 晚于视频 $behind ms';
+  }
 
   @override
   String get launchAtLoginHelp => '登录桌面后打开应用。请将应用保留在固定安装位置；自动接收由另一选项控制。';
