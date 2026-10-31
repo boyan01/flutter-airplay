@@ -362,7 +362,7 @@ void AirplayPlayer::report_stats_locked(const lychee_stats &stats,
 }
 void AirplayPlayer::run() {
   auto report = lychee_now_us();
-  int64_t reported_frames = 0, shown_frames = 0;
+  int64_t reported_frames = 0;
   while (!closing) {
     std::unique_lock<std::mutex> guard(lock);
     const auto now = lychee_now_us();
@@ -373,14 +373,14 @@ void AirplayPlayer::run() {
       audio_playing = true;
       event("audio", "Decoded audio ready");
     }
-    // A texture pulls frames itself: a newly rendered one means playing. A
-    // new video renderer counts from zero. Otherwise acquire here; pausing must
-    // prevent that, which submits Android's MediaCodec buffer to the Surface.
+    // A texture pulls frames itself, but only once the UI shows it, which
+    // waits for playing: buffered video with a known size means playing.
+    // Otherwise acquire here; pausing must prevent that, which submits
+    // Android's MediaCodec buffer to the Surface.
     int w = 0, h = 0;
     bool playing = false;
     if (texture.bind) {
-      playing = !paused && stats.frames_rendered != shown_frames;
-      shown_frames = stats.frames_rendered;
+      playing = !paused && stats.video_buffered_us > 0;
       if (playing)
         lychee_player_get_video_size(live, &w, &h);
     } else if (!paused) {
