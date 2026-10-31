@@ -81,11 +81,8 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
-# The player links the core the lychee_player plugin builds and bundles.
-add_library(lychee::lychee ALIAS lychee)
+# The player links lychee::lychee, the core the lychee_player plugin builds and bundles.
 add_subdirectory("../native" "native")
-# Executables linking the player resolve lychee's FFmpeg, beside the core.
-target_link_options(airplay_player INTERFACE "LINKER:-rpath-link,$<TARGET_FILE_DIR:lychee>")
 
 
 # === Installation ===

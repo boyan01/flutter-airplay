@@ -104,18 +104,8 @@ flutter {
 }
 
 dependencies {
-    // The core the lychee_player plugin depends on, for prefab; its version is
-    // the plugin's (the compile classpath follows the runtime one below).
-    implementation("io.github.boyan01.lychee:lychee")
     implementation("androidx.core:core:1.19.1")
     testImplementation("junit:junit:4.13.2")
-}
-
-androidComponents.onVariants { variant ->
-    listOf("", "UnitTest").forEach { scope ->
-        val compile = configurations.findByName("${variant.name}${scope}CompileClasspath") ?: return@forEach
-        compile.shouldResolveConsistentlyWith(configurations.getByName("${variant.name}${scope}RuntimeClasspath"))
-    }
 }
 
 val copySharedAssets by tasks.registering(Sync::class) {

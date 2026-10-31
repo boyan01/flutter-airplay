@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # The native player (windows/player), a nested CMake build with the Visual Studio
-# ClangCL toolset that the receive core needs. It links the import library of
-# lychee_player.dll, which the lychee_player plugin builds in this project.
+# ClangCL toolset that the receive core needs. It finds lychee_player.dll, which
+# the lychee_player plugin builds in this project, as the lychee CMake package.
 include(ExternalProject)
 get_filename_component(AIRPLAY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(AIRPLAY_NATIVE_DIR "${CMAKE_BINARY_DIR}/native")
 set(airplay_player "${AIRPLAY_NATIVE_DIR}/Release/airplay_player")
-get_target_property(airplay_lychee_include lychee INTERFACE_INCLUDE_DIRECTORIES)
 ExternalProject_Add(airplay_native
   SOURCE_DIR "${AIRPLAY_ROOT}/windows/player"
   BINARY_DIR "${AIRPLAY_NATIVE_DIR}"
@@ -14,8 +13,7 @@ ExternalProject_Add(airplay_native
   CMAKE_GENERATOR_PLATFORM x64
   CMAKE_GENERATOR_TOOLSET ClangCL
   CMAKE_ARGS
-    "-DAIRPLAY_LYCHEE_INCLUDE=${airplay_lychee_include}"
-    "-DAIRPLAY_LYCHEE_IMPLIB=$<TARGET_LINKER_FILE:lychee>"
+    "-Dlychee_DIR=${LYCHEE_CONFIG_DIR}"
     "-DFLUTTER_ROOT=${FLUTTER_ROOT}"
   # The player always builds optimized; the nested build is incremental.
   BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --target airplay_player
