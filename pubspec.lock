@@ -440,10 +440,10 @@ packages:
     dependency: "direct main"
     description:
       name: lychee_player
-      sha256: "82f8331be7cd0bce8c0f46f671e4802c5897741f10623ba65d05c65b835972f8"
+      sha256: "4c60021f640340ce1e5c2dabc518866ba9c8ac0be36727b191c20d3ab5f71d1e"
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.0-beta.4"
+    version: "1.0.0-beta.5"
   matcher:
     dependency: transitive
     description:
