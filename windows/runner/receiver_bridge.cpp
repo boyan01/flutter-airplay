@@ -2,9 +2,8 @@
 #include "receiver_bridge.h"
 #include "build_info.h"
 #include "../../native/include/airplay/receiver.h"
-#include "../../native/backends/windows/windows_video.h"
-#include "gpu_video_texture.h"
 #include "receiver_json.h"
+#include <lychee_player/lychee_host_texture.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <shlobj.h>
@@ -41,49 +40,12 @@ std::string utf8(const std::wstring &value) {
     WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), count, nullptr, nullptr);
     return result;
 }
-struct PixelFrame { std::vector<uint8_t> pixels; size_t width = 1, height = 1; };
-struct Pixels {
-    std::mutex lock;
-    std::shared_ptr<PixelFrame> frame;
-    airplay::TextureStats stats;
-    void clear() {
-        auto black = std::make_shared<PixelFrame>(); black->pixels = {0, 0, 0, 255};
-        std::lock_guard<std::mutex> guard(lock); frame = std::move(black); stats.clear();
-    }
-    void receive(const airplay::WindowsVideoFrame &input) {
-        if (!input.pixels || !input.width || !input.height || input.width > 4096 || input.height > 4096 || input.stride < input.width * 4) return;
-        auto copy = std::make_shared<PixelFrame>(); copy->width = input.width; copy->height = input.height;
-        copy->pixels.resize(input.width * input.height * 4);
-        for (size_t y = 0; y < input.height; ++y)
-            std::copy_n(input.pixels + y * input.stride, input.width * 4, copy->pixels.data() + y * input.width * 4);
-        std::lock_guard<std::mutex> guard(lock); frame = std::move(copy); stats.receive();
-    }
-    std::string diagnostics() {
-        std::lock_guard<std::mutex> guard(lock);
-        return stats.report("Windows pixel", frame ? frame->width : 0, frame ? frame->height : 0);
-    }
-    const FlutterDesktopPixelBuffer *copy() {
-        struct Lease { std::shared_ptr<PixelFrame> frame; FlutterDesktopPixelBuffer buffer{}; };
-        auto lease = std::make_unique<Lease>();
-        { std::lock_guard<std::mutex> guard(lock); lease->frame = frame; stats.acquire(); }
-        if (!lease->frame) return nullptr;
-        lease->buffer.buffer = lease->frame->pixels.data(); lease->buffer.width = lease->frame->width;
-        lease->buffer.height = lease->frame->height; lease->buffer.release_context = lease.get();
-        lease->buffer.release_callback = [](void *context) { delete static_cast<Lease *>(context); };
-        auto *buffer = &lease->buffer; lease.release(); return buffer;
-    }
-};
 }
 
 struct ReceiverBridge::Impl {
     HWND window;
-    flutter::TextureRegistrar *textures;
-    std::shared_ptr<Pixels> pixels = std::make_shared<Pixels>();
-    std::shared_ptr<flutter::TextureVariant> texture, gpu_texture;
-    std::shared_ptr<GpuFrames> gpu_frames = std::make_shared<GpuFrames>();
-    int64_t pixel_texture_id = -1, gpu_texture_id = -1;
-    std::atomic<int64_t> submitted_texture_id{-1};
-    Microsoft::WRL::ComPtr<IDXGIAdapter> graphics_adapter;
+    // Pulls the player's frames; outlives every player, freed after the receiver.
+    LycheeHostTexture *texture;
     std::unique_ptr<flutter::MethodChannel<Value>> methods;
     std::function<void(const Map &)> on_snapshot;
     std::mutex dispatch_lock;
@@ -98,47 +60,22 @@ struct ReceiverBridge::Impl {
     static Map decode(const char *value) {
         return receiver_json::decode(value);
     }
-    Impl(HWND target, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *registrar,
-         std::function<void(const Map &)> callback, IDXGIAdapter *adapter)
-        : window(target), textures(registrar), graphics_adapter(adapter), on_snapshot(std::move(callback)) {
-        pixels->clear();
-        texture = std::make_shared<flutter::TextureVariant>(flutter::PixelBufferTexture(
-            [state = pixels](size_t, size_t) { return state->copy(); }));
-        pixel_texture_id = textures->RegisterTexture(texture.get()); submitted_texture_id = pixel_texture_id;
-        if (graphics_adapter) {
-            gpu_texture = std::make_shared<flutter::TextureVariant>(flutter::GpuSurfaceTexture(
-                kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle,
-                [state = gpu_frames](size_t, size_t) { return state->copy(); }));
-            gpu_texture_id = textures->RegisterTexture(gpu_texture.get());
-        }
+    Impl(HWND target, flutter::BinaryMessenger *messenger, FlutterDesktopPluginRegistrarRef registrar,
+         std::function<void(const Map &)> callback)
+        : window(target), texture(LycheeHostTextureCreate(registrar)), on_snapshot(std::move(callback)) {
         load();
         AirplayReceiverHost hooks{}; hooks.context = this;
         hooks.create_player = [](void *context, AirplayCallbacks callbacks, int, int, int, char *error, size_t capacity) {
             auto *self = static_cast<Impl *>(context);
-            if (self->pixel_texture_id < 0) { snprintf(error, capacity, "Cannot register Flutter video texture"); return static_cast<AirplayPlayer *>(nullptr); }
-            airplay::WindowsVideoOptions options{self->graphics_adapter.Get(), self->gpu_texture_id >= 0};
-            return airplay_player_create(callbacks, &options, nullptr, nullptr);
+            if (!self->texture) { snprintf(error, capacity, "Cannot register Flutter video texture"); return static_cast<AirplayPlayer *>(nullptr); }
+            const AirplayVideoTexture video{self->texture, LycheeHostTextureFrameTypes(), [](void *texture, lychee_player *player) {
+                LycheeHostTextureSetPlayer(static_cast<LycheeHostTexture *>(texture), player);
+            }};
+            return airplay_player_create(callbacks, nullptr, &video);
         };
-        hooks.texture_id = [](void *context) { return static_cast<Impl *>(context)->submitted_texture_id.load(); };
-        hooks.end_video = [](void *context, bool) { static_cast<Impl *>(context)->clear_video(); };
-        hooks.clear_video = [](void *context) { static_cast<Impl *>(context)->clear_video(); };
-        hooks.frame = [](void *context, void *frame, int64_t) {
-            if (!frame) return;
-            auto *self = static_cast<Impl *>(context);
-            const auto &image = *static_cast<airplay::WindowsVideoFrame *>(frame);
-            int64_t id = self->pixel_texture_id;
-            if (image.texture && self->gpu_texture_id >= 0 && self->gpu_frames->receive(image)) id = self->gpu_texture_id;
-            else if (image.pixels) self->pixels->receive(image); else return;
-            if (id != self->submitted_texture_id) {
-                if (id == self->gpu_texture_id) self->pixels->clear(); else self->gpu_frames->clear();
-            }
-            self->submitted_texture_id = id; self->textures->MarkTextureFrameAvailable(id);
-        };
-        hooks.diagnostics = [](void *context, char *output, size_t capacity) {
-            auto *self = static_cast<Impl *>(context);
-            const auto report = self->submitted_texture_id == self->gpu_texture_id
-                ? self->gpu_frames->diagnostics() : self->pixels->diagnostics();
-            if (!report.empty()) snprintf(output, capacity, "%s", report.c_str());
+        hooks.texture_id = [](void *context) {
+            auto *texture = static_cast<Impl *>(context)->texture;
+            return texture ? LycheeHostTextureGetId(texture) : int64_t(-1);
         };
         hooks.event = [](void *context, const char *json) {
             auto *self = static_cast<Impl *>(context); const auto event = decode(json);
@@ -170,8 +107,7 @@ struct ReceiverBridge::Impl {
     ~Impl() {
         methods->SetMethodCallHandler(nullptr); on_snapshot = {};
         airplay_receiver_destroy(handle);
-        if (pixel_texture_id >= 0) textures->UnregisterTexture(pixel_texture_id, [keep = texture] {});
-        if (gpu_texture_id >= 0) textures->UnregisterTexture(gpu_texture_id, [keep = gpu_texture] {});
+        if (texture) LycheeHostTextureDestroy(texture);
     }
     void post(std::function<void()> task) {
         { std::lock_guard<std::mutex> guard(dispatch_lock); dispatches.push_back(std::move(task)); }
@@ -181,10 +117,6 @@ struct ReceiverBridge::Impl {
         std::deque<std::function<void()>> tasks;
         { std::lock_guard<std::mutex> guard(dispatch_lock); tasks.swap(dispatches); }
         for (auto &task : tasks) task();
-    }
-    void clear_video() {
-        pixels->clear(); gpu_frames->clear(); submitted_texture_id = pixel_texture_id;
-        if (pixel_texture_id >= 0) textures->MarkTextureFrameAvailable(pixel_texture_id);
     }
     std::pair<int, int> screen_size() const {
         MONITORINFOEXW monitor{}; monitor.cbSize = sizeof(monitor);
@@ -224,8 +156,8 @@ struct ReceiverBridge::Impl {
     }
 
 };
-ReceiverBridge::ReceiverBridge(HWND window, flutter::BinaryMessenger *messenger, flutter::TextureRegistrar *textures,
-                               std::function<void(const flutter::EncodableMap &)> on_snapshot, IDXGIAdapter *adapter)
-    : impl_(std::make_unique<Impl>(window, messenger, textures, std::move(on_snapshot), adapter)) {}
+ReceiverBridge::ReceiverBridge(HWND window, flutter::BinaryMessenger *messenger, FlutterDesktopPluginRegistrarRef registrar,
+                               std::function<void(const flutter::EncodableMap &)> on_snapshot)
+    : impl_(std::make_unique<Impl>(window, messenger, registrar, std::move(on_snapshot))) {}
 ReceiverBridge::~ReceiverBridge() = default;
 void ReceiverBridge::Dispatch() { impl_->dispatch(); }

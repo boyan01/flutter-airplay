@@ -559,10 +559,7 @@ private:
         callbacks.log = [](void *context, int, const char *message) { try {
             auto *current = static_cast<Callback *>(context); auto *self = current->owner; const auto epoch = current->generation;
             std::string bytes(message ? message : "");
-            self->enqueue([self, epoch, bytes = std::move(bytes)] { if (epoch == self->generation_) {
-                self->log(bytes);
-                if (bytes.find("Unsupported Windows") == 0 || bytes.find("Unavailable Windows") == 0) self->fail(bytes);
-            } });
+            self->enqueue([self, epoch, bytes = std::move(bytes)] { if (epoch == self->generation_) self->log(bytes); });
         } catch (...) {} };
         char error[512]{};
         try {

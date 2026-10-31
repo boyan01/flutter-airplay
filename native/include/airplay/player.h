@@ -9,15 +9,15 @@ extern "C" {
 #endif
 
 typedef struct AirplayPlayer AirplayPlayer;
+struct lychee_player;
 // Callbacks may run on native workers. Their context must outlive player_destroy.
-// frame is a borrowed CVPixelBuffer on Apple platforms; Android renders to Surface.
-// Windows uses a borrowed WindowsVideoFrame (windows_video.h). Linux defines its
-// own borrowed frame descriptor. Hosts must copy or retain before returning.
-// deadline_ns is the presentation deadline on the platform monotonic clock,
-// shared with audio (CLOCK_MONOTONIC on Apple/POSIX).
+// frame is a borrowed CVPixelBuffer that macOS retains before returning;
+// deadline_ns is its presentation deadline on the platform monotonic clock,
+// shared with audio. Other hosts pull frames from a texture or Android Surface.
 // Media events: playing carries decoded video dimensions; paused hides video
 // until a fresh playing event; audio marks queued PCM; audio_stopped clears it.
 // reset clears both media states; waiting ends the sender session.
+// log levels are syslog's (3 error, 4 warning, 6 info, 7 debug).
 typedef struct {
     void *context;
     void (*event)(void *, const char *type, const char *detail, int width, int height);
@@ -25,12 +25,21 @@ typedef struct {
     void (*log)(void *, int level, const char *message);
 } AirplayCallbacks;
 
+// A lychee_player plugin host texture (iOS, Linux, Windows), which pulls the
+// player's frames itself. bind receives the lychee player after create and NULL
+// right before it is destroyed, on the create/destroy thread; it returns once
+// the texture no longer pulls the previous player. context outlives the player.
+typedef struct {
+    void *context;
+    uint32_t frame_types; // lychee_config.video_frame_types the texture takes.
+    void (*bind)(void *context, struct lychee_player *player);
+} AirplayVideoTexture;
+
 // surface is a borrowed ANativeWindow on Android; create retains its own reference.
-// It is unused on macOS. Linux accepts optional AirplayLinuxVideoOptions
-// (linux_video.h), copied at create.
-// Windows accepts optional WindowsVideoOptions (windows_video.h), copied at create.
+// texture is copied at create, or NULL to hand frames to callbacks.frame (macOS)
+// or the Android Surface.
 AirplayPlayer *airplay_player_create(AirplayCallbacks callbacks, void *surface,
-                                    const char *decoder, const char *fallback);
+                                    const AirplayVideoTexture *texture);
 #ifdef __ANDROID__
 // Synchronously moves Android video output without resetting codec references.
 // surface is borrowed; call on the same lifecycle thread as start/destroy.

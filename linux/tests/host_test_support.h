@@ -2,7 +2,6 @@
 // Shared in-process Flutter messenger/texture fixtures for native host tests.
 #pragma once
 #include "linux/runner/discovery.h"
-#include "linux/runner/frame_texture.h"
 #include "linux/runner/receiver_host.h"
 
 #include <glib/gstdio.h>

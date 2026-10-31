@@ -185,9 +185,9 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  auto *registrar_ref = flutter_controller_->engine()->GetRegistrarForPlugin("AirplayReceiver");
   auto *registrar = flutter::PluginRegistrarManager::GetInstance()
-      ->GetRegistrar<flutter::PluginRegistrarWindows>(
-          flutter_controller_->engine()->GetRegistrarForPlugin("AirplayReceiver"));
+      ->GetRegistrar<flutter::PluginRegistrarWindows>(registrar_ref);
   presentation_ = std::make_unique<flutter::MethodChannel<Value>>(registrar->messenger(),
       "tech.soit.flutterairplay/window", &flutter::StandardMethodCodec::GetInstance());
   presentation_->SetMethodCallHandler([this](const flutter::MethodCall<Value>& call, std::unique_ptr<flutter::MethodResult<Value>> result) {
@@ -243,11 +243,8 @@ bool FlutterWindow::OnCreate() {
       PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
     } catch (const std::exception& error) { result->Error("update_install_error", error.what()); }
   });
-  IDXGIAdapter *adapter = nullptr;
-  flutter_controller_->engine()->GetGraphicsAdapter(&adapter);
-  receiver_ = std::make_unique<ReceiverBridge>(GetHandle(), registrar->messenger(), registrar->texture_registrar(),
-      [this](const Map& snapshot) { UpdateSnapshot(snapshot); }, adapter);
-  if (adapter) adapter->Release();
+  receiver_ = std::make_unique<ReceiverBridge>(GetHandle(), registrar->messenger(), registrar_ref,
+      [this](const Map& snapshot) { UpdateSnapshot(snapshot); });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   // Keep the top-level hidden while Dart installs the tray and its menu.

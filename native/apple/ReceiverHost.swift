@@ -23,6 +23,9 @@ protocol ReceiverVideoOutput: AnyObject {
 }
 extension ReceiverVideoOutput {
     func diagnostics() -> String? { nil }
+    // A lychee_player host texture pulls the player's frames itself; frame
+    // outputs (macOS) receive them instead.
+    var videoTexture: AirplayVideoTexture? { nil }
 }
 
 // Apple system/texture adapter. The shared C++ receiver owns runtime settings, playback
@@ -128,7 +131,8 @@ final class ReceiverHost {
                 try session.setActive(true)
 #endif
                 try output.begin()
-                return airplay_player_create(callbacks, nil, nil, nil)
+                guard var texture = output.videoTexture else { return airplay_player_create(callbacks, nil, nil) }
+                return airplay_player_create(callbacks, nil, &texture)
             } catch { ReceiverHost.writeError(error.localizedDescription, output, capacity); return nil }
         }
         hooks.end_video = { context, _ in

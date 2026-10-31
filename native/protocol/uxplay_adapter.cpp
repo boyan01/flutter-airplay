@@ -4,6 +4,7 @@
 #include "uxplay_callbacks.h"
 #include "../playback/player_internal.h"
 #include <cstring>
+#include <mutex>
 #ifndef _WIN32
 #include <cerrno>
 #include <poll.h>

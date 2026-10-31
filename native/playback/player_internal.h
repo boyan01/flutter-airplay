@@ -3,8 +3,11 @@
 #include "../include/airplay/player.h"
 #include "../protocol/uxplay_adapter.h"
 #include "timeline.h"
+#include <atomic>
 #include <condition_variable>
 #include <lychee/lychee.h>
+#include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -22,7 +25,7 @@ struct AirplayPlayer {
 #else
   static constexpr int default_playback_buffer_ms = 80;
 #endif
-  AirplayPlayer(AirplayCallbacks, void *surface, const char *, const char *);
+  AirplayPlayer(AirplayCallbacks, void *surface, const AirplayVideoTexture *);
   ~AirplayPlayer();
   void receive_video(const uint8_t *, int size, int64_t local_pts);
   void receive_audio(const uint8_t *, int size, int ct, int64_t local_pts,
@@ -33,7 +36,7 @@ struct AirplayPlayer {
   void stop_audio();
   void set_volume(float db);
   float volume_db() const { return volume.load(); }
-  bool supports_hevc() const;
+  bool supports_hevc() const { return hevc_supported; }
   int select_codec(bool hevc);
   void reset(const char *reason = "protocol_video_flush");
   void pause_video(bool paused);
@@ -47,17 +50,20 @@ struct AirplayPlayer {
 
 private:
   void run();
+  // A frame the host does not pull itself; returns its size for playing.
+  bool present_locked(int64_t now, int &width, int &height);
+  void report_stats_locked(const lychee_stats &, int64_t interval_us,
+                           int64_t rendered);
   bool configure_audio_locked(int ct, int spf);
   void push_locked(int type, const uint8_t *, int size, int64_t pts_ns);
-  // Hosts copy or retain the frame before the callback returns.
-  void hand_off_locked(lychee_frame *, int64_t due_ns);
   lychee_player *live = nullptr;
+  AirplayVideoTexture texture{};
   std::mutex lock; // Serializes protocol format/flush and frame handoff.
   std::thread worker;
   std::atomic<float> volume{-15.f};
   bool hevc = false, paused = false, video_declared = false,
        audio_playing = false;
-  bool failed = false, rtp_anchored = false;
+  bool rtp_anchored = false;
   uint32_t rtp_anchor = 0;
   int64_t rtp_pts = 0, latency_us = default_playback_buffer_ms * 1000;
   int audio_ct = 0;

@@ -58,7 +58,7 @@ try {
     }
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $resolvedStaging -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $staging | Out-Null
-    Get-ChildItem -LiteralPath $bundle | Where-Object { $_.Name -ne 'windows_texture_test.exe' -and $_.Extension -notin @('.pdb', '.lib', '.exp') } |
+    Get-ChildItem -LiteralPath $bundle | Where-Object { $_.Extension -notin @('.pdb', '.lib', '.exp') } |
         Copy-Item -Destination $staging -Recurse -Force
     $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
     $vsInstall = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath

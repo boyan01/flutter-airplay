@@ -2,50 +2,19 @@
 #include "host_test_support.h"
 #include <cstring>
 #include "../../native/include/airplay/receiver.h"
+#include <lychee_player/lychee_host_texture.h>
 
-static void TextureTest() {
-  auto* registrar = reinterpret_cast<TestRegistrar*>(g_object_new(test_registrar_get_type(), nullptr));
-  {
-    FrameTexture output(FL_TEXTURE_REGISTRAR(registrar));
-    g_assert_true(output.Register());
-    g_assert_true(output.Register());
-    g_assert_cmpint(output.identifier(), ==, 42);
-    std::vector<uint8_t> borrowed{1,2,3,255, 4,5,6,255, 99,99,99,99,
-                                7,8,9,255, 10,11,12,255, 99,99,99,99};
-    g_assert_true(output.Receive({borrowed.data(), 12, 2, 2}));
-    borrowed.assign(borrowed.size(), 0);
-    const uint8_t* raster = nullptr;
-    uint32_t width = 0, height = 0;
-    auto* texture = FL_PIXEL_BUFFER_TEXTURE(registrar->texture);
-    auto copy = FL_PIXEL_BUFFER_TEXTURE_GET_CLASS(texture)->copy_pixels;
-    g_assert_true(copy(texture, &raster, &width, &height, nullptr));
-    g_assert_cmpuint(width, ==, 2);
-    g_assert_cmpuint(height, ==, 2);
-    const uint8_t expected[] = {1,2,3,255, 4,5,6,255, 7,8,9,255, 10,11,12,255};
-    g_assert_cmpmem(raster, 16, expected, sizeof(expected));
-    const auto* pinned = raster;
-    std::thread producer([&] {
-      std::vector<uint8_t> next(16, 128);
-      for (int i = 0; i < 2000; ++i) {
-        g_assert_true(output.Receive({next.data(), 8, 2, 2}));
-        output.Clear();
-      }
-    });
-    producer.join();
-    g_assert_cmpmem(pinned, 16, expected, sizeof(expected));
-    g_assert_true(copy(texture, &raster, &width, &height, nullptr));
-    g_assert_cmpuint(width, ==, 1);
-    g_assert_cmpuint(height, ==, 1);
-    g_assert_cmpuint(raster[3], ==, 255);
-    g_assert_false(output.Receive({nullptr, 4, 1, 1}));
-    g_assert_false(output.Receive({borrowed.data(), 4, 2, 1}));
-    g_assert_false(output.Receive({borrowed.data(), 4, 0, 1}));
-    g_assert_false(output.Receive({borrowed.data(), 4, 1, 4097}));
-    output.Notify();
-    g_assert_cmpuint(registrar->marks, ==, 1);
-  }
-  g_assert_null(registrar->texture);
-  g_object_unref(registrar);
+// The lychee_player plugin's host texture, which these tests do not build.
+struct _LycheeHostTexture { lychee_player* player; };
+static int host_textures = 0;
+uint32_t lychee_host_texture_frame_types() { return LYCHEE_FRAME_CPU_RGBA; }
+LycheeHostTexture* lychee_host_texture_new(FlTextureRegistrar*) {
+  OnMain(); ++host_textures; return new LycheeHostTexture{};
+}
+int64_t lychee_host_texture_get_id(LycheeHostTexture*) { return 42; }
+void lychee_host_texture_set_player(LycheeHostTexture* texture, lychee_player* player) { texture->player = player; }
+void lychee_host_texture_free(LycheeHostTexture* texture) {
+  OnMain(); g_assert_null(texture->player); --host_textures; delete texture;
 }
 
 static void HostTest() {
@@ -92,7 +61,7 @@ static void HostTest() {
   g_assert_true(strlen(error) > 0);
 
   while (g_main_context_iteration(nullptr, FALSE)) {}
-  g_assert_true(messenger->handlers->empty()); g_assert_null(registrar->texture);
+  g_assert_true(messenger->handlers->empty()); g_assert_cmpint(host_textures, ==, 0);
   g_object_unref(registrar); g_object_unref(messenger);
 }
 
@@ -124,7 +93,6 @@ int main(int argc, char** argv) {
   g_assert_no_error(error);
   g_setenv("XDG_CONFIG_HOME", config, TRUE);
   g_test_init(&argc, &argv, nullptr);
-  g_test_add_func("/linux/texture/borrowed-lifetime-clear", TextureTest);
   g_test_add_func("/linux/host/ffi-bootstrap-settings-shutdown", HostTest);
   g_test_add_func("/linux/discovery/unavailable-cleanup", DiscoveryTest);
   const int result = g_test_run();

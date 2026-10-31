@@ -174,14 +174,13 @@ flutter test
 | Android host | `./scripts/test_native.sh android host` | CMake；Linux 需要 OpenSSL 3 开发库 |
 | Android Kotlin | `./scripts/test_native.sh android kotlin` | JDK，`GRADLE_BIN` 指向可用的 Gradle |
 | iPad | `./scripts/test_native.sh ios` | 模拟器 Debug 应用和已有 iPad 模拟器；可用 `IOS_TEST_DESTINATION` 选择设备 |
-| Windows | `bash scripts/test_native.sh windows all` | Flutter 构建产物和纹理测试，准备命令见下方 |
+| Windows | `bash scripts/test_native.sh windows all` | Flutter 构建产物，准备命令见下方 |
 | Linux | `./scripts/test_native.sh linux all` | 开发依赖、Debug 应用 |
 
 Windows 完整原生套件的准备与执行：
 
 ```powershell
 flutter build windows --debug
-cmake --build build/windows/x64 --config Debug --target windows_texture_test
 bash scripts/test_native.sh windows all
 ```
 

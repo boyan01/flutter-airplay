@@ -325,11 +325,6 @@ jobs:
         run: |
           mkdir -p artifacts/windows
           flutter.bat test --no-pub -d windows integration_test/desktop_test.dart --reporter expanded 2>&1 | tee artifacts/windows/desktop.log
-      - name: Build native fixtures using integration build output
-        run: |
-          # The integration build already produced Flutter and its wrappers.
-          # Reuse them without rerunning Flutter's temporary test entrypoint.
-          cmake --build build/windows/x64 --config Debug --target windows_texture_test -- /p:BuildProjectReferences=false
       - name: Run native tests
         shell: bash
         run: ./scripts/test_native.sh windows all

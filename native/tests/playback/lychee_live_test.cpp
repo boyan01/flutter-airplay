@@ -13,13 +13,18 @@ using namespace airplay;
 
 std::string check_lychee_live(void *surface, const char *audio_path) {
   struct Progress {
-    std::atomic<int> frames{0}, audio{0}, errors{0}, pauses{0};
+    std::atomic<int> frames{0}, audio{0}, errors{0}, pauses{0}, stats{0};
     std::atomic<bool> blue{false};
   } progress;
   AirplayCallbacks cb{};
   cb.context = &progress;
-  cb.event = [](void *context, const char *type, const char *, int, int) {
+  cb.event = [](void *context, const char *type, const char *detail, int,
+                int) {
     auto &p = *static_cast<Progress *>(context);
+    // lychee_stats reached the JSON once a video decoder is named.
+    if (!strcmp(type, "playbackStats") &&
+        !strstr(detail, "\"videoDecoder\":\"\""))
+      ++p.stats;
     if (!strcmp(type, "playing"))
       ++p.frames;
     if (!strcmp(type, "audio"))
@@ -39,9 +44,10 @@ std::string check_lychee_live(void *surface, const char *audio_path) {
       static_cast<Progress *>(context)->blue = true;
   };
 #endif
-  auto *player = airplay_player_create(cb, surface, "", "");
+  auto *player = airplay_player_create(cb, surface, nullptr);
   if (!player)
     throw std::runtime_error("cannot create lychee backend");
+  airplay_player_set_stats_enabled(player, true);
   const auto receive = receiver_callbacks(player);
   try {
     if (!airplay_player_set_playback_buffer(player, 120) ||
@@ -115,9 +121,9 @@ std::string check_lychee_live(void *surface, const char *audio_path) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (progress.frames < 3 || !progress.audio || progress.errors ||
-        progress.pauses != 1)
+        progress.pauses != 1 || !progress.stats)
       throw std::runtime_error(
-          "missing decoded video/audio or pause transition");
+          "missing decoded video/audio, pause transition or statistics");
 #ifdef __APPLE__
     if (!progress.blue)
       throw std::runtime_error("resume lost inter-frame blue pixels");

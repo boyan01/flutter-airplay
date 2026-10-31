@@ -2,10 +2,11 @@
 import Flutter
 import UIKit
 import AVFAudio
+import lychee_player
 
 final class ReceiverBridge: NSObject, NetServiceDelegate {
     let host = ReceiverHost()
-    private var video: FrameTexture?
+    private var video: HostTextureOutput?
     private var methods: FlutterMethodChannel?
     private var services = [NetService]()
     private var serviceGeneration = 0
@@ -13,8 +14,8 @@ final class ReceiverBridge: NSObject, NetServiceDelegate {
     private var interrupted = false
 
     func install(registrar: FlutterPluginRegistrar) {
-        let output = FrameTexture(registry: registrar.textures())
-        video = output; output.register(); host.videoOutput = output
+        let output = HostTextureOutput(registry: registrar.textures())
+        video = output; host.videoOutput = output
         host.foreground = UIApplication.shared.applicationState != .background
         methods = FlutterMethodChannel(name: "org.airplayreceiver/platform", binaryMessenger: registrar.messenger())
         host.onEvent = { event in
@@ -112,7 +113,23 @@ final class ReceiverBridge: NSObject, NetServiceDelegate {
     func dispose() {
         stopServices(); host.queue.sync { host.shutdown() }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
-        observers.removeAll(); video?.dispose(); video = nil
+        observers.removeAll(); video?.texture.dispose(); video = nil
         methods?.setMethodCallHandler(nil)
     }
+}
+
+// The player binds to lychee_player's host texture, which pulls its frames.
+private final class HostTextureOutput: ReceiverVideoOutput {
+    let texture: LycheeHostTexture
+    init(registry: FlutterTextureRegistry) { texture = LycheeHostTexture(registry: registry) }
+    var textureIdentifier: Int64 { texture.textureId }
+    var videoTexture: AirplayVideoTexture? {
+        AirplayVideoTexture(context: Unmanaged.passUnretained(texture).toOpaque(), frame_types: LycheeHostTexture.frameTypes) { context, player in
+            Unmanaged<LycheeHostTexture>.fromOpaque(context!).takeUnretainedValue().setPlayer(player)
+        }
+    }
+    func begin() throws {}
+    func receive(_ frame: CVPixelBuffer, deadline: Int64) {}
+    func clear() {}
+    func end() {}
 }

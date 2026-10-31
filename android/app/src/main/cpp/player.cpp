@@ -95,7 +95,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_tech_soit_flutterairplay_PlaybackHost_cr
         scope.env->DeleteLocalRef(selected);
         std::lock_guard<std::mutex> guard(self->surface_lock);
         if (!self->window) { snprintf(error, capacity, "Playback surface has not been prepared"); return static_cast<AirplayPlayer *>(nullptr); }
-        auto *player = airplay_player_create(callbacks, self->window, names[0].c_str(), names[1].c_str());
+        auto *player = airplay_player_create(callbacks, self->window, nullptr);
         if (player && (!airplay_player_set_hevc_decoder(player, names[2].c_str()) || !airplay_player_set_audio_output(player, audio_mode))) {
             airplay_player_destroy(player); snprintf(error, capacity, "Cannot configure Android codecs/output"); return static_cast<AirplayPlayer *>(nullptr);
         }

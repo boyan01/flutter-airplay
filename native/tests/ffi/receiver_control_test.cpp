@@ -2,7 +2,6 @@
 #include "../../include/airplay/receiver_ffi.h"
 #include "../../include/airplay/receiver.h"
 #include "../../receiver/json.h"
-#include "../../playback/texture_stats.h"
 #include "../../protocol/uxplay_callbacks.h"
 #include <dart_native_api.h>
 #include <chrono>
@@ -63,7 +62,7 @@ void check_receiver_volume() {
     AirplayPlayer* player = nullptr;
     AirplayReceiverHost host{}; host.context = &player;
     host.create_player = [](void* context, AirplayCallbacks cb, int, int, int, char*, size_t) {
-        return *static_cast<AirplayPlayer**>(context) = airplay_player_create(cb, nullptr, nullptr, nullptr);
+        return *static_cast<AirplayPlayer**>(context) = airplay_player_create(cb, nullptr, nullptr);
     };
     uint8_t identity[6]{2,0,0,0,0,2}; char error[512]{};
     const auto handle = airplay_receiver_create(host,
@@ -128,28 +127,6 @@ void check_receiver_volume() {
 }
 int main() {
     check_receiver_volume();
-    TextureStats texture_stats;
-    texture_stats.receive(); texture_stats.receive(); texture_stats.acquire(); texture_stats.acquire(); texture_stats.receive();
-    require(texture_stats.received == 3 && texture_stats.acquired_new == 1 && texture_stats.overwritten == 1 && texture_stats.repeated == 1,
-            "texture diagnostics distinguish overwritten and repeatedly acquired frames");
-    texture_stats.report("Fixture", 128, 72);
-    const auto stalled = texture_stats.report("Fixture", 128, 72);
-    require(stalled.find("received=0") != std::string::npos && stalled.find("pending=1") != std::string::npos,
-            "zero-count output reports preserve stall markers");
-    texture_stats.clear(); require(texture_stats.report("Fixture", 128, 72).empty(), "clear resets reconnect timing");
-
-    TextureStats queued_texture;
-    queued_texture.receive(false);
-    const auto first_received = queued_texture.received_ns;
-    queued_texture.receive(false); queued_texture.receive(false);
-    queued_texture.acquire(1, first_received); queued_texture.acquire(1, first_received);
-    queued_texture.acquire(2, first_received);
-    require(queued_texture.acquired_new == 2 && queued_texture.repeated == 1 && queued_texture.overwritten == 0 &&
-            queued_texture.acquired_sequence == 2,
-            "buffered acquisition counts selected frames without treating retained frames as overwritten");
-    queued_texture.receive(true);
-    require(queued_texture.overwritten == 1, "bounded queue overflow counts the discarded frame");
-
     Preferences preferences;
     AirplayReceiverHost host{}; host.context = &preferences;
     host.preferences = [](void* context, const char*, char* error, size_t capacity) {

@@ -3,9 +3,9 @@
 #include "build_info.h"
 
 #include "discovery.h"
-#include "frame_texture.h"
 #include "../../native/include/airplay/receiver.h"
 #include <gdk/gdk.h>
+#include <lychee_player/lychee_host_texture.h>
 
 #include <glib/gstdio.h>
 #include <sys/random.h>
@@ -69,9 +69,10 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   GMainContext* main_context = g_main_context_ref_thread_default();
   FlMethodChannel* methods = nullptr;
   FlBinaryMessenger* messenger = nullptr;
-  std::unique_ptr<FrameTexture> texture;
-  std::atomic<int64_t> texture_id{-1};
-  std::atomic<bool> closing{false}, frame_notification{false};
+  FlTextureRegistrar* registrar = nullptr;
+  // Registered at bootstrap, once the engine runs; pulls the player's frames.
+  std::atomic<LycheeHostTexture*> texture{nullptr};
+  std::atomic<bool> closing{false};
   std::function<void(FlValue*)> on_snapshot;
   uint64_t handle = 0;
   Discovery discovery;
@@ -105,18 +106,18 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     Load();
     AirplayReceiverHost hooks{}; hooks.context = this;
     hooks.create_player = [](void* context, AirplayCallbacks callbacks, int, int, int, char* error, size_t capacity) {
-      auto* self = static_cast<State*>(context);
-      if (self->texture_id < 0) { snprintf(error, capacity, "Flutter video texture is unavailable"); return static_cast<AirplayPlayer*>(nullptr); }
+      auto* texture = static_cast<State*>(context)->texture.load();
+      if (!texture) { snprintf(error, capacity, "Flutter video texture is unavailable"); return static_cast<AirplayPlayer*>(nullptr); }
       std::string detail;
       if (!Discovery::Check(&detail)) { snprintf(error, capacity, "%s", detail.c_str()); return static_cast<AirplayPlayer*>(nullptr); }
-      return airplay_player_create(callbacks, nullptr, nullptr, nullptr);
+      const AirplayVideoTexture video{texture, lychee_host_texture_frame_types(), [](void* texture, lychee_player* player) {
+        lychee_host_texture_set_player(static_cast<LycheeHostTexture*>(texture), player);
+      }};
+      return airplay_player_create(callbacks, nullptr, &video);
     };
-    hooks.texture_id = [](void* context) { return static_cast<State*>(context)->texture_id.load(); };
-    hooks.end_video = [](void* context, bool) { static_cast<State*>(context)->ClearFrame(); };
-    hooks.clear_video = [](void* context) { static_cast<State*>(context)->ClearFrame(); };
-    hooks.frame = [](void* context, void* frame, int64_t) {
-      auto* self = static_cast<State*>(context);
-      if (frame && !self->closing && self->texture->Receive(*static_cast<AirplayLinuxVideoFrame*>(frame))) self->NotifyFrame();
+    hooks.texture_id = [](void* context) {
+      auto* texture = static_cast<State*>(context)->texture.load();
+      return texture ? lychee_host_texture_get_id(texture) : int64_t(-1);
     };
     hooks.publish = [](void* context, uint64_t epoch, const char* name, const uint8_t* identity, uint16_t port,
                        const uint8_t* video, size_t video_size, const uint8_t* audio, size_t audio_size,
@@ -133,10 +134,6 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     hooks.check = [](void*, char* error, size_t capacity) {
       std::string detail; const bool ready = Discovery::Check(&detail);
       if (!ready) snprintf(error, capacity, "%s", detail.c_str()); return ready;
-    };
-    hooks.diagnostics = [](void* context, char* output, size_t capacity) {
-      const auto report = static_cast<State*>(context)->texture->Diagnostics();
-      if (!report.empty()) snprintf(output, capacity, "%s", report.c_str());
     };
     hooks.event = [](void* context, const char* json) {
       auto* self = static_cast<State*>(context); auto event = Decode(json);
@@ -209,21 +206,6 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     }
   }
 
-  void NotifyFrame() {
-    const bool coalesced = frame_notification.exchange(true);
-    texture->NotificationRequested(coalesced);
-    if (coalesced) return;
-    std::weak_ptr<State> weak = shared_from_this();
-    PostMain(main_context, [weak] {
-      if (auto self = weak.lock()) {
-        self->frame_notification = false;
-        if (!self->closing) self->texture->Notify();
-      }
-    });
-  }
-
-  void ClearFrame() { texture->Clear(); NotifyFrame(); }
-
   // GDK is confined to the main thread; the host worker reads only pixel counts.
   void UpdateScreenSize() {
     auto* display = gdk_display_get_default();
@@ -242,14 +224,15 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
   void Handle(FlMethodCall* call) {
     if (strcmp(fl_method_call_get_name(call), "bootstrap")) { fl_method_call_respond_not_implemented(call, nullptr); return; }
     if (closing || !handle) { fl_method_call_respond_error(call, "receiver_error", config_error.c_str(), nullptr, nullptr); return; }
-    texture->Register(); texture_id = texture->identifier(); UpdateScreenSize();
+    if (!texture) texture = lychee_host_texture_new(registrar);
+    UpdateScreenSize();
     airplay_receiver_update(handle, Encode(Metadata().get()).c_str());
     auto reply = Own(fl_value_new_map()); Integer(reply.get(), "handle", handle);
     fl_method_call_respond_success(call, reply.get(), nullptr);
   }
   void Install(FlBinaryMessenger* messenger, FlTextureRegistrar* registrar) {
     this->messenger = messenger;
-    UpdateScreenSize(); texture = std::make_unique<FrameTexture>(registrar);
+    this->registrar = registrar; UpdateScreenSize();
     try { Create(); } catch (const std::exception& error) { config_error = error.what(); }
     g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
     methods = fl_method_channel_new(messenger, "org.airplayreceiver/platform", FL_METHOD_CODEC(codec));
@@ -263,7 +246,9 @@ struct ReceiverHost::State : std::enable_shared_from_this<ReceiverHost::State> {
     // The messenger holds a channel reference until its handler is removed.
     fl_binary_messenger_set_message_handler_on_channel(messenger, "org.airplayreceiver/platform", nullptr, nullptr, nullptr);
     messenger = nullptr;
-    airplay_receiver_destroy(handle); handle = 0; texture.reset(); g_clear_object(&methods);
+    airplay_receiver_destroy(handle); handle = 0;
+    if (auto* video = texture.exchange(nullptr)) lychee_host_texture_free(video);
+    g_clear_object(&methods);
   }
 };
 

@@ -21,12 +21,20 @@ if(NOT lychee_package)
   message(FATAL_ERROR "Run flutter pub get first")
 endif()
 string(REGEX REPLACE "^file://" "" lychee_package "${lychee_package}")
+# Relative path dependencies are relative to .dart_tool/.
+get_filename_component(lychee_package "${lychee_package}" ABSOLUTE
+  BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.dart_tool")
 include("${lychee_package}/linux/ffmpeg.cmake")
 # Declared first: the core's cache entry would otherwise hide the fetched root.
 set(LYCHEE_FFMPEG_ROOT "" CACHE PATH "Prebuilt FFmpeg (include/, lib/)")
 lychee_fetch_ffmpeg("${CMAKE_BINARY_DIR}/lychee-ffmpeg" LYCHEE_FFMPEG_ROOT)
 set(BUILD_SHARED_LIBS ON)
-add_subdirectory("${lychee_package}/core" lychee)
+# The published package's core/, else a checkout's, as the plugin finds it.
+set(lychee_core "${lychee_package}/core")
+if(NOT IS_DIRECTORY "${lychee_core}")
+  set(lychee_core "${lychee_package}/../core")
+endif()
+add_subdirectory("${lychee_core}" lychee)
 unset(BUILD_SHARED_LIBS)
 set_target_properties(lychee PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
   BUILD_RPATH "${LYCHEE_FFMPEG_ROOT}/lib")
@@ -41,12 +49,12 @@ set(AIRPLAY_FLUTTER_ENGINE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../flutter/ephemeral
 if(EXISTS "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
   pkg_check_modules(AVAHI REQUIRED IMPORTED_TARGET avahi-client)
-  add_executable(linux_host_tests host_test.cc ../runner/receiver_host.cc
-    ../runner/frame_texture.cc ../runner/discovery.cc)
+  add_executable(linux_host_tests host_test.cc ../runner/receiver_host.cc ../runner/discovery.cc)
   set(AIRPLAY_BUILD_INFO_TARGET linux_host_tests)
   include("${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/build_info.cmake")
-  target_include_directories(linux_host_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}")
-  target_link_libraries(linux_host_tests PRIVATE airplay_player PkgConfig::GTK PkgConfig::AVAHI
+  target_include_directories(linux_host_tests PRIVATE ../.. "${AIRPLAY_FLUTTER_ENGINE_DIR}"
+    "${lychee_package}/linux/include")
+  target_link_libraries(linux_host_tests PRIVATE airplay_player lychee::lychee PkgConfig::GTK PkgConfig::AVAHI
     "${AIRPLAY_FLUTTER_ENGINE_DIR}/libflutter_linux_gtk.so")
   add_test(NAME linux_flutter_host_lifecycle COMMAND linux_host_tests)
   set_tests_properties(linux_flutter_host_lifecycle PROPERTIES LABELS "host")

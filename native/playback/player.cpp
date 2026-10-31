@@ -1,64 +1,85 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "player_internal.h"
-#include <cmath>
+#include <algorithm>
 #include <cstdio>
-#include <cstring>
+#include <cmath>
 #include <stdexcept>
 #include <string>
-#ifdef __APPLE__
-#include <VideoToolbox/VideoToolbox.h>
-#elif defined(_WIN32)
-#include "../backends/windows/windows_video.h"
-#elif !defined(__ANDROID__)
-#include "../include/airplay/linux_video.h"
-#endif
 
 using namespace airplay;
 
-AirplayPlayer::AirplayPlayer(AirplayCallbacks cb, void *surface, const char *,
-                             const char *)
+namespace {
+// lychee logs through one process-wide callback, held by the newest player.
+std::mutex log_lock;
+AirplayPlayer *log_owner = nullptr;
+void forward_log(void *player, int32_t level, const char *message) {
+  static_cast<AirplayPlayer *>(player)->log(
+      message, level <= LYCHEE_LOG_ERROR     ? 3
+               : level == LYCHEE_LOG_WARNING ? 4
+               : level == LYCHEE_LOG_INFO    ? 6
+                                             : 7);
+}
+void hold_log(AirplayPlayer *player, bool hold) {
+  std::lock_guard<std::mutex> guard(log_lock);
+  if (hold || log_owner == player) {
+    log_owner = hold ? player : nullptr;
+    lychee_set_log_callback(hold ? forward_log : nullptr, log_owner);
+  }
+}
+} // namespace
+
+AirplayPlayer::AirplayPlayer(AirplayCallbacks cb, void *surface,
+                             const AirplayVideoTexture *video)
     : callbacks(cb) {
+  if (video)
+    texture = *video;
   lychee_config config{};
   lychee_config_init(&config, sizeof(config));
 #ifdef __APPLE__
   config.video_frame_types = LYCHEE_FRAME_CVPIXELBUFFER_NATIVE;
+  static const bool hevc_ok = lychee_codec_supported(LYCHEE_CODEC_HEVC, 1) == 1;
 #elif defined(__ANDROID__)
+  // Android's Kotlin host chooses the HEVC decoder (set_hevc_decoder).
   config.video_frame_types = LYCHEE_FRAME_ANDROID_SURFACE;
+  constexpr bool hevc_ok = false;
 #else
-  // Windows and Linux decode through FFmpeg, which includes HEVC.
-  hevc_supported = true;
+  // FFmpeg (Linux) and Media Foundation (Windows) answer for any decoder.
   config.video_frame_types = LYCHEE_FRAME_CPU_RGBA;
+  static const bool hevc_ok = lychee_codec_supported(LYCHEE_CODEC_HEVC, 0) == 1;
 #endif
-#ifdef _WIN32
-  // Shared textures only open on Flutter's adapter; CPU frames stay the
-  // fallback when the host has no GPU texture or decoding falls back.
-  lychee_video_device device{};
-  if (auto *options = static_cast<const WindowsVideoOptions *>(surface);
-      options && options->gpu && options->adapter) {
-    device.struct_size = sizeof(device);
-    device.type = LYCHEE_VIDEO_DEVICE_D3D11_ADAPTER;
-    device.handle = options->adapter;
-    config.video_device = &device;
-    config.video_frame_types |= LYCHEE_FRAME_D3D11_TEXTURE;
-  }
-#endif
-  live = lychee_player_create(&config);
-  if (!live)
-    throw std::runtime_error("Cannot create lychee player");
-  if (!set_surface(surface) || !set_buffer(0)) {
-    lychee_player_destroy(live);
-    live = nullptr;
-    throw std::runtime_error("Cannot open lychee live input");
-  }
-  lychee_player_set_volume(live, std::pow(10.f, volume.load() / 20.f));
+  hevc_supported = hevc_ok;
+  if (texture.bind)
+    config.video_frame_types = texture.frame_types;
+  hold_log(this, true);
   try {
+    live = lychee_player_create(&config);
+    if (!live)
+      throw std::runtime_error("Cannot create lychee player");
+    if (!set_surface(surface) || !set_buffer(0))
+      throw std::runtime_error("Cannot open lychee live input");
+    lychee_player_set_volume(live, std::pow(10.f, volume.load() / 20.f));
+    lychee_player_set_event_callback(
+        live,
+        [](void *player, int32_t type, int64_t, int64_t) {
+          if (type != LYCHEE_EVENT_ERROR)
+            return;
+          auto *self = static_cast<AirplayPlayer *>(player);
+          char error[512]{};
+          lychee_player_get_error(self->live, error, sizeof(error));
+          self->log(error, 3);
+          self->event("error", error);
+        },
+        this);
     protocol = std::make_unique<ProtocolAdapter>(*this);
     worker = std::thread([this] { run(); });
   } catch (...) {
-    lychee_player_destroy(live);
-    live = nullptr;
+    if (live)
+      lychee_player_destroy(live);
+    hold_log(this, false);
     throw;
   }
+  if (texture.bind)
+    texture.bind(texture.context, live);
   log("Playback backend: lychee live C ABI");
 }
 AirplayPlayer::~AirplayPlayer() {
@@ -68,6 +89,9 @@ AirplayPlayer::~AirplayPlayer() {
     protocol->stop_receiver();
   if (worker.joinable())
     worker.join();
+  if (texture.bind)
+    texture.bind(texture.context, nullptr);
+  hold_log(this, false);
   lychee_player_destroy(live);
 }
 void AirplayPlayer::log(const char *text, int level) {
@@ -109,13 +133,6 @@ bool AirplayPlayer::set_output(int mode) {
     return false;
   }
   return mode == 0 || mode == 1;
-}
-bool AirplayPlayer::supports_hevc() const {
-#ifdef __APPLE__
-  return VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC);
-#else
-  return hevc_supported;
-#endif
 }
 void AirplayPlayer::push_locked(int type, const uint8_t *bytes, int size,
                                 int64_t pts_ns) {
@@ -269,7 +286,6 @@ void AirplayPlayer::reset(const char *reason) {
     lychee_player_open_live(live, &config);
     video_declared = false;
     audio_ct = 0;
-    failed = false;
   } else {
     lychee_player_flush_live(live, 0);
   }
@@ -301,118 +317,97 @@ void AirplayPlayer::set_volume(float db) {
     return;
   event("volume", std::to_string(db).c_str());
 }
-#ifndef __ANDROID__
-void AirplayPlayer::hand_off_locked(lychee_frame *frame, int64_t due) {
-  if (!callbacks.frame)
-    return;
+bool AirplayPlayer::present_locked(int64_t now, int &w, int &h) {
+  if (!lychee_player_has_new_frame(live, now))
+    return false;
+  auto *frame = lychee_player_acquire_frame(live, now);
+  if (!frame)
+    return false;
+  w = lychee_frame_get_width(frame);
+  h = lychee_frame_get_height(frame);
 #ifdef __APPLE__
-  callbacks.frame(callbacks.context, lychee_frame_get_native_handle(frame),
-                  due);
-#else
-  int32_t stride = 0;
-  const auto *pixels = lychee_frame_get_data(frame, &stride);
-  const int width = lychee_frame_get_width(frame);
-  const int height = lychee_frame_get_height(frame);
-#ifdef _WIN32
-  WindowsVideoFrame output{};
-  output.width = size_t(width);
-  output.height = size_t(height);
-  if (lychee_frame_get_type(frame) == LYCHEE_FRAME_D3D11_TEXTURE) {
-    output.texture =
-        static_cast<ID3D11Texture2D *>(lychee_frame_get_native_handle(frame));
-  } else {
-    if (!pixels || stride < width * 4)
-      return;
-    output.pixels = pixels;
-    output.stride = size_t(stride);
+  if (callbacks.frame) {
+    // Convert epochs at handoff; the host's monotonic clock need not be
+    // lychee_now_us()'s (mach_absolute_time() on Apple).
+    const auto due =
+        monotonic_ns() + (lychee_frame_get_pts(frame) - lychee_now_us()) * 1000;
+    callbacks.frame(callbacks.context, lychee_frame_get_native_handle(frame),
+                    due);
   }
-#else
-  if (!pixels || stride < width * 4)
-    return;
-  AirplayLinuxVideoFrame output{pixels, stride, width, height};
 #endif
-  callbacks.frame(callbacks.context, &output, due);
-#endif
+  lychee_frame_release(frame);
+  return true;
 }
-#endif
+void AirplayPlayer::report_stats_locked(const lychee_stats &stats,
+                                        int64_t interval_us, int64_t rendered) {
+  char text[768];
+  std::snprintf(
+      text, sizeof(text),
+      "{\"codec\":\"%s\",\"videoDecoder\":\"%s\",\"hardware\":%s,"
+      "\"audioDecoder\":\"%s\",\"fps\":%.1f,\"dropped\":%lld,"
+      "\"packetsDropped\":%lld,\"audioLateMs\":%lld,\"audioSilenceMs\":%lld,"
+      "\"audioBehindMs\":%lld,\"videoBufferedMs\":%lld,"
+      "\"audioBufferedMs\":%lld}",
+      hevc ? "HEVC" : "H.264", stats.video_decoder,
+      stats.hardware_decoding ? "true" : "false", stats.audio_decoder,
+      double(rendered) * 1000000 / double(std::max<int64_t>(interval_us, 1)),
+      static_cast<long long>(stats.frames_dropped),
+      static_cast<long long>(stats.live_video_packets_dropped),
+      static_cast<long long>(stats.live_audio_late_us / 1000),
+      static_cast<long long>(stats.live_audio_silence_us / 1000),
+      static_cast<long long>(stats.live_audio_behind_us / 1000),
+      static_cast<long long>(stats.video_buffered_us / 1000),
+      static_cast<long long>(stats.audio_buffered_us / 1000));
+  event("playbackStats", text);
+}
 void AirplayPlayer::run() {
   auto report = lychee_now_us();
-  int64_t previous_frames = 0;
+  int64_t reported_frames = 0, shown_frames = 0;
   while (!closing) {
-    {
-      std::unique_lock<std::mutex> guard(lock);
-      const auto now = lychee_now_us();
-      if (lychee_player_get_state(live) == LYCHEE_STATE_ERROR && !failed) {
-        failed = true;
-        char error[512]{};
-        lychee_player_get_error(live, error, sizeof(error));
-        log(error, 3);
-        event("error", error);
-      }
-      lychee_stats stats{};
-      stats.struct_size = sizeof(stats);
-      lychee_player_get_stats(live, &stats);
-      if (!audio_playing && audio_ct && stats.audio_buffered_us > 0) {
-        audio_playing = true;
-        event("audio", "Decoded audio ready");
-      }
-      // Acquiring an Android frame submits its MediaCodec buffer to Surface.
-      // Pausing must prevent acquire itself, not only the host event callback.
-      if (!paused && lychee_player_has_new_frame(live, now)) {
-        auto *frame = lychee_player_acquire_frame(live, now);
-        if (frame) {
-          if (!paused) {
-#ifndef __ANDROID__
-            // Convert epochs at handoff; the hosts' monotonic clock need
-            // not be lychee_now_us()'s (mach_absolute_time() on Apple).
-            const auto due =
-                monotonic_ns() +
-                (lychee_frame_get_pts(frame) - lychee_now_us()) * 1000;
-            hand_off_locked(frame, due);
-#endif
-            event("playing", "Lychee decoded video ready",
-                  lychee_frame_get_width(frame),
-                  lychee_frame_get_height(frame));
-          }
-          lychee_frame_release(frame);
-        }
-      }
-      if (now - report >= 1000000) {
-        if (stats_enabled) {
-          char text[512];
-          std::snprintf(
-              text, sizeof(text),
-              "{\"codec\":\"%s\",\"decoder\":\"%s\",\"fps\":%.1f,\"dropped\":%"
-              "lld,\"submitted\":%lld,\"audioSampleRate\":44100,"
-              "\"audioChannels\":2,\"audioCodec\":\"%s\"}",
-              hevc ? "HEVC" : "H.264", stats.video_decoder,
-              double(std::max<int64_t>(0, stats.frames_rendered -
-                                              previous_frames)) *
-                  1000000 / double(now - report),
-              static_cast<long long>(stats.frames_dropped),
-              static_cast<long long>(stats.frames_rendered),
-              audio_ct == 8   ? "AAC-ELD"
-              : audio_ct == 4 ? "AAC"
-              : audio_ct == 2 ? "ALAC"
-                              : "");
-          event("playbackStats", text);
-        }
-        previous_frames = stats.frames_rendered;
-        report = now;
-      }
-      // Polling only wakes the existing host display path; the core owns
-      // cadence selection. No second clock or decoded-frame queue here.
-      wake.wait_for(guard, std::chrono::microseconds(8333),
-                    [this] { return closing.load(); });
+    std::unique_lock<std::mutex> guard(lock);
+    const auto now = lychee_now_us();
+    lychee_stats stats{};
+    stats.struct_size = sizeof(stats);
+    lychee_player_get_stats(live, &stats);
+    if (!audio_playing && audio_ct && stats.audio_buffered_us > 0) {
+      audio_playing = true;
+      event("audio", "Decoded audio ready");
     }
+    // A texture pulls frames itself: a newly rendered one means playing. A
+    // new video renderer counts from zero. Otherwise acquire here; pausing must
+    // prevent that, which submits Android's MediaCodec buffer to the Surface.
+    int w = 0, h = 0;
+    bool playing = false;
+    if (texture.bind) {
+      playing = !paused && stats.frames_rendered != shown_frames;
+      shown_frames = stats.frames_rendered;
+      if (playing)
+        lychee_player_get_video_size(live, &w, &h);
+    } else if (!paused) {
+      playing = present_locked(now, w, h);
+    }
+    if (playing && w > 0 && h > 0)
+      event("playing", "Lychee decoded video ready", w, h);
+    if (now - report >= 1000000) {
+      if (stats_enabled)
+        report_stats_locked(stats, now - report,
+                            stats.frames_rendered >= reported_frames
+                                ? stats.frames_rendered - reported_frames
+                                : stats.frames_rendered);
+      reported_frames = stats.frames_rendered;
+      report = now;
+    }
+    // Polling only wakes the existing host display path; the core owns
+    // cadence selection. No second clock or decoded-frame queue here.
+    wake.wait_for(guard, std::chrono::microseconds(8333),
+                  [this] { return closing.load(); });
   }
 }
 extern "C" AirplayPlayer *airplay_player_create(AirplayCallbacks cb,
                                                 void *surface,
-                                                const char *decoder,
-                                                const char *fallback) {
+                                                const AirplayVideoTexture *texture) {
   try {
-    return new AirplayPlayer(cb, surface, decoder, fallback);
+    return new AirplayPlayer(cb, surface, texture);
   } catch (...) {
     return nullptr;
   }

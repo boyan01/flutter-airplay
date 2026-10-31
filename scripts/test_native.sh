@@ -13,11 +13,9 @@ Without a target, run the current OS's basic native suite.
       player accepts CTest arguments, e.g. macos player -R playback.
   linux [player|host|all] [--filter CTest-regex] [--verbose] [CMake arguments]
       player is the default; all includes the available Flutter host test.
-  windows [player|texture|all] [CTest arguments]
+  windows [player|all] [CTest arguments]
       player is the default.
       Builds the fixtures in the nested native build of flutter build windows --debug.
-      Argument-free all includes texture; extra arguments select native CTest only.
-      texture uses windows_texture_test built in the Flutter Windows project.
       installer <setup.exe> checks install, upgrade, startup and uninstall.
       Invoke this script with Bash from the configured Windows toolchain.
   android [host|rtp|kotlin]
@@ -62,14 +60,11 @@ macos_texture() (
     require_macos_player
     test_root="$project_root/build/texture-tests"
     mkdir -p "$test_root"
-    swiftc -emit-library -emit-module -module-name FlutterMacOS \
-        "$project_root/macos/tests/texture/FlutterMacOS.swift" -o "$test_root/libFlutterMacOS.dylib"
     cat "$project_root/macos/Runner/VideoSurface.swift" "$project_root/macos/tests/texture/main.swift" > "$test_root/main.swift"
     swiftc -import-objc-header "$project_root/macos/Runner/Receiver-Bridging-Header.h" \
-        -I "$test_root" -L "$test_root" -lFlutterMacOS \
         -L "$project_root/build/macos-native" -lairplay_player \
-        -Xlinker -rpath -Xlinker "$test_root" -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
-        "$project_root/native/apple/ReceiverHost.swift" "$project_root/native/apple/FrameTexture.swift" \
+        -Xlinker -rpath -Xlinker "$project_root/build/macos-native" \
+        "$project_root/native/apple/ReceiverHost.swift" \
         "$test_root/main.swift" -o "$test_root/texture-tests"
     "$test_root/texture-tests"
 )
@@ -195,12 +190,6 @@ windows_tests() {
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$project_root/windows/scripts/test_installer.ps1" -Installer "$1"
         return
     fi
-    if [[ "$suite" == texture ]]; then
-        [[ -f "$project_root/build/windows/x64/CTestTestfile.cmake" ]] ||
-            fail 'Prepare the Windows host with flutter build windows --debug first.'
-        ctest --test-dir "$project_root/build/windows/x64" -C Debug --output-on-failure -R '^windows_texture$' "${test_args[@]}" "$@"
-        return
-    fi
     case "$suite" in
         player) test_args+=(-R '^(crypto|windows_(compat|httpd|startup)|receiver_(control|lifecycle))$') ;;
         all) ;;
@@ -215,7 +204,6 @@ windows_tests() {
     cmake -S "$project_root/windows/player" -B "$native" -DAIRPLAY_WINDOWS_BUILD_TESTS=ON
     cmake --build "$native" --config Release --parallel
     PATH="$runtime:$PATH" ctest --test-dir "$native" -C Release --output-on-failure "${test_args[@]}" "$@"
-    if [[ "$suite" == all && $# -eq 0 ]]; then windows_tests texture; fi
 }
 
 if [[ $# -eq 0 ]]; then
