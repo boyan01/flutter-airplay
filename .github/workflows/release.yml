@@ -59,6 +59,7 @@ jobs:
     - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
       with:
         channel: stable
+        flutter-version: '3.50.0'
         cache: true
     - run: flutter pub get --enforce-lockfile
     - name: Build Release .deb and portable bundle
@@ -94,6 +95,7 @@ jobs:
     - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
       with:
         channel: stable
+        flutter-version: '3.50.0'
         cache: true
     - run: flutter pub get --enforce-lockfile
     - name: Prepare Inno Setup compiler
@@ -130,6 +132,7 @@ jobs:
     - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
       with:
         channel: stable
+        flutter-version: '3.50.0'
         cache: true
     - name: Build, sign and verify Apple Silicon DMG and Sparkle appcast
       env:
@@ -193,6 +196,7 @@ jobs:
       if: steps.signing.outputs.configured == 'true'
       with:
         channel: stable
+        flutter-version: '3.50.0'
         cache: true
     - run: flutter pub get --enforce-lockfile
       if: steps.signing.outputs.configured == 'true'

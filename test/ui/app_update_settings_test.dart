@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
-import 'package:flutter_airplay/l10n/generated/app_localizations.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_airplay/l10n/app_localizations.dart';
 import 'package:flutter_airplay/platform/app_updates.dart';
 import 'package:flutter_airplay/platform/launch_at_login.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
@@ -78,7 +78,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         locale: locale,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: model == null

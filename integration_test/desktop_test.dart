@@ -2,7 +2,7 @@
 import 'dart:io';
 import 'dart:ui' show isRunningOnPlatformThread;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_airplay/app/receiver_app.dart';
 import 'package:flutter_airplay/platform/window_controller.dart';

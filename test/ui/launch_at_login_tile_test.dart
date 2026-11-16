@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_airplay/l10n/generated/app_localizations.dart';
+import 'package:flutter_airplay/l10n/app_localizations.dart';
 import 'package:flutter_airplay/platform/launch_at_login.dart';
 import 'package:flutter_airplay/ui/settings/launch_at_login_tile.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,7 +34,7 @@ void main() {
   Future<void> open(WidgetTester tester, FakeLogin fake) async {
     await tester.pumpWidget(
       MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(body: LaunchAtLoginTile(service: fake)),
       ),

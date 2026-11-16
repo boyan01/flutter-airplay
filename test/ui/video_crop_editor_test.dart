@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_airplay/l10n/generated/app_localizations.dart';
+import 'package:flutter_airplay/l10n/app_localizations.dart';
 import 'package:flutter_airplay/ui/playback/video_crop_editor.dart';
 import 'package:flutter_airplay/ui/tv_focus.dart';
 
@@ -28,7 +28,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         locale: const Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)

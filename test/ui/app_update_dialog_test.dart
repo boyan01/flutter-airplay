@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_airplay/app/app_theme.dart';
-import 'package:flutter_airplay/l10n/generated/app_localizations.dart';
+import 'package:flutter_airplay/l10n/app_localizations.dart';
 import 'package:flutter_airplay/platform/app_updates.dart';
 import 'package:flutter_airplay/ui/updates/app_update_dialog.dart';
 import 'package:flutter_airplay/ui/tv_focus.dart';
@@ -84,7 +84,7 @@ void main() {
         },
         theme: theme,
         locale: locale,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(
           builder: (context) => Scaffold(
@@ -276,7 +276,7 @@ void main() {
         valueListenable: locale,
         builder: (context, value, child) => MaterialApp(
           locale: value,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: AppUpdateDialog(
             updates: updates,

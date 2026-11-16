@@ -148,7 +148,7 @@ class DownloadAppUpdateService extends AppUpdateService {
       throw const FormatException('Expected one appcast release.');
     }
     final item = items.single;
-    final entries = item.findElements(platform, namespace: namespace);
+    final entries = item.findElements(platform, namespaceUri: namespace);
     if (entries.isEmpty) return null;
     if (entries.length != 1) {
       throw const FormatException('Ambiguous update.');

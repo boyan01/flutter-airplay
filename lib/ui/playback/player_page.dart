@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:ui' show PointerDeviceKind;
 import 'dart:ui' as ui show Gradient;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mixin_logger/mixin_logger.dart';

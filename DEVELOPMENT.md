@@ -1,6 +1,6 @@
 # 开发指南
 
-命令从仓库根目录执行，使用 PATH 中的 Flutter stable。
+命令从仓库根目录执行，使用 PATH 中的 Flutter 3.50.0 stable（Dart 3.14.0）。
 产品使用见 [README_ZH.md](README_ZH.md)，代码约定见 [AGENTS.md](AGENTS.md)。
 
 ## 运行

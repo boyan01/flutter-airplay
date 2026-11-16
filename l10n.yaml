@@ -2,3 +2,6 @@ arb-dir: lib/l10n
 template-arb-file: app_en.arb
 output-localization-file: app_localizations.dart
 output-dir: lib/l10n/generated
+# Flutter 3.50 still generates delegates from the deprecated SDK UI libraries.
+# The app uses the material_ui delegates in lib/l10n/app_localizations.dart.
+header: "// ignore_for_file: deprecated_member_use"

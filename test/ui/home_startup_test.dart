@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_airplay/app/receiver_app.dart';
 import 'package:flutter_airplay/platform/window_controller.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';

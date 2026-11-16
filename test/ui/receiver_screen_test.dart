@@ -6,7 +6,7 @@ import 'package:flutter_airplay/platform/app_updates.dart';
 import 'package:flutter_airplay/ui/logs/logs_page.dart';
 import 'package:flutter_airplay/ui/settings/settings_page.dart';
 import 'package:flutter_airplay/receiver/receiver_model.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'dart:ui'
@@ -687,10 +687,7 @@ void main() {
         expect(find.text('丢弃帧 3'), findsOneWidget);
         expect(find.text('丢弃数据包 5'), findsOneWidget);
         expect(find.text('缓冲：视频 120 ms · 音频 140 ms'), findsOneWidget);
-        expect(
-          find.text('音频迟到 7 ms · 静音 20 ms · 晚于视频 40 ms'),
-          findsOneWidget,
-        );
+        expect(find.text('音频迟到 7 ms · 静音 20 ms · 晚于视频 40 ms'), findsOneWidget);
         backend.controller.add({
           'type': 'playbackStats',
           'metrics': {

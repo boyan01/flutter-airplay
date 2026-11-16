@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import '../receiver/receiver_model.dart';
@@ -13,7 +13,7 @@ import '../ui/widgets/desktop_window_bar.dart';
 import '../ui/widgets/control_interaction_region.dart';
 import '../ui/tv_focus.dart';
 import '../ui/widgets/system_fonts.dart';
-import '../l10n/generated/app_localizations.dart';
+import '../l10n/app_localizations.dart';
 import 'app_theme.dart';
 
 class ReceiverApp extends StatefulWidget {
@@ -190,7 +190,7 @@ class _ReceiverAppState extends State<ReceiverApp> {
     builder: (context, _) => MaterialApp(
       builder: (context, child) => _shell(context, child!),
       title: 'Flutter AirPlay',
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: appLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       shortcuts: {
