@@ -61,8 +61,7 @@ ctest() { case "$2" in */windows/x64/native) echo native ;; */windows/x64) echo 
                                   capture_output=True, text=True, check=False)
 
     def test_unfiltered_all_keeps_native_suites_without_extra_window_tests(self):
-        for platform, expected in (('linux', ['native']),
-                                   ('windows', ['native', 'texture'])):
+        for platform, expected in (('linux', ['native']), ('windows', ['native'])):
             with self.subTest(platform=platform):
                 result = self.run_suite(platform, 'all')
                 self.assertEqual(result.returncode, 0, result.stderr)
